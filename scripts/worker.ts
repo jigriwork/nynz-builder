@@ -3,6 +3,7 @@ import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { generateWithSarvam } from "../lib/platform/sarvam";
 import { runInE2B, stopE2B } from "../lib/platform/e2b";
+import { getPreviewOrigin } from "../lib/preview/session";
 
 config({ path: ".env.local", quiet: true });
 
@@ -31,7 +32,7 @@ async function processJob(job:any){
   if(project.active_sandbox_id)stopE2B(project.active_sandbox_id).catch(()=>{});
   const {data:version}=await db.from("versions").insert({project_id:job.project_id,created_by:job.requested_by,label:job.mode==="restart"?"Preview restart":`Build ${new Date().toLocaleString("en-IN")}`,source_build_id:job.id}).select().single();
   const {data:saved}=await db.from("project_files").select("path,content,content_hash").eq("project_id",job.project_id);if(version&&saved?.length)await db.from("version_files").insert(saved.map((f:any)=>({version_id:version.id,...f})));
-  await db.from("projects").update({status:"ready",active_sandbox_id:sandbox.sandboxId,preview_url:sandbox.previewUrl,sandbox_expires_at:sandbox.expiresAt,active_version_id:version?.id||project.active_version_id,last_error:null}).eq("id",job.project_id);
+  await db.from("projects").update({status:"ready",active_sandbox_id:sandbox.sandboxId,preview_url:getPreviewOrigin(job.project_id),sandbox_expires_at:sandbox.expiresAt,active_version_id:version?.id||project.active_version_id,last_error:null}).eq("id",job.project_id);
   await db.from("build_jobs").update({status:"succeeded",finished_at:new Date().toISOString(),progress:[...job.progress,{at:new Date().toISOString(),message:"Build complete"}]}).eq("id",job.id);
   await db.from("usage_events").insert({owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"sandbox_seconds",quantity:Math.ceil((Date.now()-started)/1000),provider:"e2b"});
   if(job.conversation_id&&output)await db.from("messages").insert({conversation_id:job.conversation_id,role:"assistant",content:output.result.message,metadata:{build_id:job.id,plan:output.result.plan}});

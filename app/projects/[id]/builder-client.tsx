@@ -9,7 +9,7 @@ import {
 import { NynzIcon } from "@/components/nynz-brand";
 import { formatDateTime } from "@/lib/format-date";
 
-type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; sandbox_expires_at: string | null; last_error: string | null };
+type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; active_sandbox_id?: string | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
@@ -36,6 +36,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<WorkspaceTab>("preview");
   const [showReference, setShowReference] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState(initialProject.id === "design-fixture" ? initialProject.preview_url : null);
   const resumedDraft = useRef(false);
   const conversationEnd = useRef<HTMLDivElement>(null);
 
@@ -63,6 +64,20 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     const timer = setInterval(refresh, 2_500);
     return () => clearInterval(timer);
   }, [running, refresh, project.id]);
+
+  useEffect(() => {
+    if (project.id === "design-fixture") { setPreviewSrc(project.preview_url); return; }
+    if (!project.preview_url || !project.active_sandbox_id || project.status !== "ready") { setPreviewSrc(null); return; }
+    let current = true;
+    fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "Could not authorize preview");
+        if (current) setPreviewSrc(body.url);
+      })
+      .catch((error) => { if (current) setNotice(error instanceof Error ? error.message : "Could not authorize preview"); });
+    return () => { current = false; };
+  }, [project.active_sandbox_id, project.id, project.preview_url, project.status]);
 
   useEffect(() => {
     if (!running) return;
@@ -236,14 +251,14 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           {tab === "preview" && <div className="mx-auto hidden h-7 w-[min(34vw,360px)] items-center rounded-md border border-white/[.08] bg-[#0f1013] px-2.5 text-[9px] text-white/30 xl:flex"><Globe2 className="mr-2 h-3 w-3" /><span className="truncate">{project.preview_url || "Preview starts after the first successful build"}</span></div>}
           <div className="ml-auto flex items-center gap-1">
             {tab === "preview" && <><button aria-label="Select elements" className="grid h-7 w-7 place-items-center rounded-md text-white/28 transition hover:bg-white/[.05] hover:text-white/60"><MousePointer2 className="h-3 w-3" /></button><button aria-label="Mobile preview" className="grid h-7 w-7 place-items-center rounded-md text-white/28 transition hover:bg-white/[.05] hover:text-white/60"><Smartphone className="h-3 w-3" /></button></>}
-            {tab === "preview" && project.preview_url && <a href={project.preview_url} target="_blank" rel="noreferrer" className="grid h-7 w-7 place-items-center rounded-md text-white/28 transition hover:bg-white/[.05] hover:text-white/60" aria-label="Open preview in new tab"><ExternalLink className="h-3 w-3" /></a>}
+            {tab === "preview" && previewSrc && <a href={previewSrc} target="_blank" rel="noreferrer" className="grid h-7 w-7 place-items-center rounded-md text-white/28 transition hover:bg-white/[.05] hover:text-white/60" aria-label="Open preview in new tab"><ExternalLink className="h-3 w-3" /></a>}
             <button onClick={restart} className="flex h-7 items-center gap-2 rounded-md px-2 text-[9px] text-white/30 transition hover:bg-white/[.05] hover:text-white/60"><RefreshCw className="h-3 w-3" /><span className="hidden sm:inline">Restart</span></button>
           </div>
         </div>
 
         <div className="min-h-0 flex-1">
           {tab === "preview" && <div className="h-full bg-[#191a1f] p-2.5 sm:p-3.5">
-            {project.preview_url ? <iframe key={project.preview_url} src={project.preview_url} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-same-origin" referrerPolicy="no-referrer" className="h-full w-full rounded-lg border border-black/20 bg-white shadow-[0_16px_45px_rgba(0,0,0,.24)]" /> : <div className="grid h-full place-items-center rounded-lg border border-white/[.06] bg-[#121318] text-center"><div className="max-w-sm px-6"><span className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-white/[.09] bg-white/[.03] text-white/30"><Monitor className="h-4 w-4" /></span><h2 className="mt-4 text-[13px] font-medium">{running ? "Preparing your preview" : "No preview yet"}</h2><p className="mt-2 text-[10px] leading-5 text-white/30">{running ? lastProgress || "The preview will appear here as soon as it is ready." : "Describe the app in chat to create its first working preview."}</p>{project.last_error && <p className="mt-3 text-[10px] leading-4 text-red-300/75">{project.last_error}</p>}</div></div>}
+            {previewSrc ? <iframe key={previewSrc} src={previewSrc} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" referrerPolicy="no-referrer" className="h-full w-full rounded-lg border border-black/20 bg-white shadow-[0_16px_45px_rgba(0,0,0,.24)]" /> : <div className="grid h-full place-items-center rounded-lg border border-white/[.06] bg-[#121318] text-center"><div className="max-w-sm px-6"><span className="mx-auto grid h-10 w-10 place-items-center rounded-xl border border-white/[.09] bg-white/[.03] text-white/30"><Monitor className="h-4 w-4" /></span><h2 className="mt-4 text-[13px] font-medium">{running ? "Preparing your preview" : "No preview yet"}</h2><p className="mt-2 text-[10px] leading-5 text-white/30">{running ? lastProgress || "The preview will appear here as soon as it is ready." : "Describe the app in chat to create its first working preview."}</p>{project.last_error && <p className="mt-3 text-[10px] leading-4 text-red-300/75">{project.last_error}</p>}</div></div>}
           </div>}
 
           {tab === "code" && <div className="grid h-full min-h-0 grid-cols-[190px_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)]">
