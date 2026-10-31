@@ -1,9 +1,41 @@
 @import "../styles/main.css";
 
-.nynz-grid {
+.nynz-grid,
+.nynz-hero-grid,
+.nynz-auth-grid {
   background-image:
-    linear-gradient(rgba(247, 241, 229, .035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(247, 241, 229, .035) 1px, transparent 1px);
+    linear-gradient(rgba(244, 241, 232, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(244, 241, 232, .035) 1px, transparent 1px);
   background-size: 64px 64px;
+}
+
+.nynz-grid,
+.nynz-hero-grid {
   mask-image: linear-gradient(to bottom, black 0%, transparent 88%);
+}
+
+.nynz-auth-grid {
+  opacity: .36;
+  mask-image: radial-gradient(circle at 68% 45%, black, transparent 72%);
+}
+
+.nynz-composer::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(199, 255, 74, .18), transparent 34%, rgba(90, 151, 199, .13));
+  opacity: .45;
+  transition: opacity .25s ease;
+}
+
+.nynz-composer:focus-within::before { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .nynz-composer { animation: nynz-rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes nynz-rise {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 }
