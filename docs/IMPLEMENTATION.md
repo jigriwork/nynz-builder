@@ -37,8 +37,11 @@ public deployment is enabled by this repository.
 
 ## Current external blockers
 
-- The authenticated Supabase CLI account cannot see project
-  `rgrlilmfjurdchcnxolt`, so the migration has not been applied or verified live.
+- The workspace is linked to `rgrlilmfjurdchcnxolt`. Both versioned migrations
+  are applied. Live checks passed for authentication, the profile trigger,
+  owner CRUD, two-user RLS isolation, restricted queue writes, private storage,
+  worker queue claiming, generated-file persistence, and cleanup. Supabase's
+  database security advisor reports no findings.
 - Live Sarvam model discovery, structured generation, streaming, and native tool
   calling passed. A bounded Firecrawl public-page scrape also passed.
 - E2B sandbox creation, file I/O, commands, host lookup, and cleanup passed, but

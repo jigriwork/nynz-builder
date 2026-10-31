@@ -12,6 +12,8 @@
     "test": "vitest run",
     "worker": "tsx scripts/worker.ts",
     "verify:integrations": "tsx scripts/verify-integrations.ts",
+    "verify:supabase": "tsx scripts/verify-supabase.ts",
+    "verify:live-build": "tsx scripts/verify-live-build.ts",
     "test:api": "node tests/api-endpoints.test.js",
     "test:code": "node tests/code-execution.test.js",
     "test:all": "npm run test:integration && npm run test:api && npm run test:code"

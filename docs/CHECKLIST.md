@@ -17,18 +17,21 @@
 - [x] Unit tests for paths, URLs, secret boundaries, RLS and durable queue
 - [x] Desktop and mobile browser inspection of homepage and builder fixture
 
-## Live verification pending
+## Live verification
 
-- [ ] Apply migration to `rgrlilmfjurdchcnxolt`
-- [ ] Verify sign-in/sign-out and two-user isolation against that project
+- [x] Link and apply versioned migrations to `rgrlilmfjurdchcnxolt`
+- [x] Verify sign-in/sign-out, profile trigger and two-user isolation
+- [x] Verify owner CRUD, restricted queue writes and private object storage
+- [x] Run Supabase security advisors with no remaining findings
 - [x] Run account-specific Sarvam model discovery and structured generation
 - [x] Run one Firecrawl scrape and one E2B sandbox/cleanup check
+- [x] Run a disposable live worker build through generation and installation
 - [ ] Allow browser-reachable E2B preview ingress (account currently returns 403)
 - [ ] Complete live end-to-end create/edit/reopen/restore/export/restart scenarios
 - [ ] Connect a separate generated-app Supabase project and test durable data
 
-The pending Supabase checks require access to the specified project. The E2B
-credential was verified for sandbox creation, file I/O, commands, host lookup,
-and cleanup, but the account currently forces a traffic-access-token header on
-the preview host even when `secure: false` is requested. Mocked tests are not
-counted as live evidence.
+Supabase verification uses disposable users and data and removes them after
+each run. The E2B credential was verified for sandbox creation, file I/O,
+commands, host lookup, and cleanup, but the account currently forces a
+traffic-access-token header on the preview host even when `secure: false` is
+requested. Mocked tests are not counted as live evidence.

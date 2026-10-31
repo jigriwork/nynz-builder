@@ -21,7 +21,7 @@ create index projects_owner_updated_idx on public.projects(owner_id,updated_at d
 create table public.project_files (
   project_id uuid not null references public.projects(id) on delete cascade,
   path text not null check (path ~ '^[A-Za-z0-9._@/+-]+$' and path !~ '(^|/)\.\.(/|$)' and path !~ '^/'),
-  content text not null default '', content_hash text generated always as (encode(digest(content,'sha256'),'hex')) stored,
+  content text not null default '', content_hash text generated always as (encode(extensions.digest(content,'sha256'),'hex')) stored,
   updated_at timestamptz not null default now(), primary key(project_id,path)
 );
 create table public.conversations (
