@@ -96,7 +96,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     let current = true;
     fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" })
       .then(async (response) => {
-        const body = await response.json();
+        const body = await response.json().catch(() => ({ error: "The live preview service returned an invalid response" }));
         if (!response.ok) throw new Error(body.error || "Could not authorize preview");
         if (current) setPreviewSrc(body.url);
       })
