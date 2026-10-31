@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { ArrowRight, Box, Clock3, ExternalLink, LogOut, Plus, Sparkles, Trash2 } from "lucide-react";
+import { NynzBrand } from "@/components/nynz-brand";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; updated_at: string };
 
@@ -51,7 +52,7 @@ export default function DashboardClient({ initialProjects, email }: { initialPro
   return <main className="min-h-screen bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="border-b border-white/[.07] bg-[#090e16]/90 backdrop-blur-xl">
       <div className="mx-auto flex h-[70px] max-w-[1320px] items-center justify-between px-5 md:px-8">
-        <Link href="/" className="inline-flex items-center gap-2.5"><span className="grid h-8 w-8 place-items-center rounded-[9px] bg-[#c7ff4a] text-[11px] font-bold text-[#071019]">N</span><span className="text-[15px] font-semibold tracking-[-.035em]">NYNZ</span></Link>
+        <Link href="/"><NynzBrand className="h-7" /></Link>
         <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] px-3 py-2 text-[11px] text-white/40 sm:flex"><span className="grid h-5 w-5 place-items-center rounded-full bg-white/[.07] text-[8px] text-white/55">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/35 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
       </div>
     </header>
