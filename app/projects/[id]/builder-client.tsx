@@ -7,6 +7,7 @@ import {
   Plus, RefreshCw, Save, Search, Send, Settings, Smartphone, Square, Terminal,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
+import { formatDateTime } from "@/lib/format-date";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; updated_at?: string };
@@ -252,7 +253,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
           {tab === "logs" && <div className="h-full bg-[#0d0e11] p-4"><pre className="h-full overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-5 text-white/42">{logs || "Build events will appear here."}</pre></div>}
 
-          {tab === "versions" && <div className="h-full overflow-y-auto bg-[#17181d] p-5"><div className="mx-auto max-w-2xl"><div className="mb-5"><h2 className="text-sm font-medium">Checkpoints</h2><p className="mt-1 text-[10px] text-white/30">Return to a known version of your source files.</p></div><div className="space-y-2">{versions.map((version) => <div key={version.id} className="flex items-center rounded-xl border border-white/[.07] bg-[#121317] p-3.5"><div><p className="text-[11px] font-medium">{version.label}</p><p className="mt-1 text-[9px] text-white/25">{new Date(version.created_at).toLocaleString()}</p></div><button onClick={() => restore(version.id)} className="ml-auto rounded-md border border-white/[.09] px-2.5 py-1.5 text-[9px] text-white/42 transition hover:bg-white/[.05] hover:text-white">Restore</button></div>)}{versions.length === 0 && <div className="rounded-xl border border-dashed border-white/[.08] py-16 text-center text-[10px] text-white/25">Save a checkpoint after a successful build.</div>}</div></div></div>}
+          {tab === "versions" && <div className="h-full overflow-y-auto bg-[#17181d] p-5"><div className="mx-auto max-w-2xl"><div className="mb-5"><h2 className="text-sm font-medium">Checkpoints</h2><p className="mt-1 text-[10px] text-white/30">Return to a known version of your source files.</p></div><div className="space-y-2">{versions.map((version) => <div key={version.id} className="flex items-center rounded-xl border border-white/[.07] bg-[#121317] p-3.5"><div><p className="text-[11px] font-medium">{version.label}</p><p className="mt-1 text-[9px] text-white/25">{formatDateTime(version.created_at)}</p></div><button onClick={() => restore(version.id)} className="ml-auto rounded-md border border-white/[.09] px-2.5 py-1.5 text-[9px] text-white/42 transition hover:bg-white/[.05] hover:text-white">Restore</button></div>)}{versions.length === 0 && <div className="rounded-xl border border-dashed border-white/[.08] py-16 text-center text-[10px] text-white/25">Save a checkpoint after a successful build.</div>}</div></div></div>}
         </div>
       </section>
     </div>
