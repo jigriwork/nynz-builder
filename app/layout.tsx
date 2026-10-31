@@ -26,8 +26,8 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NYNZ — Build real applications with AI",
-  description: "Describe, generate, run, revise and export React applications.",
+  title: "NYNZ",
+  description: "Turn an idea into a working application. Describe, build, preview, revise and export with NYNZ.",
 };
 
 export default function RootLayout({

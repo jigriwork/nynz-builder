@@ -15,14 +15,14 @@ const examples = [
 ];
 const marquee = ["Client portals", "Analytics dashboards", "Booking flows", "Internal CRMs", "Storefronts", "Habit trackers", "Admin panels", "Landing pages", "Event RSVPs", "Inventory tools", "Recipe boxes", "Team wikis"];
 const features = [
-  { icon: Play, title: "Live preview", text: "Every build runs as a real React app in its own isolated sandbox, not a static mock-up.", wide: true },
+  { icon: Play, title: "Live preview", text: "Every build runs as a real application in its own isolated workspace, not a static mock-up.", wide: true },
   { icon: Globe2, title: "Website references", text: "Paste a public URL and NYNZ uses its content and style as direction." },
   { icon: History, title: "Checkpoints", text: "Save known-good versions and roll back in one click." },
   { icon: Smartphone, title: "Responsive by default", text: "Switch the preview to mobile and see your app at phone width." },
-  { icon: Download, title: "Export the source", text: "Download a clean, runnable React + TypeScript project whenever you like. No lock-in.", wide: true },
+  { icon: Download, title: "Export the source", text: "Download a clean, runnable project whenever you like. No lock-in.", wide: true },
 ];
 const faqs = [
-  ["What kind of apps can NYNZ build?", "Front-end web applications built with React, TypeScript and Vite: dashboards, portals, internal tools, storefronts, landing pages and more."],
+  ["What kind of apps can NYNZ build?", "Responsive web applications including dashboards, portals, internal tools, storefronts, landing pages and more."],
   ["Do I own the code?", "Yes. Every file is visible and editable in the builder, and you can export the full project at any time."],
   ["Where does my app run?", "Each build runs in a secure isolated preview, served from a separate origin so it can’t access your NYNZ account."],
   ["Can I change things after the first build?", "Absolutely. Ask for changes in plain language. NYNZ edits the existing source instead of starting over."],
@@ -114,7 +114,7 @@ export default function HomePage() {
 
       <section className="relative z-10 mx-auto max-w-[1180px] px-5 pb-20 pt-16 text-center md:px-8 md:pb-28 md:pt-24">
         <motion.a href="#how" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6, ease }} className="group mx-auto inline-flex items-center gap-2 rounded-full border border-white/[.1] bg-white/[.03] py-1 pl-1 pr-3 text-[12px] text-white/65 backdrop-blur transition hover:border-[#c7ff4a]/30">
-          <span className="rounded-full bg-[#c7ff4a] px-2 py-0.5 text-[10px] font-semibold text-[#071019]">New</span> Real React apps, live in minutes <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+          <span className="rounded-full bg-[#c7ff4a] px-2 py-0.5 text-[10px] font-semibold text-[#071019]">New</span> Real applications, live in minutes <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
         </motion.a>
         <h1 className="mx-auto mt-7 max-w-[1180px] text-[3.1rem] font-medium leading-[.94] tracking-[-.07em] sm:text-7xl md:text-[6rem]">
           {words.map((word, index) => <motion.span key={word} initial={{ opacity: 0, y: 30, filter: "blur(10px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} transition={{ duration: .8, delay: .1 + index * .09, ease }} className="mr-[.22em] inline-block">{word}</motion.span>)}
@@ -128,7 +128,7 @@ export default function HomePage() {
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
               <span className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-[#c7ff4a]" /> New application</span>
-              <span className="hidden sm:inline">React + TypeScript</span>
+              <span className="hidden sm:inline">Production-ready source</span>
             </div>
             <textarea ref={composerRef} value={prompt} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(event) => { setPrompt(event.target.value); setError(""); }} rows={4} maxLength={30_000} placeholder={focused ? "Describe the app you want to build…" : placeholder} aria-label="Application description" className="min-h-[140px] w-full resize-none bg-transparent px-5 pb-5 pt-4 text-[18px] leading-7 text-[#f4f1e8] outline-none placeholder:text-white/35 md:text-[21px]" />
             <div className="mx-2 flex flex-col gap-2 border-t border-white/[.07] p-2.5 md:flex-row md:items-center">

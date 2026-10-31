@@ -5,7 +5,7 @@ import { filesAreSafe } from "./security";
 const STARTER: Record<string, string> = {
   "package.json": JSON.stringify({ name: "nynz-app", private: true, version: "0.1.0", type: "module", scripts: { dev: "vite --host 0.0.0.0", build: "tsc -b && vite build", preview: "vite preview" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: { "@types/react": "latest", "@types/react-dom": "latest" } }, null, 2),
   "index.html": '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
-  "src/main.tsx": 'import React from "react";import{createRoot}from"react-dom/client";import App from"./App";import"./index.css";createRoot(document.getElementById("root")!).render(<App/>);',
+  "src/main.tsx": 'import{createRoot}from"react-dom/client";import App from"./App";import"./index.css";createRoot(document.getElementById("root")!).render(<App/>);',
   "src/App.tsx": 'export default function App(){return <main><h1>NYNZ preview</h1></main>}',
   "src/index.css": 'body{margin:0;font-family:Inter,system-ui,sans-serif}',
 };
