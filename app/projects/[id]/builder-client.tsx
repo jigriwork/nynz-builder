@@ -210,7 +210,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const logLines = useMemo(() => latest?.progress || [], [latest]);
   const lineCount = Math.max(1, (current?.content.match(/\n/g)?.length || 0) + 1);
 
-  return <main className="flex h-screen flex-col overflow-hidden bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main className="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="relative flex h-14 shrink-0 items-center border-b border-white/[.07] bg-[#0a0f17] px-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <a href="/dashboard" aria-label="Back to projects" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white"><ArrowLeft className="h-4 w-4" /></a>
@@ -230,7 +230,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       {running && <span className="absolute inset-x-0 bottom-0 h-px overflow-hidden"><span className="nynz-scan absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></span>}
     </header>
 
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(300px,46%)_1fr] lg:grid-cols-[52px_400px_minmax(0,1fr)] lg:grid-rows-1">
+    <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden grid-rows-[minmax(260px,46%)_minmax(0,1fr)] lg:grid-cols-[52px_400px_minmax(0,1fr)] lg:grid-rows-1">
       <nav aria-label="Project tools" className="hidden min-h-0 flex-col items-center gap-1 border-r border-white/[.07] bg-[#090d14] py-2.5 lg:flex">
         <a href="/dashboard" aria-label="Projects" className={railIdle}><LayoutGrid className="h-4 w-4" /></a>
         <a href="/dashboard" aria-label="New project" className={railIdle}><Plus className="h-4 w-4" /></a>
@@ -242,14 +242,14 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <NynzIcon className="mt-1 h-7 w-7 rounded-full" />
       </nav>
 
-      <aside className="relative flex min-h-0 flex-col border-b border-white/[.07] bg-[#0b1019] lg:border-b-0 lg:border-r">
+      <aside className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-white/[.07] bg-[#0b1019] lg:border-b-0 lg:border-r">
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] px-4">
           <Sparkles className="mr-2 h-3.5 w-3.5 text-[#c7ff4a]" />
           <span className="text-[12px] font-medium">Build with NYNZ</span>
           <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </div>
 
-        <div ref={conversation} className="nynz-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5">
+        <div ref={conversation} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
           {messages.length === 0 && <div className="flex min-h-full flex-col">
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6, ease }} className="pt-4 text-center">
               <div className="relative mx-auto h-14 w-14">
@@ -306,7 +306,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         </form>
       </aside>
 
-      <section className="flex min-w-0 flex-col bg-[#0a0f17]">
+      <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#0a0f17]">
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] bg-[#0b111a] px-2.5">
           <nav className="flex items-center gap-0.5">{tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`relative flex h-8 items-center gap-2 rounded-lg px-3 text-[11px] transition ${tab === id ? "text-white" : "text-white/45 hover:text-white/80"}`}>{tab === id && <motion.span layoutId="workspace-tab" transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute inset-0 rounded-lg border border-white/[.08] bg-white/[.07]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative hidden sm:inline">{label}</span>{id === "code" && files.length > 0 && <span className="relative rounded bg-white/[.08] px-1 text-[9px] text-white/55">{files.length}</span>}</button>)}</nav>
           {tab === "preview" && <div className="mx-auto hidden h-7 w-[min(34vw,380px)] items-center rounded-lg border border-white/[.07] bg-[#080c13] px-3 text-[10px] text-white/45 xl:flex">{previewSrc ? <span className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#c7ff4a] shadow-[0_0_8px_#c7ff4a]" /> : <Globe2 className="mr-2 h-3 w-3 shrink-0" />}<span className="truncate">{project.preview_url || "Preview starts after the first successful build"}</span></div>}
@@ -320,9 +320,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <AnimatePresence mode="wait">
-            <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .22, ease }} className="absolute inset-0">
+            <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .22, ease }} className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
               {tab === "preview" && <div className="nynz-dots h-full bg-[#0c121c] p-2.5 sm:p-4">
                 <motion.div layout transition={{ type: "spring", stiffness: 260, damping: 30 }} className={`mx-auto h-full ${device === "mobile" ? "max-w-[400px]" : "max-w-none"}`}>
                   {previewSrc ? <div className={`flex h-full flex-col overflow-hidden border border-white/[.08] bg-white shadow-[0_24px_70px_rgba(0,0,0,.45)] ${device === "mobile" ? "rounded-[28px] border-[6px] border-[#1a2230]" : "rounded-xl"}`}>
