@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/supabase/auth";
+import { createAdmin } from "@/lib/supabase/server";
+export async function POST(_:Request,{params}:{params:Promise<{id:string}>}){const {id}=await params;const auth=await requireUser();if("error"in auth)return auth.error;const {data:owned}=await auth.supabase.from("build_jobs").select("id").eq("id",id).single();if(!owned)return NextResponse.json({error:"Build not found"},{status:404});const {data,error}=await createAdmin().from("build_jobs").update({cancel_requested_at:new Date().toISOString()}).eq("id",id).in("status",["queued","planning","generating","installing","running","validating"]).select("id").single();return error||!data?NextResponse.json({error:"Build not found"},{status:404}):NextResponse.json({cancelled:true});}

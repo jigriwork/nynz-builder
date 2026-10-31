@@ -26,8 +26,8 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Open Lovable v3",
-  description: "Re-imagine any website in seconds with AI-powered website builder.",
+  title: "NYNZ — Build real applications with AI",
+  description: "Describe, generate, run, revise and export React applications.",
 };
 
 export default function RootLayout({

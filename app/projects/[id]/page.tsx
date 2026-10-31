@@ -1,0 +1,6 @@
+import { notFound, redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import BuilderClient from "./builder-client";
+
+export const dynamic="force-dynamic";
+export default async function ProjectPage({params}:{params:Promise<{id:string}>}){const {id}=await params;const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)redirect("/login");const {data:project}=await supabase.from("projects").select("*").eq("id",id).single();if(!project)notFound();const [{data:files},{data:versions},{data:conversation},{data:builds}]=await Promise.all([supabase.from("project_files").select("path,content,updated_at").eq("project_id",id).order("path"),supabase.from("versions").select("id,label,created_at").eq("project_id",id).order("created_at",{ascending:false}),supabase.from("conversations").select("id,messages(id,role,content,created_at)").eq("project_id",id).order("created_at").limit(1).maybeSingle(),supabase.from("build_jobs").select("*").eq("project_id",id).order("created_at",{ascending:false}).limit(10)]);return <BuilderClient initialProject={project} initialFiles={files||[]} initialVersions={versions||[]} initialMessages={(conversation as any)?.messages||[]} initialBuilds={builds||[]}/>;}

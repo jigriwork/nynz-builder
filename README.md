@@ -1,67 +1,48 @@
-# Open Lovable
+# NYNZ
 
-Chat with AI to build React apps instantly. An example app made by the [Firecrawl](https://firecrawl.dev/?ref=open-lovable-github) team. For a complete cloud solution, check out [Lovable.dev](https://lovable.dev/) ❤️.
+NYNZ is an AI application-building platform for React + TypeScript web apps. A
+user signs in, creates a project, describes an app, reviews build progress,
+opens an isolated live preview, requests focused changes, saves/restores
+versions, and exports runnable source.
 
-<img src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmZtaHFleGRsMTNlaWNydGdianI4NGQ4dHhyZjB0d2VkcjRyeXBucCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/ZFVLWMa6dVskQX0qu1/giphy.gif" alt="Open Lovable Demo" width="100%"/>
+## Architecture
 
-## Setup
+- **Next.js 15 / React 19** — responsive product UI and authenticated APIs
+- **Supabase** — SSR auth, RLS-owned projects, files, conversations, versions,
+  durable build jobs, private storage, usage and admin diagnostics
+- **Sarvam 105B** — configurable structured planning and file generation
+- **Firecrawl** — bounded public website research stored as untrusted reference
+- **E2B** — isolated install, production build and preview on a separate origin
+- **Long-lived worker** — claims durable jobs with `FOR UPDATE SKIP LOCKED`
 
-1. **Clone & Install**
+Generated applications are currently scoped to React + TypeScript + Vite.
+Generated-app databases are separate from the NYNZ platform database.
+
+## Local setup
+
 ```bash
-git clone https://github.com/firecrawl/open-lovable.git
-cd open-lovable
-pnpm install  # or npm install / yarn install
+corepack pnpm install
+cp .env.example .env.local
+corepack pnpm dev
+corepack pnpm worker
 ```
 
-2. **Add `.env.local`**
+The web app runs at `http://localhost:3000`. Apply the versioned migration in
+`supabase/migrations` to the exact configured project before signing in.
 
-```env
-# =================================================================
-# REQUIRED
-# =================================================================
-FIRECRAWL_API_KEY=your_firecrawl_api_key    # https://firecrawl.dev
+Required secrets are `SARVAM_API_KEY`, `FIRECRAWL_API_KEY`, `E2B_API_KEY` and
+`SUPABASE_SERVICE_ROLE_KEY`. They are server-only. The browser receives only the
+Supabase project URL and publishable key.
 
-# =================================================================
-# AI PROVIDER - Choose your LLM
-# =================================================================
-GEMINI_API_KEY=your_gemini_api_key        # https://aistudio.google.com/app/apikey
-ANTHROPIC_API_KEY=your_anthropic_api_key  # https://console.anthropic.com
-OPENAI_API_KEY=your_openai_api_key        # https://platform.openai.com
-GROQ_API_KEY=your_groq_api_key            # https://console.groq.com
+## Verification
 
-# =================================================================
-# FAST APPLY (Optional - for faster edits)
-# =================================================================
-MORPH_API_KEY=your_morphllm_api_key    # https://morphllm.com/dashboard
-
-# =================================================================
-# SANDBOX PROVIDER - Choose ONE: Vercel (default) or E2B
-# =================================================================
-SANDBOX_PROVIDER=vercel  # or 'e2b'
-
-# Option 1: Vercel Sandbox (default)
-# Choose one authentication method:
-
-# Method A: OIDC Token (recommended for development)
-# Run `vercel link` then `vercel env pull` to get VERCEL_OIDC_TOKEN automatically
-VERCEL_OIDC_TOKEN=auto_generated_by_vercel_env_pull
-
-# Method B: Personal Access Token (for production or when OIDC unavailable)
-# VERCEL_TEAM_ID=team_xxxxxxxxx      # Your Vercel team ID 
-# VERCEL_PROJECT_ID=prj_xxxxxxxxx    # Your Vercel project ID
-# VERCEL_TOKEN=vercel_xxxxxxxxxxxx   # Personal access token from Vercel dashboard
-
-# Option 2: E2B Sandbox
-# E2B_API_KEY=your_e2b_api_key      # https://e2b.dev
-```
-
-3. **Run**
 ```bash
-pnpm dev  # or npm run dev / yarn dev
+corepack pnpm typecheck
+corepack pnpm lint
+corepack pnpm test
+corepack pnpm build
+corepack pnpm verify:integrations  # consumes small live provider usage
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
-
-## License
-
-MIT
+See [implementation details](docs/IMPLEMENTATION.md), [upstream provenance](docs/UPSTREAM.md),
+and the [continuation checklist](docs/CHECKLIST.md).

@@ -1,1 +1,9 @@
 @import "../styles/main.css";
+
+.nynz-grid {
+  background-image:
+    linear-gradient(rgba(247, 241, 229, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(247, 241, 229, .035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 88%);
+}

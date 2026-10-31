@@ -1,0 +1,43 @@
+# NYNZ implementation status
+
+## Supported generated application scope
+
+NYNZ currently targets React + TypeScript + Vite web applications. Preview data
+is temporary unless the generated app is explicitly connected to its own
+Supabase project. NYNZ platform database keys are never supplied to generated
+apps or sandboxes.
+
+## Runtime architecture
+
+- Next.js handles authenticated UI and short API operations.
+- Supabase Auth + RLS enforce project ownership. Versioned SQL lives in
+  `supabase/migrations`.
+- Build requests are durable `build_jobs`. `pnpm worker` claims them with
+  `FOR UPDATE SKIP LOCKED`, calls Sarvam, persists files, and runs them in E2B.
+- Firecrawl imports are server-side, URL-gated, bounded, and stored as untrusted
+  reference content.
+- E2B previews use a separate origin and receive generated project files only.
+
+## Generated application databases
+
+Use `POST /api/projects/:id/backend` with that generated application's dedicated
+Supabase project URL and browser-safe publishable key. Service-role and secret
+keys are rejected. The worker supplies only these dedicated values to E2B as
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`; they are not included in
+source exports. The customer project must have its own RLS migration. Automatic
+project provisioning is intentionally not implemented because it requires a
+Supabase management token and may create billable resources.
+
+## Deployment
+
+Run the web process and at least one long-lived worker. A serverless request is
+not used as a background worker. Set variables from `.env.example`; keep
+service-role and provider keys server-only. No paid service, top-up, DNS, or
+public deployment is enabled by this repository.
+
+## Current external blockers
+
+- The authenticated Supabase CLI account cannot see project
+  `rgrlilmfjurdchcnxolt`, so the migration has not been applied or verified live.
+- Sarvam, Firecrawl, and E2B credentials are not present in this process, so live
+  provider checks remain pending.

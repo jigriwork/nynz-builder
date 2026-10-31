@@ -36,6 +36,12 @@ const sizes = Array.from({ length: 1000 }, (_, i) => i).reduce(
   } as Record<string, string>
 );
 
+// Keep large pixel utilities used by the upstream canvas while preserving
+// Tailwind's ergonomic default spacing scale for the NYNZ product UI.
+const largePixelSizes = Object.fromEntries(
+  Object.entries(sizes).filter(([key]) => Number.isFinite(Number(key)) && Number(key) >= 100)
+);
+
 const opacities = Array.from({ length: 100 }, (_, i) => i).reduce(
   (acc, curr) => {
     acc[curr] = curr / 100 + "";
@@ -285,14 +291,13 @@ const themeConfig: Config = {
       },
       opacity: opacities,
       spacing: {
-        ...sizes,
+        ...largePixelSizes,
         'root': 'var(--root-padding)'
       },
-      width: sizes,
-      maxWidth: sizes,
-      height: sizes,
-      inset: sizes,
-      borderWidth: sizes,
+      width: largePixelSizes,
+      maxWidth: largePixelSizes,
+      height: largePixelSizes,
+      inset: largePixelSizes,
       backdropBlur: Array.from({ length: 20 }, (_, i) => i).reduce(
         (acc, curr) => {
           acc[curr] = curr + "px";
