@@ -22,10 +22,10 @@ function validDate(value: string) {
 
 export function formatDate(value: string) {
   const date = validDate(value);
-  return date ? dateFormatter.format(date) : "—";
+  return date ? dateFormatter.format(date) : "Not set";
 }
 
 export function formatDateTime(value: string) {
   const date = validDate(value);
-  return date ? dateTimeFormatter.format(date) : "—";
+  return date ? dateTimeFormatter.format(date) : "Not set";
 }

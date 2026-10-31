@@ -36,15 +36,15 @@ export function buildPercent(status?: string) {
 export function BuildPipeline({ status, failed = false, vertical = false, compact = false }: { status?: string; failed?: boolean; vertical?: boolean; compact?: boolean }) {
   const current = stageIndex(status);
   const percent = buildPercent(status);
-  return <div className={vertical ? "w-full" : "min-w-0"} aria-label={`Build ${percent}% complete`}>
-    <div className={`mb-2 flex items-center gap-2 ${vertical ? "" : "justify-end"}`}><span className="text-[10px] font-medium tabular-nums text-[#c7ff4a]">{percent}%</span><span className={`relative h-1 overflow-hidden rounded-full bg-white/[.08] ${vertical ? "flex-1" : compact ? "w-16" : "w-24"}`}><motion.span className="absolute inset-y-0 left-0 rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${percent}%` }} transition={{ duration: .7, ease }} />{percent > 0 && percent < 100 && <span className="nynz-progress-sweep absolute inset-y-0 w-8 bg-gradient-to-r from-transparent via-white/40 to-transparent" />}</span></div>
+  return <div className={vertical ? "w-full" : compact ? "flex min-w-0 items-center gap-3" : "min-w-0"} aria-label={`Build ${percent}% complete`}>
+    <div className={`flex items-center gap-2 ${compact ? "order-last" : "mb-2"} ${vertical ? "" : "justify-end"}`}><span className="text-[10px] font-medium tabular-nums text-[#c7ff4a]">{percent}%</span><span className={`relative h-1 overflow-hidden rounded-full bg-white/[.08] ${vertical ? "flex-1" : compact ? "w-16" : "w-24"}`}><motion.span className="absolute inset-y-0 left-0 rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${percent}%` }} transition={{ duration: .7, ease }} />{percent > 0 && percent < 100 && <span className="nynz-progress-sweep absolute inset-y-0 w-8 bg-gradient-to-r from-transparent via-white/40 to-transparent" />}</span></div>
     <ol className={vertical ? "space-y-1" : "flex items-center gap-1.5"}>
     {buildStages.map((stage, index) => {
-      const done = index < current || (status === "ready" && index === current);
+      const done = index < current || ((status === "ready" || status === "succeeded") && index === current);
       const now = index === current && !done;
       const broken = failed && now;
       return <li key={stage.id} className={vertical ? "flex items-center gap-3 py-1.5" : "flex items-center gap-1.5"}>
-        <motion.span layout className={`relative grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[9px] transition-colors duration-500 ${broken ? "border-red-400/50 bg-red-400/10 text-red-300" : done ? "border-[#c7ff4a]/40 bg-[#c7ff4a]/15 text-[#c7ff4a]" : now ? "border-[#c7ff4a]/60 text-[#c7ff4a]" : "border-white/[.1] text-white/30"}`}>
+        <motion.span className={`relative grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[9px] transition-colors duration-500 ${broken ? "border-red-400/50 bg-red-400/10 text-red-300" : done ? "border-[#c7ff4a]/40 bg-[#c7ff4a]/15 text-[#c7ff4a]" : now ? "border-[#c7ff4a]/60 text-[#c7ff4a]" : "border-white/[.1] text-white/30"}`}>
           {broken ? <X className="h-2.5 w-2.5" /> : done ? <Check className="h-2.5 w-2.5" /> : now ? <LoaderCircle className="h-3 w-3 animate-spin" /> : <span className="h-1 w-1 rounded-full bg-current" />}
           {now && !broken && <span className="absolute inset-0 animate-ping rounded-full border border-[#c7ff4a]/40" />}
         </motion.span>

@@ -214,11 +214,68 @@ function BuilderShowcase() {
       <div ref={ref} style={{ perspective: 1400 }}>
         <motion.div style={{ rotateX, scale, opacity, transformOrigin: "center top" }} className="overflow-hidden rounded-[20px] border border-white/[.12] bg-[#0d0e11] shadow-[0_60px_160px_rgba(0,0,0,.6),0_0_0_1px_rgba(199,255,74,.04)]">
           <div className="flex h-10 items-center gap-1.5 border-b border-white/[.08] bg-[#0a0f17] px-4"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]/80" /><span className="mx-auto flex items-center gap-2 rounded-md bg-white/[.04] px-4 py-1 text-[10px] text-white/45"><Lock className="h-2.5 w-2.5" /> nynz.in/projects/fieldnote</span></div>
-          <iframe src="/design/builder" title="NYNZ builder example" loading="lazy" className="h-[620px] w-full bg-[#0d0e11] md:h-[720px]" />
+          <BuilderMock />
         </motion.div>
       </div>
     </div>
   </section>;
+}
+
+const mockPlan = ["Set the visual system", "Build inventory overview", "Add low-stock alerts", "Validate the production build"];
+const mockItems = [["Speckled mugs", 42, 80], ["Celadon glaze", 4, 12], ["Stoneware bowls", 26, 55], ["Kiln shelves", 2, 9], ["Bisque plates", 31, 64]] as const;
+
+/** Scripted, self-contained replica of the builder used on the homepage (no live routes). */
+function BuilderMock() {
+  const [step, setStep] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const last = buildStages.length - 1;
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: .25 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => setStep((value) => (value + 1) % (last + 3)), step >= last ? 3200 : 1200);
+    return () => clearTimeout(timer);
+  }, [step, visible, last]);
+  const stage = Math.min(step, last);
+  const live = stage === last;
+  const status = live ? "succeeded" : buildStages[stage].id;
+  return <div ref={ref} className="bg-[#080c13] text-left">
+    <div className="flex h-12 items-center gap-3 border-b border-white/[.07] px-3 sm:px-4">
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#c7ff4a]/15 text-[#c7ff4a]"><Box className="h-3.5 w-3.5" /></span>
+      <span className="min-w-0 truncate text-[13px] font-medium">Fieldnote inventory</span>
+      <div className="ml-auto hidden sm:block"><BuildPipeline status={status} compact /></div>
+      <span className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] sm:ml-0 ${live ? "border-[#c7ff4a]/30 bg-[#c7ff4a]/10 text-[#c7ff4a]" : "border-white/[.1] text-white/60"}`}><i className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[#c7ff4a]" : "animate-pulse bg-[#f5c451]"}`} />{live ? "Live" : buildStages[stage].label}</span>
+    </div>
+    <div className="grid md:h-[540px] md:grid-cols-[320px_1fr]">
+      <aside className="hidden flex-col border-r border-white/[.07] bg-[#0a0f17] p-4 md:flex">
+        <div className="ml-auto max-w-[90%] rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">Build a calm inventory dashboard for a ceramics studio, with low-stock alerts and a quick add flow.</div>
+        <AnimatePresence>{step >= 1 && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .4, ease }} className="mt-4 rounded-2xl border border-white/[.07] bg-white/[.025] p-3.5">
+          <p className="flex items-center gap-2 text-[11px] font-medium text-[#c7ff4a]"><Sparkles className="h-3.5 w-3.5" /> Plan</p>
+          <p className="mt-2 text-[12px] leading-5 text-white/60">A focused stock dashboard with quick item entry.</p>
+          <ul className="mt-3 space-y-2">{mockPlan.map((item, index) => { const done = live || stage > index + 1; const now = !live && stage === index + 1; return <li key={item} className="flex items-center gap-2.5 text-[11.5px]"><span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-colors duration-500 ${done ? "border-[#c7ff4a]/40 bg-[#c7ff4a]/15 text-[#c7ff4a]" : now ? "border-[#c7ff4a]/60" : "border-white/[.12]"}`}>{done ? <Check className="h-2.5 w-2.5" /> : now ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" /> : null}</span><span className={done ? "text-white/70" : now ? "text-white" : "text-white/35"}>{item}</span></li>; })}</ul>
+        </motion.div>}</AnimatePresence>
+        <AnimatePresence>{live && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .4, ease }} className="mt-3 rounded-2xl border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3.5 py-2.5 text-[12px] leading-5 text-white/80">Your app is live. Try adding an item, or ask me for a reorder button.</motion.div>}</AnimatePresence>
+        <div className="mt-auto flex items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.03] px-3 py-2.5 text-[11.5px] text-white/35">Ask for a change…<span className="ml-auto grid h-6 w-6 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019]"><ArrowRight className="h-3 w-3" /></span></div>
+      </aside>
+      <div className="flex min-w-0 flex-col">
+        <div className="flex h-10 items-center gap-1 border-b border-white/[.07] px-3 text-[11px]">{[["Preview", Play], ["Code", Code2], ["History", History]].map(([label, Icon], index) => { const I = Icon as typeof Play; return <span key={label as string} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 ${index === 0 ? "bg-white/[.07] text-white" : "text-white/40"}`}><I className="h-3 w-3" />{label as string}</span>; })}<span className="ml-auto hidden items-center gap-1 text-white/35 sm:flex"><Globe2 className="h-3.5 w-3.5" /><Smartphone className="h-3.5 w-3.5" /></span></div>
+        <div className="relative flex-1 overflow-hidden bg-[#0d1117] p-3 sm:p-5">
+          <div className="h-full rounded-xl border border-white/[.07] bg-[#f6f3ec] p-4 text-[#1c1f24] sm:p-5">
+            <div className="flex items-center justify-between"><div><p className="text-[10px] font-medium uppercase tracking-[.16em] text-[#8a7f6e]">Fieldnote</p><p className="mt-1 text-lg font-semibold tracking-[-.03em] sm:text-xl">Studio stock</p></div><span className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors duration-500 ${live ? "bg-[#1c1f24] text-white" : "bg-black/[.06] text-transparent"}`}>+ Add item</span></div>
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">{[["Items", "248"], ["Low stock", "6"], ["Orders", "14"]].map(([label, value], index) => <div key={label} className="rounded-lg border border-black/[.06] bg-white p-2.5 sm:p-3"><p className="text-[10px] text-[#8a7f6e]">{label}</p>{live ? <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .08, duration: .4, ease }} className={`mt-1 text-base font-semibold sm:text-xl ${index === 1 ? "text-[#c2410c]" : ""}`}>{value}</motion.p> : <span className="mt-2 block h-4 w-10 animate-pulse rounded bg-black/[.07]" />}</div>)}</div>
+            <div className="mt-4 overflow-hidden rounded-lg border border-black/[.06] bg-white">{mockItems.map(([name, qty, max], index) => { const low = qty < 5; return <div key={name} className="flex items-center gap-3 border-b border-black/[.05] px-3 py-2.5 last:border-0">{live ? <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .15 + index * .07, duration: .4, ease }} className="flex min-w-0 flex-1 items-center gap-3"><span className="min-w-0 flex-1 truncate text-[12px] font-medium">{name}</span>{low && <span className="rounded-full bg-[#fee2d5] px-2 py-0.5 text-[9.5px] font-medium text-[#c2410c]">Low</span>}<span className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-black/[.06] sm:block"><span className={`block h-full rounded-full ${low ? "bg-[#ea580c]" : "bg-[#1c1f24]"}`} style={{ width: `${(qty / max) * 100}%` }} /></span><span className="w-7 text-right text-[12px] tabular-nums text-[#5b5348]">{qty}</span></motion.div> : <span className="h-3 flex-1 animate-pulse rounded bg-black/[.06]" style={{ maxWidth: `${60 + index * 7}%` }} />}</div>; })}</div>
+          </div>
+          {!live && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 overflow-hidden"><span className="nynz-scan block h-full w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></div>}
+        </div>
+      </div>
+    </div>
+  </div>;
 }
 
 /** Self-running demo that loops through the real build stages. */
