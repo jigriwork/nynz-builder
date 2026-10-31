@@ -26,7 +26,7 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NYNZ",
+  title: "NYNZ Build Real Applications With the Prompt",
   description: "Turn an idea into a working application. Describe, build, preview, revise and export with NYNZ.",
 };
 
