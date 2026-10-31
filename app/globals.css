@@ -19,23 +19,92 @@
   mask-image: radial-gradient(circle at 68% 45%, black, transparent 72%);
 }
 
-.nynz-composer::before {
+.nynz-dots {
+  background-image: radial-gradient(rgba(244, 241, 232, .07) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* Rotating lime edge used on primary composers and featured surfaces. */
+@property --nynz-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.nynz-composer,
+.nynz-edge {
+  isolation: isolate;
+}
+
+.nynz-composer::before,
+.nynz-edge::before {
   content: "";
   position: absolute;
   inset: -1px;
   z-index: -1;
   border-radius: inherit;
-  background: linear-gradient(120deg, rgba(199, 255, 74, .18), transparent 34%, rgba(90, 151, 199, .13));
-  opacity: .45;
-  transition: opacity .25s ease;
+  padding: 1px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  background: conic-gradient(from var(--nynz-angle), transparent 0deg, rgba(199, 255, 74, .55) 40deg, transparent 110deg, transparent 200deg, rgba(90, 151, 199, .4) 250deg, transparent 320deg);
+  opacity: .5;
+  transition: opacity .3s ease;
 }
 
-.nynz-composer:focus-within::before { opacity: 1; }
+.nynz-composer:focus-within::before,
+.nynz-edge:hover::before { opacity: 1; }
+
+.nynz-shimmer {
+  background: linear-gradient(90deg, rgba(255, 255, 255, .03) 0%, rgba(255, 255, 255, .085) 50%, rgba(255, 255, 255, .03) 100%);
+  background-size: 200% 100%;
+}
+
+.nynz-text-shine {
+  background: linear-gradient(100deg, #f4f1e8 20%, #c7ff4a 40%, #f4f1e8 60%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.nynz-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.nynz-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .07); border-radius: 99px; }
+.nynz-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .14); }
+.nynz-scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+.nynz-progress-sweep { animation: nynz-progress-sweep 1.8s ease-in-out infinite; }
+@keyframes nynz-progress-sweep {
+  from { transform: translateX(-160%); }
+  to { transform: translateX(360%); }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .nynz-composer { animation: nynz-rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  .nynz-composer::before,
+  .nynz-edge::before { animation: nynz-spin 6s linear infinite; }
+  .nynz-shimmer { animation: nynz-shimmer 1.8s ease-in-out infinite; }
+  .nynz-text-shine { animation: nynz-shine 5s ease-in-out infinite; }
+  .nynz-float { animation: nynz-float 9s ease-in-out infinite; }
+  .nynz-float-slow { animation: nynz-float 14s ease-in-out infinite reverse; }
+  .nynz-marquee { animation: nynz-marquee 38s linear infinite; }
+  .nynz-scan { animation: nynz-scan 2.4s cubic-bezier(.6,0,.4,1) infinite; }
+  .nynz-breathe { animation: nynz-breathe 3.2s ease-in-out infinite; }
+
   @keyframes nynz-rise {
     from { opacity: 0; transform: translateY(18px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes nynz-spin { to { --nynz-angle: 360deg; } }
+  @keyframes nynz-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @keyframes nynz-shine { 0%, 100% { background-position: 120% 0; } 50% { background-position: -20% 0; } }
+  @keyframes nynz-float {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    33% { transform: translate3d(4%, -6%, 0) scale(1.06); }
+    66% { transform: translate3d(-5%, 3%, 0) scale(.96); }
+  }
+  @keyframes nynz-marquee { to { transform: translateX(-50%); } }
+  @keyframes nynz-scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+  @keyframes nynz-breathe { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
 }

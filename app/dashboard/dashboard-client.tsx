@@ -1,72 +1,152 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowRight, ArrowUpRight, Box, FilePlus2, LogOut, Search, Sparkles, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { ArrowRight, Box, Clock3, ExternalLink, LogOut, Plus, Sparkles, Trash2 } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
+import { ProjectArt, ease } from "@/components/nynz-motion";
 import { formatDate } from "@/lib/format-date";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; updated_at: string };
+type Draft = { prompt: string; reference?: string; attachment?: { name: string; content: string } | null; createdAt: number; projectId?: string };
+
+const ideas = ["A habit tracker with streaks and weekly charts", "A booking page for a yoga studio", "An internal CRM for a small agency", "A recipe box with tags and search"];
+const filters = [["all", "All"], ["ready", "Live"], ["building", "Building"], ["draft", "Draft"], ["failed", "Failed"]] as const;
+const statusStyle: Record<string, { label: string; dot: string; text: string }> = {
+  ready: { label: "Live", dot: "bg-[#c7ff4a]", text: "text-[#c7ff4a]" },
+  failed: { label: "Failed", dot: "bg-red-400", text: "text-red-300" },
+  draft: { label: "Draft", dot: "bg-white/40", text: "text-white/55" },
+};
+const building = (status: string) => !["ready", "failed", "draft"].includes(status);
 
 export default function DashboardClient({ initialProjects, email }: { initialProjects: Project[]; email: string }) {
   const [projects, setProjects] = useState(initialProjects);
-  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<(typeof filters)[number][0]>("all");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const router = useRouter();
   const resumedDraft = useRef(false);
+
+  async function startFromDraft(draft: Draft) {
+    try {
+      if (draft.projectId) { router.push(`/projects/${draft.projectId}`); return; }
+      setBusy(true);
+      const projectName = String(draft.prompt || "New NYNZ app").replace(/^(build|create|make)\s+/i, "").split(/[,.!?\n]/)[0].slice(0, 72) || "New NYNZ app";
+      const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: projectName, description: String(draft.prompt || "").slice(0, 500) }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Could not create project");
+      sessionStorage.setItem("nynz_build_draft", JSON.stringify({ ...draft, projectId: body.project.id }));
+      router.push(`/projects/${body.project.id}`);
+    } catch (cause) { setBusy(false); setError(cause instanceof Error ? cause.message : "Could not create project"); }
+  }
 
   useEffect(() => {
     if (resumedDraft.current) return;
     resumedDraft.current = true;
     const raw = sessionStorage.getItem("nynz_build_draft");
     if (!raw) return;
-    (async () => {
-      try {
-        const draft = JSON.parse(raw);
-        if (draft.projectId) { router.push(`/projects/${draft.projectId}`); return; }
-        setBusy(true);
-        const projectName = String(draft.prompt || "New NYNZ app").replace(/^(build|create|make)\s+/i, "").split(/[,.!?\n]/)[0].slice(0, 72) || "New NYNZ app";
-        const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: projectName, description: String(draft.prompt || "").slice(0, 500) }) });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || "Could not create project");
-        sessionStorage.setItem("nynz_build_draft", JSON.stringify({ ...draft, projectId: body.project.id }));
-        router.push(`/projects/${body.project.id}`);
-      } catch (error) { setBusy(false); setName(""); console.error(error); }
-    })();
-  }, [router]);
+    try { startFromDraft(JSON.parse(raw)); } catch { sessionStorage.removeItem("nynz_build_draft"); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  async function create(event: FormEvent) {
-    event.preventDefault(); setBusy(true);
-    const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
-    const body = await res.json(); setBusy(false);
-    if (res.ok) router.push(`/projects/${body.project.id}`);
+  function submit(event?: FormEvent) {
+    event?.preventDefault();
+    if (prompt.trim().length < 12) { setError("Tell NYNZ a little more about what you want to build."); return; }
+    const draft: Draft = { prompt: prompt.trim(), reference: "", attachment: null, createdAt: Date.now() };
+    sessionStorage.setItem("nynz_build_draft", JSON.stringify(draft));
+    startFromDraft(draft);
   }
+
+  function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
+  }
+
+  async function createBlank() {
+    setBusy(true);
+    const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Untitled app" }) });
+    const body = await res.json();
+    if (res.ok) router.push(`/projects/${body.project.id}`); else { setBusy(false); setError(body.error); }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this project and its versions?")) return;
     const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
-    if (res.ok) setProjects(projects.filter((project) => project.id !== id));
+    if (res.ok) setProjects((value) => value.filter((project) => project.id !== id));
   }
   async function signOut() { await createClient().auth.signOut(); window.location.assign("/"); }
 
-  return <main className="min-h-screen bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
-    <header className="border-b border-white/[.07] bg-[#090e16]/90 backdrop-blur-xl">
-      <div className="mx-auto flex h-[70px] max-w-[1320px] items-center justify-between px-5 md:px-8">
+  const counts = useMemo(() => ({ all: projects.length, ready: projects.filter((p) => p.status === "ready").length, building: projects.filter((p) => building(p.status)).length, draft: projects.filter((p) => p.status === "draft").length, failed: projects.filter((p) => p.status === "failed").length }), [projects]);
+  const visible = useMemo(() => projects.filter((project) => {
+    if (filter === "building" ? !building(project.status) : filter !== "all" && project.status !== filter) return false;
+    const q = query.trim().toLowerCase();
+    return !q || project.name.toLowerCase().includes(q) || project.description?.toLowerCase().includes(q);
+  }), [projects, filter, query]);
+
+  return <main className="relative min-h-screen overflow-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[640px] nynz-hero-grid" />
+    <div aria-hidden className="nynz-float pointer-events-none absolute -top-72 left-[20%] h-[560px] w-[760px] rounded-full bg-[#294662]/25 blur-[160px]" />
+    <div aria-hidden className="nynz-float-slow pointer-events-none absolute -right-40 top-20 h-[380px] w-[480px] rounded-full bg-[#c7ff4a]/[.05] blur-[130px]" />
+
+    <header className="sticky top-0 z-30 border-b border-white/[.07] bg-[#070b12]/75 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-[1320px] items-center justify-between px-5 md:px-8">
         <Link href="/"><NynzBrand className="h-7" /></Link>
-        <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] px-3 py-2 text-[11px] text-white/40 sm:flex"><span className="grid h-5 w-5 place-items-center rounded-full bg-white/[.07] text-[8px] text-white/55">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/35 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
+        <div className="flex items-center gap-2.5"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] py-1.5 pl-1.5 pr-3.5 text-[12px] text-white/60 sm:flex"><span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-[#c7ff4a] to-[#5ad1b3] text-[10px] font-semibold text-[#071019]">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/50 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
       </div>
     </header>
 
-    <div className="mx-auto max-w-[1320px] px-5 py-12 md:px-8 md:py-16">
-      <section className="grid items-end gap-10 border-b border-white/[.08] pb-14 lg:grid-cols-[1fr_420px]">
-        <div><p className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.2em] text-[#c7ff4a]"><Sparkles className="h-3 w-3" /> Your workspace</p><h1 className="mt-4 text-5xl font-medium tracking-[-.065em] md:text-7xl">What will you build?</h1><p className="mt-5 max-w-xl text-base leading-7 text-white/40">Open a project or start with a name. You can add the full brief, references and changes inside the builder.</p></div>
-        <form onSubmit={create} className="rounded-[22px] border border-white/[.1] bg-[#101823] p-2 shadow-[0_24px_70px_rgba(0,0,0,.3)]"><div className="rounded-[16px] border border-white/[.055] bg-[#0b121b] p-4"><label className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[.16em] text-white/35"><Plus className="h-3 w-3 text-[#c7ff4a]" /> New project</label><div className="flex gap-2"><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} placeholder="Name your next application" className="h-12 min-w-0 flex-1 rounded-xl border border-white/[.09] bg-white/[.035] px-4 text-sm outline-none placeholder:text-white/22 focus:border-[#c7ff4a]/40" /><button disabled={busy} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#c7ff4a] text-[#071019] transition hover:bg-[#d5ff72] disabled:opacity-40" aria-label="Create project">{busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#071019]/20 border-t-[#071019]" /> : <ArrowRight className="h-4 w-4" />}</button></div></div></form>
+    <div className="relative mx-auto max-w-[1320px] px-5 pb-20 pt-14 md:px-8 md:pt-20">
+      <section className="mx-auto max-w-[880px] text-center">
+        <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="inline-flex items-center gap-2 rounded-full border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3 py-1.5 text-[11px] font-medium text-[#c7ff4a]"><Sparkles className="h-3 w-3" /> Your workspace</motion.p>
+        <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .05, ease }} className="mt-5 text-5xl font-medium tracking-[-.065em] md:text-7xl">What will you <span className="nynz-text-shine">build</span> today?</motion.h1>
+        <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .12, ease }} className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/55">Describe an app and NYNZ will plan it, write it and run it live in a few minutes.</motion.p>
+
+        <form onSubmit={submit} className="nynz-composer relative mx-auto mt-9 rounded-[24px] border border-white/[.1] bg-[#0f1722]/95 p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.5)] backdrop-blur-2xl">
+          <div className="rounded-[18px] border border-white/[.05] bg-[#0b121b]">
+            <textarea value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(""); }} onKeyDown={onKey} rows={3} maxLength={30_000} placeholder="Describe the app you want to build…" aria-label="Application description" className="w-full resize-none bg-transparent px-5 pb-3 pt-5 text-[17px] leading-7 outline-none placeholder:text-white/35" />
+            <div className="flex items-center gap-2 border-t border-white/[.06] p-2.5">
+              <button type="button" onClick={createBlank} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-xl px-3 text-[12px] text-white/55 transition hover:bg-white/[.05] hover:text-white disabled:opacity-40"><FilePlus2 className="h-4 w-4" /> Blank project</button>
+              <span className="ml-auto hidden text-[11px] text-white/30 sm:inline">Press Enter to build</span>
+              <motion.button whileTap={{ scale: .96 }} disabled={busy || !prompt.trim()} className="group inline-flex h-10 items-center gap-2 rounded-xl bg-[#c7ff4a] px-4 text-[13px] font-semibold text-[#071019] shadow-[0_8px_28px_rgba(199,255,74,.2)] transition hover:bg-[#d5ff72] disabled:cursor-not-allowed disabled:opacity-35">{busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#071019]/20 border-t-[#071019]" /> : <>Build <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></>}</motion.button>
+            </div>
+          </div>
+          <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-2.5 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
+        </form>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">{ideas.map((idea, index) => <motion.button key={idea} type="button" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .3 + index * .06, ease }} onClick={() => setPrompt(`Build ${idea.charAt(0).toLowerCase()}${idea.slice(1)}`)} className="rounded-full border border-white/[.08] bg-white/[.025] px-3.5 py-1.5 text-[12px] text-white/55 transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05] hover:text-white">{idea}</motion.button>)}</div>
       </section>
 
-      <section className="pt-12">
-        <div className="mb-6 flex items-center justify-between"><div><h2 className="text-xl font-medium tracking-[-.03em]">Projects</h2><p className="mt-1 text-xs text-white/28">{projects.length ? `${projects.length} application${projects.length === 1 ? "" : "s"}` : "No applications yet"}</p></div><span className="flex items-center gap-2 text-[10px] text-white/28"><Clock3 className="h-3 w-3" /> Sorted by recent</span></div>
-        {projects.length === 0 ? <div className="grid min-h-[330px] place-items-center rounded-[24px] border border-dashed border-white/[.11] bg-white/[.018] text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/[.1] bg-white/[.035] text-[#c7ff4a]"><Box className="h-4 w-4" /></span><h3 className="mt-5 text-lg font-medium">Your first build starts here.</h3><p className="mt-2 text-sm text-white/35">Create a project above, or begin from the homepage composer.</p></div></div> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{projects.map((project) => <article key={project.id} className="group overflow-hidden rounded-[20px] border border-white/[.09] bg-[#0d141e] p-2 transition duration-300 hover:-translate-y-1 hover:border-white/[.17] hover:shadow-[0_25px_70px_rgba(0,0,0,.35)]"><a href={`/projects/${project.id}`}><div className="relative aspect-[16/9] overflow-hidden rounded-[14px] bg-[#131d29]"><div className="absolute inset-x-0 top-0 z-10 flex h-8 items-center gap-1.5 border-b border-black/10 bg-[#ede9df] px-3"><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/20" /><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/10" /><span className="ml-auto text-[7px] uppercase tracking-[.15em] text-[#0b121b]/30">Preview</span></div>{project.preview_url ? <iframe title={`${project.name} preview`} src={project.preview_url} className="h-full w-full pt-8 pointer-events-none" sandbox="allow-scripts" /> : <div className="grid h-full place-items-center pt-8 text-white/20"><div className="text-center"><Box className="mx-auto h-5 w-5" /><span className="mt-2 block text-[10px]">Preview pending</span></div></div>}<span className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-[#c7ff4a] text-[#071019] opacity-0 shadow-lg transition group-hover:opacity-100"><ExternalLink className="h-3.5 w-3.5" /></span></div><div className="p-4 pb-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate text-[15px] font-medium">{project.name}</h3><p className="mt-2 flex items-center gap-2 text-[10px] text-white/28"><span className={`h-1.5 w-1.5 rounded-full ${project.status === "ready" ? "bg-[#c7ff4a]" : "bg-amber-300"}`} /><span className="capitalize">{project.status}</span><span>·</span>{formatDate(project.updated_at)}</p></div></div></div></a><div className="border-t border-white/[.06] px-4 py-3"><button onClick={() => remove(project.id)} className="inline-flex items-center gap-2 text-[10px] text-white/20 transition hover:text-red-300"><Trash2 className="h-3 w-3" /> Delete project</button></div></article>)}</div>}
+      <section className="mt-20">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div><h2 className="text-2xl font-medium tracking-[-.04em]">Projects</h2><p className="mt-1 text-[13px] text-white/45">{projects.length ? `${projects.length} application${projects.length === 1 ? "" : "s"} · ${counts.ready} live` : "No applications yet"}</p></div>
+          {projects.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex overflow-x-auto rounded-xl border border-white/[.08] bg-white/[.02] p-1">{filters.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} className={`relative whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] transition ${filter === id ? "text-[#071019]" : "text-white/55 hover:text-white"}`}>{filter === id && <motion.span layoutId="dash-filter" transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute inset-0 rounded-lg bg-[#c7ff4a]" />}<span className="relative">{label}<span className={`ml-1.5 text-[10px] ${filter === id ? "text-[#071019]/60" : "text-white/30"}`}>{counts[id]}</span></span></button>)}</div>
+            <label className="flex h-10 items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.02] px-3 text-white/45 transition focus-within:border-[#c7ff4a]/35 sm:w-60"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/35" /></label>
+          </div>}
+        </div>
+
+        {projects.length === 0 ? <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid min-h-[300px] place-items-center rounded-[24px] border border-dashed border-white/[.11] bg-white/[.015] text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/[.1] bg-white/[.035] text-[#c7ff4a]"><Box className="h-5 w-5" /></span><h3 className="mt-5 text-lg font-medium">Your first build starts here</h3><p className="mt-2 text-sm text-white/50">Describe an app above and watch it come to life.</p></div></motion.div>
+        : <motion.div layout className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <AnimatePresence mode="popLayout">{visible.map((project, index) => {
+            const style = statusStyle[project.status] || { label: "Building", dot: "bg-amber-300", text: "text-amber-200" };
+            const isBuilding = building(project.status);
+            return <motion.article layout key={project.id} initial={{ opacity: 0, y: 20, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: .96 }} transition={{ duration: .45, delay: Math.min(index * .05, .3), ease }} className="group relative overflow-hidden rounded-[22px] border border-white/[.08] bg-[#0c131d] p-2 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-1 hover:border-white/[.16] hover:shadow-[0_30px_80px_rgba(0,0,0,.45)]">
+              <a href={`/projects/${project.id}`} className="block">
+                <div className="relative aspect-[16/10] overflow-hidden rounded-[16px] bg-[#131d29]">
+                  {project.preview_url && project.status === "ready" ? <><div className="absolute inset-x-0 top-0 z-10 flex h-7 items-center gap-1.5 bg-[#ede9df] px-3"><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/25" /><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/15" /></div><iframe title={`${project.name} preview`} src={project.preview_url} className="pointer-events-none h-full w-full pt-7" sandbox="allow-scripts" /></> : <ProjectArt seed={project.id} building={isBuilding} />}
+                  <span className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-white/[.1] bg-[#070b12]/70 px-2.5 py-1 text-[10px] backdrop-blur-md"><span className="relative flex h-1.5 w-1.5">{(isBuilding || project.status === "ready") && <span className={`absolute inset-0 animate-ping rounded-full ${style.dot} opacity-60`} />}<span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /></span><span className={style.text}>{style.label}</span></span>
+                  <span className="absolute bottom-3 right-3 z-10 grid h-9 w-9 translate-y-2 place-items-center rounded-full bg-[#c7ff4a] text-[#071019] opacity-0 shadow-[0_8px_24px_rgba(199,255,74,.35)] transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight className="h-4 w-4" /></span>
+                </div>
+                <div className="px-3 pb-2 pt-4"><h3 className="truncate pr-8 text-[15px] font-medium">{project.name}</h3><p className="mt-1 line-clamp-1 text-[12px] text-white/45">{project.description || "No description yet"}</p><p className="mt-3 text-[11px] text-white/35">Updated {formatDate(project.updated_at)}</p></div>
+              </a>
+              <button onClick={() => remove(project.id)} aria-label={`Delete ${project.name}`} title="Delete project" className="absolute bottom-4 right-4 grid h-8 w-8 place-items-center rounded-lg text-white/30 opacity-0 transition hover:bg-red-400/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
+            </motion.article>;
+          })}</AnimatePresence>
+          {visible.length === 0 && <p className="col-span-full py-16 text-center text-sm text-white/45">No projects match this view.</p>}
+        </motion.div>}
       </section>
     </div>
   </main>;

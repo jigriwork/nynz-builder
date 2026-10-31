@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff } from "lucide-react";
@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loop, setLoop] = useState(2);
+
+  useEffect(() => {
+    const timer = setInterval(() => setLoop((value) => (value + 1) % 3), 1600);
+    return () => clearInterval(timer);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setLoading(true); setMessage("");
@@ -42,7 +48,7 @@ export default function LoginPage() {
         <div className="mt-12 max-w-xl overflow-hidden rounded-[22px] border border-white/[.1] bg-[#0d1520]/80 p-2 shadow-[0_35px_90px_rgba(0,0,0,.35)] backdrop-blur-xl">
           <div className="rounded-[16px] border border-white/[.06] bg-[#0a111a] p-5">
             <div className="flex items-center justify-between"><span className="text-[9px] uppercase tracking-[.18em] text-white/25">A transparent build loop</span><span className="flex items-center gap-2 text-[9px] text-[#c7ff4a]"><i className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a] shadow-[0_0_9px_#c7ff4a]" /> Ready</span></div>
-            <div className="mt-5 grid grid-cols-3 gap-2">{[["01","Plan"],["02","Generate"],["03","Preview"]].map(([n,label],index)=><div key={n} className={`rounded-xl border p-3 ${index===2?"border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06]":"border-white/[.07] bg-white/[.025]"}`}><span className="font-mono text-[9px] text-white/22">{n}</span><div className="mt-7 flex items-center gap-2 text-[10px] text-white/55"><span className="grid h-4 w-4 place-items-center rounded-full bg-[#c7ff4a]/10 text-[#c7ff4a]"><Check className="h-2.5 w-2.5" /></span>{label}</div></div>)}</div>
+            <div className="mt-5 grid grid-cols-3 gap-2">{[["01","Plan"],["02","Generate"],["03","Preview"]].map(([n,label],index)=><div key={n} className={`rounded-xl border p-3 transition-colors duration-500 ${index===loop?"border-[#c7ff4a]/30 bg-[#c7ff4a]/[.08]":"border-white/[.07] bg-white/[.025]"}`}><span className="font-mono text-[9px] text-white/40">{n}</span><div className="mt-7 flex items-center gap-2 text-[11px] text-white/70"><span className={`grid h-4 w-4 place-items-center rounded-full transition-colors duration-500 ${index<=loop?"bg-[#c7ff4a]/15 text-[#c7ff4a]":"bg-white/[.06] text-white/30"}`}>{index===loop?<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" />:<Check className="h-2.5 w-2.5" />}</span>{label}</div></div>)}</div>
           </div>
         </div>
       </section>
