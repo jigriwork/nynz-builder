@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, LockKeyhole } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
 
 export default function LoginPage() {
@@ -60,7 +60,6 @@ export default function LoginPage() {
             <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/32"><span>{isSignup ? "Already have an account?" : "New to NYNZ?"}</span><button type="button" onClick={() => { setMode(isSignup ? "signin" : "signup"); setMessage(""); }} className="font-medium text-[#c7ff4a] hover:text-[#d5ff72]">{isSignup ? "Sign in" : "Create one"}</button></div>
           </form>
         </div>
-        <p className="mt-5 flex items-center justify-center gap-2 text-[10px] text-white/22"><LockKeyhole className="h-3 w-3" /> Authentication powered by Supabase</p>
       </section>
     </div>
   </main>;

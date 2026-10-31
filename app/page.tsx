@@ -97,7 +97,11 @@ export default function HomePage() {
     <section id="product" className="border-y border-white/[.07] bg-[#0a0f17] px-5 py-20 md:px-8 md:py-28">
       <div className="mx-auto max-w-[1240px]">
         <div className="mb-10 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[10px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">The builder</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">See the work. Shape the result.</h2></div><p className="max-w-sm text-sm leading-6 text-white/40">A preview-first workspace with the conversation, build state and source always within reach.</p></div>
-        <div className="overflow-hidden rounded-[26px] border border-white/[.11] bg-[#0d1520] shadow-[0_48px_120px_rgba(0,0,0,.45)]">
+        <div className="overflow-hidden rounded-[18px] border border-white/[.11] bg-[#0d0e11] shadow-[0_48px_120px_rgba(0,0,0,.45)]">
+          <div className="flex h-11 items-center border-b border-white/[.08] px-4 text-[10px] text-white/35"><span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /> Actual NYNZ builder · example project</div>
+          <iframe src="/design/builder" title="NYNZ builder example" className="h-[720px] w-full bg-[#0d0e11]" />
+        </div>
+        <div aria-hidden className="hidden overflow-hidden rounded-[26px] border border-white/[.11] bg-[#0d1520] shadow-[0_48px_120px_rgba(0,0,0,.45)]">
           <div className="flex h-14 items-center border-b border-white/[.08] px-4 md:px-5"><NynzBrand className="h-5" /><span className="mx-3 text-white/15">/</span><span className="text-xs text-white/50">Fieldnote inventory</span><div className="ml-auto flex items-center gap-2"><span className="hidden rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.055] px-3 py-1.5 text-[9px] uppercase tracking-[.15em] text-[#c7ff4a] sm:block">Example interface</span><span className="rounded-lg bg-[#c7ff4a] px-3 py-2 text-[10px] font-semibold text-[#071019]">Export</span></div></div>
           <div className="grid min-h-[540px] lg:grid-cols-[46px_320px_1fr]">
             <aside className="hidden flex-col items-center border-r border-white/[.08] bg-[#0a111a] py-3 lg:flex">{[LayoutGrid,Home,Search,Folder,History,Terminal].map((Icon,index)=><span key={index} className={`mb-1 grid h-8 w-8 place-items-center rounded-md ${index===0?"bg-white/[.08] text-white/70":"text-white/25"}`}><Icon className="h-3.5 w-3.5" /></span>)}</aside>
