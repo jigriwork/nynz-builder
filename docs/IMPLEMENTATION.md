@@ -39,5 +39,12 @@ public deployment is enabled by this repository.
 
 - The authenticated Supabase CLI account cannot see project
   `rgrlilmfjurdchcnxolt`, so the migration has not been applied or verified live.
-- Sarvam, Firecrawl, and E2B credentials are not present in this process, so live
-  provider checks remain pending.
+- Live Sarvam model discovery, structured generation, streaming, and native tool
+  calling passed. A bounded Firecrawl public-page scrape also passed.
+- E2B sandbox creation, file I/O, commands, host lookup, and cleanup passed, but
+  its preview host returns HTTP 403 because this account forces an
+  `e2b-traffic-access-token` header even when the SDK receives `secure: false`.
+  Browser iframes cannot add that header. Public preview ingress must be enabled
+  for the E2B project, or production must use a dedicated authenticated preview
+  proxy on an isolated origin. Builds now fail clearly and clean up their
+  sandbox instead of recording an unusable preview as ready.
