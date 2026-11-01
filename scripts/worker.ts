@@ -11,7 +11,14 @@ const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.SUPABASE_SE
 if(!url||!key)throw new Error("Worker requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
 const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});const worker=process.env.WORKER_ID||`worker-${process.pid}`;
 const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
-async function progress(job:any,message:string,status?:string){const events=[...(job.progress||[]),{at:new Date().toISOString(),message}].slice(-100);job.progress=events;await db.from("build_jobs").update({progress:events,...(status?{status}:{})}).eq("id",job.id);}
+let shuttingDown=false;let currentBuildId:string|null=null;let heartbeatBusy=false;
+function safeError(error:unknown){return (error instanceof Error?error.message:String(error)).replace(/(?:sk|e2b|fc)-?[A-Za-z0-9_-]{12,}/g,"[redacted]").slice(0,1000);}
+async function heartbeat(status=currentBuildId?"working":shuttingDown?"stopping":"idle"){
+ if(heartbeatBusy)return;heartbeatBusy=true;
+ try{await db.from("worker_heartbeats").upsert({worker_id:worker,status,current_build_id:currentBuildId,last_seen_at:new Date().toISOString(),stopped_at:status==="stopped"?new Date().toISOString():null},{onConflict:"worker_id"});if(currentBuildId)await db.from("build_jobs").update({locked_at:new Date().toISOString()}).eq("id",currentBuildId).eq("locked_by",worker);}
+ finally{heartbeatBusy=false;}
+}
+async function progress(job:any,message:string,status?:string){const events=[...(job.progress||[]),{at:new Date().toISOString(),message}].slice(-100);job.progress=events;await db.from("build_jobs").update({progress:events,locked_at:new Date().toISOString(),...(status?{status}:{})}).eq("id",job.id).eq("locked_by",worker);}
 async function cancelled(job:any){const {data}=await db.from("build_jobs").select("cancel_requested_at").eq("id",job.id).single();if(data?.cancel_requested_at){await db.from("build_jobs").update({status:"cancelled",finished_at:new Date().toISOString()}).eq("id",job.id);await db.from("projects").update({status:"draft"}).eq("id",job.project_id);return true;}return false;}
 async function projectAssets(projectId:string){const {data}=await db.storage.from("project-assets").list(projectId,{limit:100});const names=(data||[]).filter((item:any)=>item.id).map((item:any)=>item.name);return Promise.all(names.map(async(name:string)=>{const {data:file,error}=await db.storage.from("project-assets").download(`${projectId}/${name}`);if(error||!file)throw error||new Error(`Could not download asset ${name}`);return{name,data:await file.arrayBuffer()};}));}
 function assistantReply(message:string,mode:string){const base=message.trim()||(mode==="edit"?"Your requested changes are now live.":"Your application is ready and running in the preview.");return /\?\s*$/.test(base)?base:`${base}\n\nWhat would you like to change, add, or improve next?`;}
@@ -63,7 +70,19 @@ async function processJob(job:any){
   if(job.conversation_id&&output)await db.from("messages").insert({conversation_id:job.conversation_id,role:"assistant",content:assistantReply(output.result.message,job.mode),metadata:{build_id:job.id,plan:output.result.plan}});
   await db.from("build_jobs").update({status:"succeeded",finished_at:new Date().toISOString(),progress:[...job.progress,{at:new Date().toISOString(),message:"Build complete"}]}).eq("id",job.id);
   await db.from("usage_events").insert({owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"sandbox_seconds",quantity:Math.ceil((Date.now()-started)/1000),provider:"e2b"});
- }catch(error){const internalMessage=error instanceof Error?error.message:"Unknown build failure";console.error(`[NYNZ worker] build ${job.id} failed: ${internalMessage}`);const publicMessage="We couldn't complete this build. Please try again.";await db.from("build_jobs").update({status:"failed",error_code:"BUILD_FAILED",error_message:publicMessage,finished_at:new Date().toISOString()}).eq("id",job.id);await db.from("projects").update({status:"failed",last_error:publicMessage}).eq("id",job.project_id);}
+ }catch(error){console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);const publicMessage="We couldn't complete this build. Please try again.";await db.from("build_jobs").update({status:"failed",error_code:"BUILD_FAILED",error_message:publicMessage,finished_at:new Date().toISOString()}).eq("id",job.id).eq("locked_by",worker);await db.from("projects").update({status:"failed",last_error:publicMessage}).eq("id",job.project_id);}
 }
-async function main(){console.log(`[NYNZ worker] ${worker} started`);for(;;){const {data,error}=await db.rpc("claim_build_job",{worker_name:worker});if(error){console.error(error.message);await wait(5000);continue;}const job=data?.[0];if(!job){await wait(2000);continue;}await processJob(job);}}
-main().catch(error=>{console.error(error);process.exit(1)});
+for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>{if(shuttingDown)return;shuttingDown=true;console.log(`[NYNZ worker] ${signal} received; finishing the active build before shutdown`);void heartbeat("stopping");});
+async function main(){
+ console.log(`[NYNZ worker] ${worker} started`);await heartbeat("starting");
+ const timer=setInterval(()=>void heartbeat(),15000);timer.unref();let failures=0;let lastRecovery=0;
+ while(!shuttingDown){
+  if(Date.now()-lastRecovery>60000){const recovery=await db.rpc("recover_stale_build_jobs",{stale_after_seconds:120});if(recovery.error)console.error(`[NYNZ worker] recovery check failed: ${safeError(recovery.error)}`);lastRecovery=Date.now();}
+  const {data,error}=await db.rpc("claim_build_job",{worker_name:worker});
+  if(error){failures+=1;console.error(`[NYNZ worker] queue poll failed: ${safeError(error)}`);await wait(Math.min(30000,1000*2**Math.min(failures,5)));continue;}
+  failures=0;const job=data?.[0];if(!job){await heartbeat();await wait(2000);continue;}
+  currentBuildId=job.id;await heartbeat("working");await processJob(job);currentBuildId=null;await heartbeat();
+ }
+ clearInterval(timer);await heartbeat("stopped");console.log(`[NYNZ worker] ${worker} stopped`);
+}
+main().catch(async error=>{console.error(`[NYNZ worker] fatal: ${safeError(error)}`);await heartbeat("error").catch(()=>undefined);process.exit(1)});

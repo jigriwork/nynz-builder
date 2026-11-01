@@ -1,0 +1,39 @@
+services:
+  - type: worker
+    name: nynz-build-worker
+    runtime: node
+    region: singapore
+    plan: starter
+    branch: feat/nynz-platform
+    autoDeploy: true
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WORKER_ID
+        value: render-worker-1
+      - key: PREVIEW_ORIGIN
+        value: https://preview.nynz.in
+      - key: SARVAM_MODEL
+        value: sarvam-105b
+      - key: SARVAM_BASE_URL
+        value: https://api.sarvam.ai/v2
+      - key: E2B_TEMPLATE
+        value: code-interpreter-v1
+      - key: E2B_SANDBOX_TIMEOUT_MS
+        value: "600000"
+      - key: GENERATION_MAX_OUTPUT_TOKENS
+        value: "20000"
+      - key: GENERATION_MAX_REPAIRS
+        value: "2"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: E2B_API_KEY
+        sync: false
+      - key: PREVIEW_SIGNING_SECRET
+        sync: false
