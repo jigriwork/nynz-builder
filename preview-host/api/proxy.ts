@@ -13,6 +13,7 @@ if (!supabaseUrl || !serviceKey || !e2bKey || !signingKey) throw new Error("Prev
 const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const sandboxCache = new Map<string, { target: string; trafficToken: string; expiresAt: number }>();
 const sessionCookie = "nynz_preview_session";
+const resumeTimeoutSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
 
 function cookie(request: VercelRequest, name: string) {
   for (const part of (request.headers.cookie || "").split(";")) {
@@ -41,7 +42,9 @@ async function targetFor(claims: Claims) {
   const connected = await fetch(`https://api.e2b.app/v2/sandboxes/${encodeURIComponent(claims.sandboxId)}/connect`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": e2bKey! },
-    body: "{}",
+    // Connecting resumes a paused sandbox. It pauses again after this active
+    // window instead of being destroyed.
+    body: JSON.stringify({ timeout: resumeTimeoutSeconds }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!connected.ok) throw new Error(`Sandbox connection failed (${connected.status})`);

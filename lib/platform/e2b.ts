@@ -37,6 +37,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
   const sandbox = await Sandbox.create({
     apiKey: process.env.E2B_API_KEY,
     timeoutMs,
+    lifecycle: { onTimeout: { action: "pause", mode: "full" }, autoResume: true },
     network: { allowPublicTraffic: false },
     metadata: { purpose: "nynz-generated-preview" },
   });
@@ -71,7 +72,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
         const previewHtml = await authenticated.text();
         authenticatedDetail = previewHtml.replace(/\s+/g, " ").slice(0, 240);
         if (authenticated.ok && /<html|<div|<main/i.test(previewHtml)) {
-          return { sandboxId: sandbox.sandboxId, expiresAt: new Date(Date.now() + timeoutMs).toISOString(), logs: `${install.stdout}\n${build.stdout}`.slice(-10_000) };
+          return { sandboxId: sandbox.sandboxId, expiresAt: null, logs: `${install.stdout}\n${build.stdout}`.slice(-10_000) };
         }
       } catch {
         // The production preview can take a few seconds to begin accepting traffic.

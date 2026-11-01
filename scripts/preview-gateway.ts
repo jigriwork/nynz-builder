@@ -51,7 +51,10 @@ async function authorize(request: http.IncomingMessage) {
 async function sandboxTarget(sandboxId: string, expiresAt: number) {
   const cached = sandboxCache.get(sandboxId);
   if (cached && cached.expiresAt > Date.now()) return cached;
-  const sandbox = await Sandbox.connect(sandboxId, { apiKey: e2bApiKey });
+  const sandbox = await Sandbox.connect(sandboxId, {
+    apiKey: e2bApiKey,
+    timeoutMs: Math.max(60_000, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600) * 1_000, 3_600_000)),
+  });
   if (!sandbox.trafficAccessToken) throw new Error("E2B did not return a traffic access token for the private sandbox");
   const value = { target: `https://${sandbox.getHost(5173)}`, trafficAccessToken: sandbox.trafficAccessToken, expiresAt };
   sandboxCache.set(sandboxId, value);
