@@ -5,6 +5,11 @@ import { filesAreSafe } from "./security";
 const STARTER: Record<string, string> = {
   "package.json": JSON.stringify({ name: "nynz-app", private: true, version: "0.1.0", type: "module", scripts: { dev: "vite --host 0.0.0.0", build: "tsc -b && vite build", preview: "vite preview" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: { "@types/react": "latest", "@types/react-dom": "latest" } }, null, 2),
   "index.html": '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
+  "vite.config.ts": 'import{defineConfig}from"vite";import react from"@vitejs/plugin-react";export default defineConfig({plugins:[react()]});',
+  "tsconfig.json": JSON.stringify({ files: [], references: [{ path: "./tsconfig.app.json" }, { path: "./tsconfig.node.json" }] }, null, 2),
+  "tsconfig.app.json": JSON.stringify({ compilerOptions: { target: "ES2022", useDefineForClassFields: true, lib: ["ES2022", "DOM", "DOM.Iterable"], allowJs: false, skipLibCheck: true, esModuleInterop: true, allowSyntheticDefaultImports: true, strict: true, forceConsistentCasingInFileNames: true, module: "ESNext", moduleResolution: "Bundler", resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx" }, include: ["src"] }, null, 2),
+  "tsconfig.node.json": JSON.stringify({ compilerOptions: { composite: true, skipLibCheck: true, module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true }, include: ["vite.config.ts"] }, null, 2),
+  "src/vite-env.d.ts": '/// <reference types="vite/client" />',
   "src/main.tsx": 'import{createRoot}from"react-dom/client";import App from"./App";import"./index.css";createRoot(document.getElementById("root")!).render(<App/>);',
   "src/App.tsx": 'export default function App(){return <main><h1>NYNZ preview</h1></main>}',
   "src/index.css": 'body{margin:0;font-family:Inter,system-ui,sans-serif}',
@@ -49,7 +54,10 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     packageJson.scripts = { ...packageJson.scripts, build: packageJson.scripts?.build || "vite build", preview: "node .nynz-preview.mjs" };
     merged.set("package.json", JSON.stringify(packageJson, null, 2));
     merged.set(".nynz-preview.mjs", PREVIEW_LAUNCHER);
-    await Promise.all([...merged].map(([path, content]) => sandbox.files.write(`/home/user/app/${path}`, content)));
+    // E2B creates parent directories on write. Writing sibling paths in the
+    // same new directory concurrently can race, so assemble the project in a
+    // deterministic sequence before installation.
+    for (const [path, content] of merged) await sandbox.files.write(`/home/user/app/${path}`, content);
     if (generatedBackend) await sandbox.files.write("/home/user/app/.env.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
     const install = await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
     const build = await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 120_000 }, "Production build");
