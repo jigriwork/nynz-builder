@@ -21,6 +21,10 @@ const statusStyle: Record<string, { label: string; dot: string; text: string }> 
   draft: { label: "Draft", dot: "bg-white/40", text: "text-white/55" },
 };
 const building = (status: string) => !["ready", "failed", "draft"].includes(status);
+function projectName(prompt: string) {
+  const named = prompt.match(/\b(?:called|named)\s+["“]?([\p{L}\p{N}][\p{L}\p{N}'’-]*(?:\s+[A-Z0-9][\p{L}\p{N}'’-]*){0,2})/u)?.[1];
+  return (named || prompt.replace(/^(build|create|make)\s+/i, "").split(/[,.!?\n]/)[0]).replace(/["”]+$/, "").slice(0, 72) || "New NYNZ app";
+}
 
 export default function DashboardClient({ initialProjects, email, usage = { creditsUsed: 0, creditLimit: 500, modelTokens: 0 } }: { initialProjects: Project[]; email: string; usage?: { creditsUsed: number; creditLimit: number; modelTokens: number } }) {
   const [projects, setProjects] = useState(initialProjects);
@@ -36,8 +40,8 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
     try {
       if (draft.projectId) { router.push(`/projects/${draft.projectId}`); return; }
       setBusy(true);
-      const projectName = String(draft.prompt || "New NYNZ app").replace(/^(build|create|make)\s+/i, "").split(/[,.!?\n]/)[0].slice(0, 72) || "New NYNZ app";
-      const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: projectName, description: String(draft.prompt || "").slice(0, 500) }) });
+      const name = projectName(String(draft.prompt || "New NYNZ app"));
+      const res = await fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, description: String(draft.prompt || "").slice(0, 500) }) });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Could not create project");
       sessionStorage.setItem("nynz_build_draft", JSON.stringify({ ...draft, projectId: body.project.id }));
