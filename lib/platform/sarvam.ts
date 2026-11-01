@@ -79,7 +79,10 @@ Product quality requirements:
 - Make the primary workflow functional with React state. Booking products need service selection, provider selection, date/time availability, customer details, confirmation, and useful empty/error/success states. Apply equivalent depth to other domains.
 - Use purposeful typography, spacing, hierarchy, color, responsive layouts, accessible labels, keyboard-friendly controls, and restrained motion or transitions.
 - Use realistic domain copy and data. Do not write self-congratulatory filler such as "innovation meets reliability".
+- Write polished, natural product copy with a consistent human brand voice. Proofread headings, labels, empty states, calls to action, and supporting text. Avoid stiff fragments, generic AI slogans, awkward grammar, and beginner-sounding explanations.
 - Prefer a cohesive custom interface over generic component grids. Do not use external images or services unless the user requests them or they are already configured.
+- Use uploaded project assets at their provided /uploads paths whenever they match the requested logo, brand, image, font, or document. Do not replace a supplied logo with generated text or a generic icon.
+- When photography or product imagery is central to the requested experience and no suitable asset was uploaded, use reliable remote imagery with a graceful visual fallback instead of presenting flat color blocks as finished imagery.
 - For create mode, replace any starter demo completely. For edits, return only files that must change and preserve unrelated code.
 - Keep edit responses incremental. If the existing application is large, change the smallest useful set of files, reuse its current styles and components, and keep the combined returned source below 18,000 characters.
 - For create mode, set a meaningful product-specific document title in index.html; never leave starter titles such as "React TS Vite".

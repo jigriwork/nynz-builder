@@ -36,7 +36,7 @@ async function runRequiredCommand(sandbox: Sandbox, command: string, options: { 
   }
 }
 
-export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }) {
+export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }, assets: Array<{ name: string; data: ArrayBuffer }> = []) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
   const timeoutMs = Math.min(Number(process.env.E2B_SANDBOX_TIMEOUT_MS || 600000), 3_600_000);
   const sandbox = await Sandbox.create({
@@ -61,6 +61,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     // same new directory concurrently can race, so assemble the project in a
     // deterministic sequence before installation.
     for (const [path, content] of merged) await sandbox.files.write(`/home/user/app/${path}`, content);
+    for (const asset of assets) await sandbox.files.write(`/home/user/app/public/uploads/${asset.name}`, asset.data);
     if (generatedBackend) await sandbox.files.write("/home/user/app/.env.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
     const install = await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
     const build = await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 120_000 }, "Production build");

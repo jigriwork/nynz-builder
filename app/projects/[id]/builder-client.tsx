@@ -1,13 +1,14 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
-  FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, MousePointer2, Pencil,
+  FileImage, FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, Paperclip, Pencil,
   Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
@@ -19,6 +20,7 @@ type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
 type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
+type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
 const active = new Set(["queued", "planning", "generating", "installing", "running", "validating"]);
@@ -35,7 +37,7 @@ const starters = [
   { icon: Users, title: "Member portal", prompt: "Make a member portal for a sports club with a schedule, member directory with search, and an events RSVP page." },
   { icon: Palette, title: "Portfolio", prompt: "Design a bold personal portfolio with an animated hero, project case-study grid, about section and contact form." },
 ];
-const railButton = "grid h-8 w-8 place-items-center rounded-lg transition";
+const railButton = "group relative grid h-8 w-8 place-items-center rounded-lg transition";
 const railIdle = `${railButton} text-white/40 hover:bg-white/[.06] hover:text-white/80`;
 
 function fileIcon(path: string) {
@@ -63,6 +65,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [terminalCommand, setTerminalCommand] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetBusy, setAssetBusy] = useState(false);
   const [previewSrc, setPreviewSrc] = useState(initialProject.id === "design-fixture" ? initialProject.preview_url : null);
   const [mounted, setMounted] = useState(false);
   const resumedDraft = useRef(false);
@@ -70,6 +74,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const composer = useRef<HTMLTextAreaElement>(null);
   const codeEditor = useRef<HTMLTextAreaElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
+  const assetInput = useRef<HTMLInputElement>(null);
 
   const current = files.find((file) => file.path === selected);
   const running = mounted ? builds.find((build) => active.has(build.status)) : undefined;
@@ -79,10 +84,17 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   useEffect(() => setMounted(true), []);
 
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/projects/${project.id}/assets`).then((response) => response.json()).then((body) => { if (active && Array.isArray(body.assets)) setAssets(body.assets); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [project.id]);
+
   const refresh = useCallback(async () => {
-    const [projectResponse, filesResponse, buildsResponse, versionsResponse] = await Promise.all([
+    const [projectResponse, filesResponse, buildsResponse, versionsResponse, messagesResponse] = await Promise.all([
       fetch(`/api/projects/${project.id}`), fetch(`/api/projects/${project.id}/files`),
       fetch(`/api/projects/${project.id}/builds`), fetch(`/api/projects/${project.id}/versions`),
+      fetch(`/api/projects/${project.id}/messages`),
     ]);
     if (projectResponse.ok) setProject((await projectResponse.json()).project);
     if (filesResponse.ok) {
@@ -91,6 +103,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     }
     if (buildsResponse.ok) setBuilds((await buildsResponse.json()).builds);
     if (versionsResponse.ok) setVersions((await versionsResponse.json()).versions);
+    if (messagesResponse.ok) setMessages((await messagesResponse.json()).messages);
   }, [project.id]);
 
   useEffect(() => {
@@ -201,6 +214,25 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     } else setNotice(body.error);
   }
 
+  async function uploadAsset(file: File) {
+    if (!file || assetBusy) return;
+    setAssetBusy(true);
+    const form = new FormData();
+    form.set("file", file);
+    const response = await fetch(`/api/projects/${project.id}/assets`, { method: "POST", body: form });
+    const body = await response.json();
+    if (response.ok) { setAssets((value) => [body.asset, ...value]); setNotice(`${body.asset.name} uploaded. Mention it in your next request so NYNZ can place it.`); }
+    else setNotice(body.error || "Could not upload this file");
+    if (assetInput.current) assetInput.current.value = "";
+    setAssetBusy(false);
+  }
+
+  async function removeAsset(asset: Asset) {
+    const response = await fetch(`/api/projects/${project.id}/assets`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ storageName: asset.storageName }) });
+    if (response.ok) setAssets((value) => value.filter((item) => item.storageName !== asset.storageName));
+    else setNotice((await response.json()).error || "Could not remove this file");
+  }
+
   async function saveVersion() {
     const label = window.prompt("Version label", "Manual checkpoint");
     if (!label) return;
@@ -264,13 +296,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
     <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden grid-rows-[minmax(260px,46%)_minmax(0,1fr)] lg:grid-cols-[52px_400px_minmax(0,1fr)] lg:grid-rows-1">
       <nav aria-label="Project tools" className="hidden min-h-0 flex-col items-center gap-1 border-r border-white/[.07] bg-[#090d14] py-2.5 lg:flex">
-        <a href="/dashboard" aria-label="Projects" className={railIdle}><LayoutGrid className="h-4 w-4" /></a>
-        <a href="/dashboard" aria-label="New project" className={railIdle}><Plus className="h-4 w-4" /></a>
+        <a href="/dashboard" aria-label="Projects" className={railIdle}><LayoutGrid className="h-4 w-4" /><RailHint>Projects</RailHint></a>
+        <a href="/dashboard" aria-label="New project" className={railIdle}><Plus className="h-4 w-4" /><RailHint>New project</RailHint></a>
         <span className="my-1.5 h-px w-6 bg-white/[.07]" />
-        <Link href="/" aria-label="Home" className={railIdle}><Home className="h-4 w-4" /></Link>
-        <button aria-label="Search project" onClick={() => setTab("code")} className={railIdle}><Search className="h-4 w-4" /></button>
-        {([["code", Folder, "Project files"], ["terminal", SquareTerminal, "Sandbox terminal"], ["versions", History, "Build history"], ["logs", Terminal, "Build logs"]] as const).map(([id, Icon, label]) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`relative ${railButton} ${tab === id ? "bg-white/[.07] text-[#c7ff4a]" : "text-white/40 hover:bg-white/[.06] hover:text-white/80"}`}>{tab === id && <motion.span layoutId="rail-active" className="absolute -left-2.5 h-4 w-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="h-4 w-4" /></button>)}
-        <button aria-label="Project settings" onClick={() => setShowSettings(true)} className={`mt-auto ${railIdle}`}><Settings className="h-4 w-4" /></button>
+        <Link href="/" aria-label="Home" className={railIdle}><Home className="h-4 w-4" /><RailHint>Home</RailHint></Link>
+        <button aria-label="Search project" onClick={() => setTab("code")} className={railIdle}><Search className="h-4 w-4" /><RailHint>Search files</RailHint></button>
+        {([["code", Folder, "Project files"], ["terminal", SquareTerminal, "Sandbox terminal"], ["versions", History, "Build history"], ["logs", Terminal, "Build logs"]] as const).map(([id, Icon, label]) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`${railButton} ${tab === id ? "bg-white/[.07] text-[#c7ff4a]" : "text-white/40 hover:bg-white/[.06] hover:text-white/80"}`}>{tab === id && <motion.span layoutId="rail-active" className="absolute -left-2.5 h-4 w-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="h-4 w-4" /><RailHint>{label}</RailHint></button>)}
+        <button aria-label="Project settings" onClick={() => setShowSettings(true)} className={`mt-auto ${railIdle}`}><Settings className="h-4 w-4" /><RailHint>Project settings</RailHint></button>
         <NynzIcon className="mt-1 h-7 w-7 rounded-full" />
       </nav>
 
@@ -307,6 +339,14 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}</div>
             </motion.div>)}</AnimatePresence>
 
+            <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> NYNZ</div><div className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md border border-white/[.07] bg-white/[.025] px-4 py-3 text-[11px] text-white/50"><span className="flex gap-1">{[0, 1, 2].map((item) => <i key={item} className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#c7ff4a]" style={{ animationDelay: `${item * 120}ms` }} />)}</span>{lastProgress || "Working on your request"}</div></motion.div>}</AnimatePresence>
+
+            {!running && project.status === "ready" && messages[messages.length - 1]?.role === "assistant" && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-wrap gap-1.5">{[
+              ["Refine the design", "Refine the visual design so it feels more distinctive, polished, and professionally art-directed. Preserve all working functionality."],
+              ["Improve mobile", "Review the complete mobile experience and improve spacing, navigation, touch targets, and responsive layouts."],
+              ["Add a feature", "I want to add another feature. Ask me what workflow I need before changing the application."],
+            ].map(([label, text]) => <button key={label} type="button" onClick={() => applyPrompt(text)} className="rounded-full border border-white/[.08] bg-white/[.025] px-2.5 py-1.5 text-[9px] text-white/50 transition hover:border-[#c7ff4a]/25 hover:bg-[#c7ff4a]/[.05] hover:text-white">{label}</button>)}</motion.div>}
+
             {latest?.plan && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="rounded-2xl border border-white/[.07] bg-white/[.02] p-4">
               <div className="flex items-center justify-between"><p className="flex items-center gap-2 text-[11px] font-medium"><span className="grid h-5 w-5 place-items-center rounded-md bg-[#c7ff4a]/10 text-[#c7ff4a]"><Sparkles className="h-3 w-3" /></span>Build plan</p><span className="text-[10px] text-white/40">{latest.plan.steps?.length || 0} steps</span></div>
               {latest.plan.summary && <p className="mt-3 text-[12px] leading-5 text-white/60">{latest.plan.summary}</p>}
@@ -325,12 +365,15 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
         <AnimatePresence>{notice && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: .25 }} role="status" className="absolute inset-x-3 bottom-[148px] z-10 flex items-center gap-2 rounded-xl border border-white/[.1] bg-[#141c28]/95 px-3 py-2.5 text-[11px] text-white/75 shadow-[0_12px_40px_rgba(0,0,0,.4)] backdrop-blur-xl"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#c7ff4a]" /><span className="min-w-0 flex-1">{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss" className="text-white/40 hover:text-white"><X className="h-3.5 w-3.5" /></button></motion.div>}</AnimatePresence>
 
-        <form onSubmit={build} className="shrink-0 border-t border-white/[.06] p-3">
+        <form onSubmit={build} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) uploadAsset(file); }} className="shrink-0 border-t border-white/[.06] p-3">
           <AnimatePresence>{showReference && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden"><div className="mb-2 flex gap-1.5"><div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[.09] bg-[#0a0f17] px-3"><Globe2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" /><input value={url} onChange={(event) => setUrl(event.target.value)} autoFocus placeholder="Paste a public website URL" className="h-9 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-white/35" /></div><button type="button" onClick={importUrl} disabled={!url} className="rounded-xl bg-white/[.08] px-3 text-[11px] text-white/75 transition hover:bg-white/[.12] disabled:opacity-30">Add</button></div></motion.div>}</AnimatePresence>
+          {assets.length > 0 && <div className="nynz-scrollbar mb-2 flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">{assets.map((asset) => <span key={asset.storageName} className="group flex max-w-full items-center gap-1.5 rounded-lg border border-white/[.08] bg-white/[.035] py-1 pl-1.5 pr-1 text-[9px] text-white/55">{asset.previewUrl && /\.(png|jpe?g|webp|gif|svg)$/i.test(asset.name) ? <Image unoptimized src={asset.previewUrl} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" /> : <FileImage className="h-3 w-3 text-[#c7ff4a]/70" />}<span className="max-w-[180px] truncate">{asset.name}</span><button type="button" onClick={() => removeAsset(asset)} aria-label={`Remove ${asset.name}`} className="grid h-5 w-5 place-items-center rounded text-white/30 hover:bg-white/[.07] hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
           <div className="nynz-composer relative rounded-2xl bg-[#121a26] p-2 shadow-[0_10px_40px_rgba(0,0,0,.25)]" style={{ animation: "none" }}>
             <textarea ref={composer} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onComposerKey} placeholder={files.length ? "Ask for a change…" : "Describe your app…"} rows={3} className="w-full resize-none bg-transparent px-2 py-1.5 text-[13px] leading-5 outline-none placeholder:text-white/35" />
             <div className="mt-1 flex items-center gap-1">
               <button type="button" onClick={() => setShowReference((value) => !value)} aria-label="Add website reference" title="Add website reference" className={`grid h-8 w-8 place-items-center rounded-lg transition ${showReference ? "bg-[#c7ff4a]/[.12] text-[#c7ff4a]" : "text-white/45 hover:bg-white/[.06] hover:text-white/80"}`}><Globe2 className="h-4 w-4" /></button>
+              <input ref={assetInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,font/woff,font/woff2,font/ttf,application/pdf,text/plain,text/csv,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAsset(file); }} />
+              <button type="button" onClick={() => assetInput.current?.click()} disabled={assetBusy} aria-label="Upload project file" title="Upload logo, image or project file" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white/80 disabled:opacity-35">{assetBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <span className="flex-1 truncate px-1 text-[10px] text-white/30"><kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift + Enter</kbd> for a new line</span>
               {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!prompt.trim()} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none"><ArrowUp className="h-4 w-4" /></motion.button>}
             </div>
@@ -344,7 +387,6 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           {tab === "preview" && <div className="mx-auto hidden h-7 w-[min(34vw,380px)] items-center rounded-lg border border-white/[.07] bg-[#080c13] px-3 text-[10px] text-white/45 xl:flex">{previewSrc ? <span className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#c7ff4a] shadow-[0_0_8px_#c7ff4a]" /> : <Globe2 className="mr-2 h-3 w-3 shrink-0" />}<span className="truncate">{previewSrc ? "Secure live preview" : "Preview starts after the first successful build"}</span></div>}
           <div className="ml-auto flex items-center gap-1">
             {tab === "preview" && <>
-              <button aria-label="Select elements" className="grid h-7 w-7 place-items-center rounded-lg text-white/40 transition hover:bg-white/[.06] hover:text-white/80"><MousePointer2 className="h-3.5 w-3.5" /></button>
               <div className="flex rounded-lg border border-white/[.07] p-0.5">{([["desktop", Monitor], ["mobile", Smartphone]] as const).map(([id, Icon]) => <button key={id} aria-label={`${id} preview`} aria-pressed={device === id} onClick={() => setDevice(id)} className={`grid h-6 w-7 place-items-center rounded-md transition ${device === id ? "bg-white/[.1] text-white" : "text-white/40 hover:text-white/75"}`}><Icon className="h-3 w-3" /></button>)}</div>
             </>}
             {tab === "preview" && previewSrc && <a href={previewSrc} target="_blank" rel="noreferrer" className="grid h-7 w-7 place-items-center rounded-lg text-white/40 transition hover:bg-white/[.06] hover:text-white/80" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a>}
@@ -388,6 +430,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     </div>
     <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
   </main>;
+}
+
+function RailHint({ children }: { children: ReactNode }) {
+  return <span className="pointer-events-none absolute left-10 z-50 w-max translate-x-1 rounded-md border border-white/[.1] bg-[#151d29] px-2 py-1 text-[9px] font-medium text-white/80 opacity-0 shadow-xl transition duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100">{children}</span>;
 }
 
 function ProjectSettings({ projectId, onClose, onNotice }: { projectId: string; onClose: () => void; onNotice: (message: string) => void }) {

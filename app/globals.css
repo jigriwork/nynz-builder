@@ -74,6 +74,13 @@
 .nynz-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .14); }
 .nynz-scrollbar::-webkit-scrollbar-track { background: transparent; }
 
+[aria-label="Project settings"] form > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
 .nynz-progress-sweep { animation: nynz-progress-sweep 1.8s ease-in-out infinite; }
 @keyframes nynz-progress-sweep {
   from { transform: translateX(-160%); }
