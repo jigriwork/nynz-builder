@@ -81,7 +81,7 @@ async function processJob(job:any){
   await db.from("usage_events").insert({owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"sandbox_seconds",quantity:Math.ceil((Date.now()-started)/1000),provider:"e2b"});
  }catch(error){console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);const publicMessage="We couldn't complete this build. Please try again.";const {data:failed}=await db.from("build_jobs").update({status:"failed",error_code:"BUILD_FAILED",error_message:publicMessage,finished_at:new Date().toISOString()}).eq("id",job.id).eq("locked_by",lockOwner).select("id");if(failed?.length)await db.from("projects").update({status:"failed",last_error:publicMessage}).eq("id",job.project_id);}
 }
-for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>{if(shuttingDown)return;shuttingDown=true;console.log(`[NYNZ worker] ${signal} received; finishing the active build before shutdown`);void heartbeat("stopping");});
+for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>{if(shuttingDown)return;shuttingDown=true;console.log(`[NYNZ worker] ${lockOwner} ${signal} received; finishing the active build before shutdown`);void heartbeat("stopping");});
 async function main(){
  console.log(`[NYNZ worker] ${worker} started (instance ${lockOwner})`);await heartbeat("starting");
  const timer=setInterval(()=>void heartbeat(),15000);timer.unref();let failures=0;let lastRecovery=0;
@@ -93,6 +93,6 @@ async function main(){
   console.log(`[NYNZ worker] claimed build ${job.id} (${job.mode}, attempt ${job.attempt_count})`);
   currentBuildId=job.id;await heartbeat("working");await processJob(job);console.log(`[NYNZ worker] finished build ${job.id}`);currentBuildId=null;await heartbeat();
  }
- clearInterval(timer);await heartbeat("stopped");console.log(`[NYNZ worker] ${worker} stopped`);process.exit(0);
+ clearInterval(timer);await heartbeat("stopped");console.log(`[NYNZ worker] ${lockOwner} stopped`);process.exit(0);
 }
 main().catch(async error=>{console.error(`[NYNZ worker] fatal: ${safeError(error)}`);await heartbeat("error").catch(()=>undefined);process.exit(1)});

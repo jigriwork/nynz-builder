@@ -10,7 +10,9 @@ services:
     # Anything longer is requeued by recover_stale_build_jobs.
     maxShutdownDelaySeconds: 300
     buildCommand: pnpm install --frozen-lockfile
-    startCommand: pnpm worker
+    # Run node directly so Render's SIGTERM reaches the worker without a
+    # package-manager wrapper in between.
+    startCommand: node --import tsx scripts/worker.ts
     envVars:
       - key: NODE_ENV
         value: production
