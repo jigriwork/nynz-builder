@@ -20,7 +20,7 @@ let shuttingDown=false;let currentBuildId:string|null=null;let heartbeatBusy=fal
 function safeError(error:unknown){const raw=error instanceof Error?error.message:typeof error==="object"&&error&&"message"in error?String((error as {message:unknown}).message):String(error);return redact(raw).slice(0,1000);}
 async function heartbeat(status=currentBuildId?"working":shuttingDown?"stopping":"idle"){
  if(heartbeatBusy)return;heartbeatBusy=true;
- try{await db.from("worker_heartbeats").upsert({worker_id:worker,status,current_build_id:currentBuildId,last_seen_at:new Date().toISOString(),stopped_at:status==="stopped"?new Date().toISOString():null},{onConflict:"worker_id"});if(currentBuildId)await db.from("build_jobs").update({locked_at:new Date().toISOString()}).eq("id",currentBuildId).eq("locked_by",lockOwner);}
+ try{await db.from("worker_heartbeats").upsert({worker_id:worker,status,current_build_id:currentBuildId,last_seen_at:new Date().toISOString(),stopped_at:status==="stopped"?new Date().toISOString():null,...(status==="starting"?{started_at:new Date().toISOString()}:{})},{onConflict:"worker_id"});if(currentBuildId)await db.from("build_jobs").update({locked_at:new Date().toISOString()}).eq("id",currentBuildId).eq("locked_by",lockOwner);}
  catch(error){console.error(`[NYNZ worker] heartbeat failed: ${safeError(error)}`);}
  finally{heartbeatBusy=false;}
 }
