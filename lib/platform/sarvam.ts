@@ -170,7 +170,9 @@ export async function generateWithSarvam(input: { prompt: string; files: Array<{
     let returnedContent = "";
     await input.onAttempt?.(attempt + 1);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    // sarvam-105b streams roughly 60 tokens/s, so a full 20k-token application
+    // needs several minutes. A shorter limit aborts every large create.
+    const timeout = setTimeout(() => controller.abort(), Number(process.env.GENERATION_REQUEST_TIMEOUT_MS || 360_000));
     try {
       const response = await fetch(`${base}/chat/completions`, {
       method: "POST", signal: controller.signal,
