@@ -16,7 +16,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; progress: Array<{ at?: string; message?: string }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
+type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
 type WorkspaceTab = "preview" | "code" | "logs" | "versions";
 
 const active = new Set(["queued", "planning", "generating", "installing", "running", "validating"]);
@@ -158,6 +158,15 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
   }
 
+  async function retryFailedBuild() {
+    const failedBuild = builds.find((item) => item.status === "failed");
+    if (!failedBuild?.prompt || !failedBuild.mode || running) return;
+    setNotice("Retrying the original request.");
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: failedBuild.prompt, mode: failedBuild.mode, idempotencyKey: crypto.randomUUID() }) });
+    const body = await response.json();
+    if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
+  }
+
   function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); build(); }
   }
@@ -288,7 +297,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 
-            {project.last_error && !running && <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4"><div className="flex items-center gap-2 text-[11px] font-medium text-red-300"><AlertCircle className="h-3.5 w-3.5" /> Build needs attention</div><p className="mt-2 line-clamp-3 break-all font-mono text-[10px] leading-4 text-white/50">{project.last_error}</p><div className="mt-3 flex gap-2"><button onClick={() => setTab("logs")} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-white/55 transition hover:bg-white/[.06] hover:text-white"><Terminal className="h-3 w-3" /> View logs</button><button onClick={() => applyPrompt("Fix the build error and try again.")} className="inline-flex items-center gap-1.5 rounded-lg bg-white/[.06] px-2.5 py-1.5 text-[10px] text-white/75 transition hover:bg-white/[.1]"><RotateCcw className="h-3 w-3" /> Ask NYNZ to fix it</button></div></motion.section>}
+            {project.last_error && !running && <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4"><div className="flex items-center gap-2 text-[11px] font-medium text-red-300"><AlertCircle className="h-3.5 w-3.5" /> Build needs attention</div><p className="mt-2 line-clamp-3 break-all font-mono text-[10px] leading-4 text-white/50">{project.last_error}</p><div className="mt-3 flex gap-2"><button onClick={() => setTab("logs")} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-white/55 transition hover:bg-white/[.06] hover:text-white"><Terminal className="h-3 w-3" /> View logs</button><button onClick={retryFailedBuild} className="inline-flex items-center gap-1.5 rounded-lg bg-white/[.06] px-2.5 py-1.5 text-[10px] text-white/75 transition hover:bg-white/[.1]"><RotateCcw className="h-3 w-3" /> Retry original request</button></div></motion.section>}
           </div>
         </div>
 

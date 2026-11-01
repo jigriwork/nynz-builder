@@ -3,7 +3,7 @@ import { CommandExitError } from "e2b";
 import { filesAreSafe } from "./security";
 
 const STARTER: Record<string, string> = {
-  "package.json": JSON.stringify({ name: "nynz-app", private: true, version: "0.1.0", type: "module", scripts: { dev: "vite --host 0.0.0.0", build: "tsc -b && vite build", preview: "vite preview" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: { "@types/react": "latest", "@types/react-dom": "latest" } }, null, 2),
+  "package.json": JSON.stringify({ name: "nynz-app", private: true, version: "0.1.0", type: "module", scripts: { dev: "vite --host 0.0.0.0", build: "tsc -b && vite build", preview: "vite preview" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: { "@types/node": "latest", "@types/react": "latest", "@types/react-dom": "latest" } }, null, 2),
   "index.html": '<div id="root"></div><script type="module" src="/src/main.tsx"></script>',
   "vite.config.ts": 'import{defineConfig}from"vite";import react from"@vitejs/plugin-react";export default defineConfig({plugins:[react()]});',
   "tsconfig.json": JSON.stringify({ files: [], references: [{ path: "./tsconfig.app.json" }, { path: "./tsconfig.node.json" }] }, null, 2),
@@ -50,7 +50,10 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     const files = filesAreSafe(input);
     const merged = new Map(Object.entries(STARTER));
     files.forEach((file) => merged.set(file.path, file.content));
+    const starterPackageJson = JSON.parse(STARTER["package.json"]);
     const packageJson = JSON.parse(merged.get("package.json") || STARTER["package.json"]);
+    packageJson.dependencies = { ...starterPackageJson.dependencies, ...packageJson.dependencies };
+    packageJson.devDependencies = { ...starterPackageJson.devDependencies, ...packageJson.devDependencies };
     packageJson.scripts = { ...packageJson.scripts, build: packageJson.scripts?.build || "vite build", preview: "node .nynz-preview.mjs" };
     merged.set("package.json", JSON.stringify(packageJson, null, 2));
     merged.set(".nynz-preview.mjs", PREVIEW_LAUNCHER);
