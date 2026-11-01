@@ -27,7 +27,9 @@ async function processJob(job:any){
   let output:any=null;
   if(job.mode!=="restart"){
    await progress(job,"Generating your application","generating");
-   const references=(imports||[]).map((x:any)=>`SOURCE ${x.source_url} (${x.title})\n${x.markdown}`).join("\n\n");
+   const importedReferences=(imports||[]).map((x:any)=>`SOURCE ${x.source_url} (${x.title})\n${x.markdown}`).join("\n\n");
+   const backendContext=backend?"A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Use row-level security and never request or embed a service-role key.":"";
+   const references=[importedReferences,backendContext].filter(Boolean).join("\n\n");
    const generationFiles=job.mode==="create"?[]:files||[];
    output=await generateWithSarvam({prompt:job.prompt,files:generationFiles,references,mode:job.mode==="create"?"create":"edit",onAttempt:async(attempt)=>{if(attempt>1)await progress(job,`Refining the generated application · pass ${attempt} of 3`,"generating");}});
    await db.from("build_jobs").update({plan:output.result.plan}).eq("id",job.id);

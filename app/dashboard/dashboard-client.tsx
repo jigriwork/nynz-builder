@@ -4,7 +4,7 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ArrowUpRight, Box, FilePlus2, LogOut, Search, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Box, Coins, FilePlus2, LoaderCircle, LogOut, Search, Sparkles, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NynzBrand } from "@/components/nynz-brand";
 import { ProjectArt, ease } from "@/components/nynz-motion";
@@ -22,7 +22,7 @@ const statusStyle: Record<string, { label: string; dot: string; text: string }> 
 };
 const building = (status: string) => !["ready", "failed", "draft"].includes(status);
 
-export default function DashboardClient({ initialProjects, email }: { initialProjects: Project[]; email: string }) {
+export default function DashboardClient({ initialProjects, email, usage = { creditsUsed: 0, creditLimit: 500, modelTokens: 0 } }: { initialProjects: Project[]; email: string; usage?: { creditsUsed: number; creditLimit: number; modelTokens: number } }) {
   const [projects, setProjects] = useState(initialProjects);
   const [prompt, setPrompt] = useState("");
   const [query, setQuery] = useState("");
@@ -95,7 +95,7 @@ export default function DashboardClient({ initialProjects, email }: { initialPro
     <header className="sticky top-0 z-30 border-b border-white/[.07] bg-[#070b12]/75 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1320px] items-center justify-between px-5 md:px-8">
         <Link href="/"><NynzBrand className="h-7" /></Link>
-        <div className="flex items-center gap-2.5"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] py-1.5 pl-1.5 pr-3.5 text-[12px] text-white/60 sm:flex"><span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-[#c7ff4a] to-[#5ad1b3] text-[10px] font-semibold text-[#071019]">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/50 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
+        <div className="flex items-center gap-2.5"><div title={`${usage.modelTokens.toLocaleString()} model tokens today. One credit equals 1,000 model tokens.`} className="hidden h-9 items-center gap-2 rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.05] px-3 text-[11px] text-[#c7ff4a] md:flex"><Coins className="h-3.5 w-3.5" /><span>{usage.creditsUsed} / {usage.creditLimit}</span><span className="text-white/35">credits today</span></div><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] py-1.5 pl-1.5 pr-3.5 text-[12px] text-white/60 sm:flex"><span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-[#c7ff4a] to-[#5ad1b3] text-[10px] font-semibold text-[#071019]">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/50 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
       </div>
     </header>
 
@@ -136,7 +136,7 @@ export default function DashboardClient({ initialProjects, email }: { initialPro
             return <motion.article layout key={project.id} initial={{ opacity: 0, y: 20, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: .96 }} transition={{ duration: .45, delay: Math.min(index * .05, .3), ease }} className="group relative overflow-hidden rounded-[22px] border border-white/[.08] bg-[#0c131d] p-2 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-1 hover:border-white/[.16] hover:shadow-[0_30px_80px_rgba(0,0,0,.45)]">
               <a href={`/projects/${project.id}`} className="block">
                 <div className="relative aspect-[16/10] overflow-hidden rounded-[16px] bg-[#131d29]">
-                  {project.preview_url && project.status === "ready" ? <><div className="absolute inset-x-0 top-0 z-10 flex h-7 items-center gap-1.5 bg-[#ede9df] px-3"><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/25" /><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/15" /></div><iframe title={`${project.name} preview`} src={project.preview_url} className="pointer-events-none h-full w-full pt-7" sandbox="allow-scripts" /></> : <ProjectArt seed={project.id} building={isBuilding} />}
+                  {project.status === "ready" ? <ProjectThumbnail project={project} /> : <ProjectArt seed={project.id} building={isBuilding} />}
                   <span className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-white/[.1] bg-[#070b12]/70 px-2.5 py-1 text-[10px] backdrop-blur-md"><span className="relative flex h-1.5 w-1.5">{(isBuilding || project.status === "ready") && <span className={`absolute inset-0 animate-ping rounded-full ${style.dot} opacity-60`} />}<span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /></span><span className={style.text}>{style.label}</span></span>
                   <span className="absolute bottom-3 right-3 z-10 grid h-9 w-9 translate-y-2 place-items-center rounded-full bg-[#c7ff4a] text-[#071019] opacity-0 shadow-[0_8px_24px_rgba(199,255,74,.35)] transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight className="h-4 w-4" /></span>
                 </div>
@@ -150,4 +150,20 @@ export default function DashboardClient({ initialProjects, email }: { initialPro
       </section>
     </div>
   </main>;
+}
+
+function ProjectThumbnail({ project }: { project: Project }) {
+  const [src, setSrc] = useState("");
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" }).then(async (response) => {
+      if (!response.ok) throw new Error("Preview unavailable");
+      const body = await response.json();
+      if (active) setSrc(body.url);
+    }).catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [project.id]);
+  if (failed) return <ProjectArt seed={project.id} />;
+  return <><div className="absolute inset-x-0 top-0 z-10 flex h-7 items-center gap-1.5 bg-[#ede9df] px-3"><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/25" /><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/15" />{!src && <LoaderCircle className="ml-auto h-3 w-3 animate-spin text-[#0b121b]/35" />}</div>{src ? <iframe title={`${project.name} preview`} src={src} loading="lazy" className="pointer-events-none h-full w-full pt-7" sandbox="allow-scripts allow-forms allow-same-origin" referrerPolicy="no-referrer" /> : <div className="h-full pt-7"><ProjectArt seed={project.id} /></div>}</>;
 }

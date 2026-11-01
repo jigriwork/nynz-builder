@@ -3,10 +3,12 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
-  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Download, ExternalLink, FileCode2,
-  FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, MousePointer2,
-  Palette, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, Terminal, Users, X,
+  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
+  FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, MousePointer2, Pencil,
+  Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
 import { BuildPipeline, ease } from "@/components/nynz-motion";
@@ -17,12 +19,13 @@ type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
 type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
-type WorkspaceTab = "preview" | "code" | "logs" | "versions";
+type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
 const active = new Set(["queued", "planning", "generating", "installing", "running", "validating"]);
 const tabs: Array<{ id: WorkspaceTab; label: string; icon: typeof Monitor }> = [
   { id: "preview", label: "Preview", icon: Monitor },
   { id: "code", label: "Code", icon: Code2 },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "logs", label: "Logs", icon: Terminal },
   { id: "versions", label: "History", icon: History },
 ];
@@ -42,7 +45,7 @@ function fileIcon(path: string) {
   return <FileCode2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" />;
 }
 
-export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[] }) {
+export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds, initialCredits = 0 }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[]; initialCredits?: number }) {
   const [project, setProject] = useState(initialProject);
   const [files, setFiles] = useState(initialFiles);
   const [versions, setVersions] = useState(initialVersions);
@@ -55,6 +58,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [tab, setTab] = useState<WorkspaceTab>("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [showReference, setShowReference] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [editingCode, setEditingCode] = useState(false);
+  const [terminalCommand, setTerminalCommand] = useState("");
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
   const [previewSrc, setPreviewSrc] = useState(initialProject.id === "design-fixture" ? initialProject.preview_url : null);
   const [mounted, setMounted] = useState(false);
   const resumedDraft = useRef(false);
@@ -217,8 +225,21 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (response.ok) { setNotice("Preview restart queued"); refresh(); } else setNotice((await response.json()).error);
   }
 
+  async function runTerminal(event?: FormEvent) {
+    event?.preventDefault();
+    const command = terminalCommand.trim();
+    if (!command || terminalBusy) return;
+    setTerminalCommand("");
+    setTerminalBusy(true);
+    const response = await fetch(`/api/projects/${project.id}/terminal`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command }) });
+    const body = await response.json();
+    setTerminalLines((value) => [...value, { command, output: response.ok ? [body.stdout, body.stderr].filter(Boolean).join("\n") : body.error || "Command failed", exitCode: response.ok ? body.exitCode : null }]);
+    setTerminalBusy(false);
+  }
+
   const logLines = useMemo(() => latest?.progress || [], [latest]);
   const lineCount = Math.max(1, (current?.content.match(/\n/g)?.length || 0) + 1);
+  const syntaxLanguage = current?.path.endsWith(".tsx") || current?.path.endsWith(".ts") ? "tsx" : current?.path.endsWith(".jsx") || current?.path.endsWith(".js") ? "jsx" : current?.path.endsWith(".css") ? "css" : current?.path.endsWith(".json") ? "json" : current?.path.endsWith(".html") ? "markup" : "text";
 
   return <main className="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="relative flex h-14 shrink-0 items-center border-b border-white/[.07] bg-[#0a0f17] px-3">
@@ -230,6 +251,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       </div>
       <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><BuildPipeline status={running?.status || latest?.status} failed={failed} compact /></motion.div>}</AnimatePresence>
       <div className="ml-auto flex items-center gap-1.5">
+        <span title="One credit equals 1,000 model tokens" className="hidden h-8 items-center gap-1.5 rounded-lg border border-white/[.07] bg-white/[.025] px-2.5 text-[10px] text-white/50 md:flex"><Coins className="h-3 w-3 text-[#c7ff4a]" />{initialCredits} credits</span>
         <span className={`mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex ${running ? "lg:hidden" : ""} ${running ? "border-[#c7ff4a]/20 bg-[#c7ff4a]/[.08] text-[#c7ff4a]" : failed ? "border-red-400/20 bg-red-400/[.08] text-red-300" : project.status === "ready" ? "border-[#c7ff4a]/15 text-[#c7ff4a]/85" : "border-white/[.08] text-white/50"}`}>
           {running ? <LoaderCircle className="h-3 w-3 animate-spin" /> : failed ? <AlertCircle className="h-3 w-3" /> : project.status === "ready" ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inset-0 animate-ping rounded-full bg-[#c7ff4a]/60" /><span className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /></span> : <CheckCircle2 className="h-3 w-3" />}
           <span className="capitalize">{running?.status || (project.status === "ready" ? "Live" : project.status)}</span>
@@ -247,8 +269,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <span className="my-1.5 h-px w-6 bg-white/[.07]" />
         <Link href="/" aria-label="Home" className={railIdle}><Home className="h-4 w-4" /></Link>
         <button aria-label="Search project" onClick={() => setTab("code")} className={railIdle}><Search className="h-4 w-4" /></button>
-        {([["code", Folder, "Project files"], ["versions", History, "Build history"], ["logs", Terminal, "Build logs"]] as const).map(([id, Icon, label]) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`relative ${railButton} ${tab === id ? "bg-white/[.07] text-[#c7ff4a]" : "text-white/40 hover:bg-white/[.06] hover:text-white/80"}`}>{tab === id && <motion.span layoutId="rail-active" className="absolute -left-2.5 h-4 w-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="h-4 w-4" /></button>)}
-        <button aria-label="Project settings" className={`mt-auto ${railIdle}`}><Settings className="h-4 w-4" /></button>
+        {([["code", Folder, "Project files"], ["terminal", SquareTerminal, "Sandbox terminal"], ["versions", History, "Build history"], ["logs", Terminal, "Build logs"]] as const).map(([id, Icon, label]) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`relative ${railButton} ${tab === id ? "bg-white/[.07] text-[#c7ff4a]" : "text-white/40 hover:bg-white/[.06] hover:text-white/80"}`}>{tab === id && <motion.span layoutId="rail-active" className="absolute -left-2.5 h-4 w-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="h-4 w-4" /></button>)}
+        <button aria-label="Project settings" onClick={() => setShowSettings(true)} className={`mt-auto ${railIdle}`}><Settings className="h-4 w-4" /></button>
         <NynzIcon className="mt-1 h-7 w-7 rounded-full" />
       </nav>
 
@@ -343,8 +365,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
               {tab === "code" && <div className="grid h-full min-h-0 grid-cols-[180px_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)]">
                 <aside className="nynz-scrollbar min-h-0 overflow-y-auto border-r border-white/[.06] bg-[#0a0f17] py-2"><div className="flex h-8 items-center px-3 text-[10px] font-medium uppercase tracking-[.13em] text-white/40">Explorer <span className="ml-auto rounded bg-white/[.06] px-1.5 font-mono text-white/50">{files.length}</span></div>{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`relative flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] transition ${selected === file.path ? "bg-white/[.06] text-white/90" : "text-white/50 hover:bg-white/[.03] hover:text-white/80"}`}>{selected === file.path && <motion.span layoutId="file-active" className="absolute inset-y-0 left-0 w-0.5 bg-[#c7ff4a]" />}{fileIcon(file.path)}<span className="truncate">{file.path}</span></button>)}{files.length === 0 && <p className="px-3 py-4 text-[11px] leading-5 text-white/40">Files appear here as NYNZ writes them.</p>}</aside>
-                <div className="min-h-0 min-w-0 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}{current.path}<span className="ml-auto font-sans text-white/35">Autosaves on blur</span></div><div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content: event.target.value } : file))} onBlur={(event) => saveFile(event.target.value)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div></div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
+                <div className="min-h-0 min-w-0 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}{current.path}<button onClick={() => setEditingCode((value) => !value)} className="ml-auto flex h-6 items-center gap-1.5 rounded-md border border-white/[.08] px-2 font-sans text-[9px] text-white/55 transition hover:bg-white/[.06] hover:text-white">{editingCode ? <><Eye className="h-3 w-3" /> Preview</> : <><Pencil className="h-3 w-3" /> Edit</>}</button></div>{editingCode ? <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content: event.target.value } : file))} onBlur={(event) => saveFile(event.target.value)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div> : <div className="nynz-scrollbar min-h-0 flex-1 overflow-auto"><SyntaxHighlighter language={syntaxLanguage} style={vscDarkPlus} showLineNumbers wrapLongLines={false} customStyle={{ margin: 0, minHeight: "100%", background: "#080c13", padding: "16px 18px", fontSize: "12px", lineHeight: "1.7" }} lineNumberStyle={{ minWidth: "2.8em", paddingRight: "1.2em", color: "rgba(255,255,255,.18)" }}>{current.content}</SyntaxHighlighter></div>}</div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
               </div>}
+
+              {tab === "terminal" && <div className="flex h-full min-h-0 flex-col bg-[#06090e] font-mono text-[11px]"><div className="flex h-9 shrink-0 items-center border-b border-white/[.06] px-4 text-white/40"><span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" />Sandbox terminal <span className="ml-auto">/home/user/app</span></div><div className="nynz-scrollbar min-h-0 flex-1 overflow-y-auto p-4 leading-5"><p className="text-white/35">Commands run only inside this project&apos;s isolated preview sandbox.</p>{terminalLines.map((line, index) => <div key={`${line.command}-${index}`} className="mt-4"><p><span className="text-[#c7ff4a]">nynz@app</span><span className="text-white/35">:</span><span className="text-sky-300">~/app</span><span className="text-white/55">$</span> <span className="text-white/85">{line.command}</span></p>{line.output && <pre className={`mt-1 whitespace-pre-wrap break-words ${line.exitCode === 0 ? "text-white/65" : "text-red-300"}`}>{line.output}</pre>}</div>)}{terminalBusy && <p className="mt-4 animate-pulse text-white/40">Running command...</p>}</div><form onSubmit={runTerminal} className="flex shrink-0 items-center gap-2 border-t border-white/[.06] p-3"><span className="text-[#c7ff4a]">$</span><input value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} placeholder="npm run build" aria-label="Terminal command" className="h-9 min-w-0 flex-1 rounded-lg border border-white/[.07] bg-white/[.025] px-3 text-white outline-none focus:border-[#c7ff4a]/30" /><button disabled={!terminalCommand.trim() || terminalBusy} className="grid h-9 w-9 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] disabled:opacity-30" aria-label="Run command"><Play className="h-3.5 w-3.5 fill-current" /></button></form></div>}
 
               {tab === "logs" && <div className="nynz-scrollbar h-full overflow-auto bg-[#070a10] p-4 font-mono text-[11px] leading-6">
                 {logLines.length === 0 && !latest?.error_message ? <EmptyPanel icon={Terminal} title="Quiet for now" text="Build events stream here live while NYNZ plans, writes, installs and validates your app." /> : <>
@@ -362,7 +386,34 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         </div>
       </section>
     </div>
+    <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
   </main>;
+}
+
+function ProjectSettings({ projectId, onClose, onNotice }: { projectId: string; onClose: () => void; onNotice: (message: string) => void }) {
+  const [projectUrl, setProjectUrl] = useState("");
+  const [publishableKey, setPublishableKey] = useState("");
+  const [connectedUrl, setConnectedUrl] = useState("");
+  const [busy, setBusy] = useState(true);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/backend`).then((response) => response.json()).then((body) => { if (body.connected) setConnectedUrl(body.projectUrl); }).finally(() => setBusy(false));
+  }, [projectId]);
+  async function connect(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    const response = await fetch(`/api/projects/${projectId}/backend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectUrl, publishableKey }) });
+    const body = await response.json();
+    if (response.ok) { setConnectedUrl(body.projectUrl); setPublishableKey(""); onNotice("Supabase connected. Ask NYNZ to add the database or authentication workflow you need."); }
+    else onNotice(body.error || "Could not connect Supabase");
+    setBusy(false);
+  }
+  async function disconnect() {
+    setBusy(true);
+    const response = await fetch(`/api/projects/${projectId}/backend`, { method: "DELETE" });
+    if (response.ok) { setConnectedUrl(""); setProjectUrl(""); onNotice("Supabase disconnected from this generated app."); }
+    setBusy(false);
+  }
+  return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex justify-end bg-black/55 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Project settings"><button className="absolute inset-0" onClick={onClose} aria-label="Close settings" /><motion.aside initial={{ x: 36, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 36, opacity: 0 }} transition={{ duration: .25, ease }} className="relative h-full w-full max-w-md overflow-y-auto border-l border-white/[.08] bg-[#0b111a] p-6 shadow-[-30px_0_80px_rgba(0,0,0,.4)]"><div className="flex items-center"><div><p className="text-[10px] uppercase tracking-[.16em] text-white/35">Project settings</p><h2 className="mt-1 text-xl font-medium">Backend connection</h2></div><button onClick={onClose} aria-label="Close" className="ml-auto grid h-9 w-9 place-items-center rounded-lg text-white/45 hover:bg-white/[.06] hover:text-white"><X className="h-4 w-4" /></button></div><div className="mt-8 rounded-2xl border border-white/[.08] bg-white/[.025] p-4"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#3ecf8e]/10 text-[#65e6ad]"><Database className="h-4 w-4" /></span><div><p className="text-[13px] font-medium">Supabase</p><p className="text-[11px] text-white/40">Database, authentication and storage</p></div><span className={`ml-auto rounded-full px-2 py-1 text-[9px] ${connectedUrl ? "bg-[#3ecf8e]/10 text-[#65e6ad]" : "bg-white/[.06] text-white/45"}`}>{busy ? "Checking" : connectedUrl ? "Connected" : "Not connected"}</span></div>{connectedUrl ? <div className="mt-4"><p className="truncate rounded-lg border border-white/[.07] bg-black/15 px-3 py-2 font-mono text-[10px] text-white/55">{connectedUrl}</p><p className="mt-3 text-[11px] leading-5 text-white/45">Only the publishable key is injected into this project&apos;s isolated sandbox. NYNZ never accepts a service-role key.</p><button onClick={disconnect} disabled={busy} className="mt-4 rounded-lg border border-red-400/20 px-3 py-2 text-[10px] text-red-300 transition hover:bg-red-400/[.06] disabled:opacity-40">Disconnect</button></div> : <form onSubmit={connect} className="mt-5 space-y-4"><label className="block text-[10px] text-white/45">Project URL<input type="url" required value={projectUrl} onChange={(event) => setProjectUrl(event.target.value)} placeholder="https://your-project.supabase.co" className="mt-1.5 h-10 w-full rounded-lg border border-white/[.09] bg-[#080c13] px-3 font-mono text-[11px] text-white outline-none focus:border-[#c7ff4a]/30" /></label><label className="block text-[10px] text-white/45">Publishable key<input type="password" required value={publishableKey} onChange={(event) => setPublishableKey(event.target.value)} placeholder="sb_publishable_..." className="mt-1.5 h-10 w-full rounded-lg border border-white/[.09] bg-[#080c13] px-3 font-mono text-[11px] text-white outline-none focus:border-[#c7ff4a]/30" /></label><button disabled={busy} className="h-10 w-full rounded-lg bg-[#c7ff4a] text-[11px] font-semibold text-[#071019] disabled:opacity-40">Connect Supabase</button><p className="text-[10px] leading-4 text-white/35">Create a separate Supabase project for the generated app. Keep the NYNZ platform database isolated from customer application data.</p></form>}</div><div className="mt-5 rounded-2xl border border-white/[.07] p-4"><p className="text-[11px] font-medium">How it works</p><ol className="mt-3 space-y-2 text-[10px] leading-4 text-white/45"><li>1. Connect a Supabase project with its URL and publishable key.</li><li>2. Ask NYNZ to add tables, sign in, uploads or another backend workflow.</li><li>3. Apply SQL migrations in that generated app&apos;s Supabase project with row-level security enabled.</li></ol></div></motion.aside></motion.div>;
 }
 
 function EmptyPanel({ icon: Icon, title, text }: { icon: typeof Monitor; title: string; text: string }) {
