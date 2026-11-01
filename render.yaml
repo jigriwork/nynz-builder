@@ -6,6 +6,9 @@ services:
     plan: starter
     branch: feat/nynz-platform
     autoDeploy: true
+    # Give an active build up to five minutes to finish on deploy or restart.
+    # Anything longer is requeued by recover_stale_build_jobs.
+    maxShutdownDelaySeconds: 300
     buildCommand: corepack enable && pnpm install --frozen-lockfile
     startCommand: pnpm worker
     envVars:

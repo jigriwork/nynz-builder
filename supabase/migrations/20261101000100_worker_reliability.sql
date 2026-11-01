@@ -71,3 +71,10 @@ $$;
 
 revoke all on function public.recover_stale_build_jobs(integer) from public, anon, authenticated;
 grant execute on function public.recover_stale_build_jobs(integer) to service_role;
+
+-- At most one active build per project. The API checks this before inserting,
+-- but only a database constraint prevents concurrent requests (for example two
+-- preview restarts after a sandbox expires) from both queueing a job.
+create unique index if not exists build_jobs_one_active_per_project
+  on public.build_jobs(project_id)
+  where status in ('queued','planning','generating','installing','running','validating');

@@ -1,25 +1,31 @@
 import "dotenv/config";
 import { config } from "dotenv";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { generateWithSarvam } from "../lib/platform/sarvam";
 import { runInE2B, stopE2B } from "../lib/platform/e2b";
 import { getPreviewOrigin } from "../lib/preview/session";
+import { redact } from "../lib/platform/redact";
 
 config({ path: ".env.local", quiet: true });
 
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
 if(!url||!key)throw new Error("Worker requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
 const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});const worker=process.env.WORKER_ID||`worker-${process.pid}`;
+// Leases are owned by this process instance, so a restarted or overlapping
+// instance with the same WORKER_ID can never write to a job it did not claim.
+const lockOwner=`${worker}:${randomUUID().slice(0,8)}`;
 const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 let shuttingDown=false;let currentBuildId:string|null=null;let heartbeatBusy=false;
-function safeError(error:unknown){return (error instanceof Error?error.message:String(error)).replace(/(?:sk|e2b|fc)-?[A-Za-z0-9_-]{12,}/g,"[redacted]").slice(0,1000);}
+function safeError(error:unknown){const raw=error instanceof Error?error.message:typeof error==="object"&&error&&"message"in error?String((error as {message:unknown}).message):String(error);return redact(raw).slice(0,1000);}
 async function heartbeat(status=currentBuildId?"working":shuttingDown?"stopping":"idle"){
  if(heartbeatBusy)return;heartbeatBusy=true;
- try{await db.from("worker_heartbeats").upsert({worker_id:worker,status,current_build_id:currentBuildId,last_seen_at:new Date().toISOString(),stopped_at:status==="stopped"?new Date().toISOString():null},{onConflict:"worker_id"});if(currentBuildId)await db.from("build_jobs").update({locked_at:new Date().toISOString()}).eq("id",currentBuildId).eq("locked_by",worker);}
+ try{await db.from("worker_heartbeats").upsert({worker_id:worker,status,current_build_id:currentBuildId,last_seen_at:new Date().toISOString(),stopped_at:status==="stopped"?new Date().toISOString():null},{onConflict:"worker_id"});if(currentBuildId)await db.from("build_jobs").update({locked_at:new Date().toISOString()}).eq("id",currentBuildId).eq("locked_by",lockOwner);}
+ catch(error){console.error(`[NYNZ worker] heartbeat failed: ${safeError(error)}`);}
  finally{heartbeatBusy=false;}
 }
-async function progress(job:any,message:string,status?:string){const events=[...(job.progress||[]),{at:new Date().toISOString(),message}].slice(-100);job.progress=events;await db.from("build_jobs").update({progress:events,locked_at:new Date().toISOString(),...(status?{status}:{})}).eq("id",job.id).eq("locked_by",worker);}
-async function cancelled(job:any){const {data}=await db.from("build_jobs").select("cancel_requested_at").eq("id",job.id).single();if(data?.cancel_requested_at){await db.from("build_jobs").update({status:"cancelled",finished_at:new Date().toISOString()}).eq("id",job.id);await db.from("projects").update({status:"draft"}).eq("id",job.project_id);return true;}return false;}
+async function progress(job:any,message:string,status?:string){const events=[...(job.progress||[]),{at:new Date().toISOString(),message}].slice(-100);job.progress=events;await db.from("build_jobs").update({progress:events,locked_at:new Date().toISOString(),...(status?{status}:{})}).eq("id",job.id).eq("locked_by",lockOwner);}
+async function cancelled(job:any){const {data}=await db.from("build_jobs").select("cancel_requested_at").eq("id",job.id).single();if(data?.cancel_requested_at){await db.from("build_jobs").update({status:"cancelled",finished_at:new Date().toISOString()}).eq("id",job.id).eq("locked_by",lockOwner);await db.from("projects").update({status:"draft"}).eq("id",job.project_id);return true;}return false;}
 async function projectAssets(projectId:string){const {data}=await db.storage.from("project-assets").list(projectId,{limit:100});const names=(data||[]).filter((item:any)=>item.id).map((item:any)=>item.name);return Promise.all(names.map(async(name:string)=>{const {data:file,error}=await db.storage.from("project-assets").download(`${projectId}/${name}`);if(error||!file)throw error||new Error(`Could not download asset ${name}`);return{name,data:await file.arrayBuffer()};}));}
 function assistantReply(message:string,mode:string){const base=message.trim()||(mode==="edit"?"Your requested changes are now live.":"Your application is ready and running in the preview.");return /\?\s*$/.test(base)?base:`${base}\n\nWhat would you like to change, add, or improve next?`;}
 async function replaceProjectFiles(projectId:string,existing:Array<{path:string}>,next:Array<{path:string;content:string}>){
@@ -29,6 +35,7 @@ async function replaceProjectFiles(projectId:string,existing:Array<{path:string}
  const stale=existing.map(file=>file.path).filter(path=>!nextPaths.has(path));
  if(stale.length){const {error:deleteError}=await db.from("project_files").delete().eq("project_id",projectId).in("path",stale);if(deleteError)throw deleteError;}
 }
+async function ownsLease(id:string){const {data}=await db.from("build_jobs").select("locked_by,status").eq("id",id).maybeSingle();return data?.locked_by===lockOwner&&!["succeeded","failed","cancelled","queued"].includes(data.status);}
 async function processJob(job:any){
  try{
   const [{data:project},{data:files},{data:imports},{data:backend},assets]=await Promise.all([db.from("projects").select("*").eq("id",job.project_id).single(),db.from("project_files").select("path,content").eq("project_id",job.project_id),db.from("website_imports").select("title,source_url,markdown").eq("project_id",job.project_id).eq("status","complete").order("created_at",{ascending:false}).limit(3),db.from("generated_backend_connections").select("project_url,publishable_key").eq("project_id",job.project_id).maybeSingle(),projectAssets(job.project_id)]);
@@ -63,26 +70,29 @@ async function processJob(job:any){
    sandbox=await runInE2B(current||[],backend?{projectUrl:backend.project_url,publishableKey:backend.publishable_key}:undefined,assets);
   }
   if(await cancelled(job)){await stopE2B(sandbox.sandboxId);return;}await progress(job,"Validating production build and preview","validating");
+  if(!(await ownsLease(job.id))){await stopE2B(sandbox.sandboxId).catch(()=>{});console.error(`[NYNZ worker] build ${job.id} lease lost; discarding result`);return;}
   if(project.active_sandbox_id)stopE2B(project.active_sandbox_id).catch(()=>{});
   const {data:version}=await db.from("versions").insert({project_id:job.project_id,created_by:job.requested_by,label:job.mode==="restart"?"Preview restart":`Build ${new Date().toLocaleString("en-IN")}`,source_build_id:job.id}).select().single();
   const {data:saved}=await db.from("project_files").select("path,content,content_hash").eq("project_id",job.project_id);if(version&&saved?.length)await db.from("version_files").insert(saved.map((f:any)=>({version_id:version.id,...f})));
   await db.from("projects").update({status:"ready",active_sandbox_id:sandbox.sandboxId,preview_url:getPreviewOrigin(job.project_id),sandbox_expires_at:sandbox.expiresAt,active_version_id:version?.id||project.active_version_id,last_error:null}).eq("id",job.project_id);
-  if(job.conversation_id&&output)await db.from("messages").insert({conversation_id:job.conversation_id,role:"assistant",content:assistantReply(output.result.message,job.mode),metadata:{build_id:job.id,plan:output.result.plan}});
-  await db.from("build_jobs").update({status:"succeeded",finished_at:new Date().toISOString(),progress:[...job.progress,{at:new Date().toISOString(),message:"Build complete"}]}).eq("id",job.id);
+  // A job recovered after generation runs as a restart but still owes the user a reply.
+  if(job.conversation_id&&(output||job.plan)){const {data:posted}=await db.from("messages").select("id").eq("conversation_id",job.conversation_id).eq("metadata->>build_id",job.id).limit(1);if(!posted?.length)await db.from("messages").insert({conversation_id:job.conversation_id,role:"assistant",content:assistantReply(output?.result.message||"",output?job.mode:"edit"),metadata:{build_id:job.id,plan:output?.result.plan||job.plan}});}
+  await db.from("build_jobs").update({status:"succeeded",locked_at:null,finished_at:new Date().toISOString(),progress:[...job.progress,{at:new Date().toISOString(),message:"Build complete"}]}).eq("id",job.id).eq("locked_by",lockOwner);
   await db.from("usage_events").insert({owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"sandbox_seconds",quantity:Math.ceil((Date.now()-started)/1000),provider:"e2b"});
- }catch(error){console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);const publicMessage="We couldn't complete this build. Please try again.";await db.from("build_jobs").update({status:"failed",error_code:"BUILD_FAILED",error_message:publicMessage,finished_at:new Date().toISOString()}).eq("id",job.id).eq("locked_by",worker);await db.from("projects").update({status:"failed",last_error:publicMessage}).eq("id",job.project_id);}
+ }catch(error){console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);const publicMessage="We couldn't complete this build. Please try again.";const {data:failed}=await db.from("build_jobs").update({status:"failed",error_code:"BUILD_FAILED",error_message:publicMessage,finished_at:new Date().toISOString()}).eq("id",job.id).eq("locked_by",lockOwner).select("id");if(failed?.length)await db.from("projects").update({status:"failed",last_error:publicMessage}).eq("id",job.project_id);}
 }
 for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>{if(shuttingDown)return;shuttingDown=true;console.log(`[NYNZ worker] ${signal} received; finishing the active build before shutdown`);void heartbeat("stopping");});
 async function main(){
- console.log(`[NYNZ worker] ${worker} started`);await heartbeat("starting");
+ console.log(`[NYNZ worker] ${worker} started (instance ${lockOwner})`);await heartbeat("starting");
  const timer=setInterval(()=>void heartbeat(),15000);timer.unref();let failures=0;let lastRecovery=0;
  while(!shuttingDown){
   if(Date.now()-lastRecovery>60000){const recovery=await db.rpc("recover_stale_build_jobs",{stale_after_seconds:120});if(recovery.error)console.error(`[NYNZ worker] recovery check failed: ${safeError(recovery.error)}`);lastRecovery=Date.now();}
-  const {data,error}=await db.rpc("claim_build_job",{worker_name:worker});
+  const {data,error}=await db.rpc("claim_build_job",{worker_name:lockOwner});
   if(error){failures+=1;console.error(`[NYNZ worker] queue poll failed: ${safeError(error)}`);await wait(Math.min(30000,1000*2**Math.min(failures,5)));continue;}
   failures=0;const job=data?.[0];if(!job){await heartbeat();await wait(2000);continue;}
-  currentBuildId=job.id;await heartbeat("working");await processJob(job);currentBuildId=null;await heartbeat();
+  console.log(`[NYNZ worker] claimed build ${job.id} (${job.mode}, attempt ${job.attempt_count})`);
+  currentBuildId=job.id;await heartbeat("working");await processJob(job);console.log(`[NYNZ worker] finished build ${job.id}`);currentBuildId=null;await heartbeat();
  }
- clearInterval(timer);await heartbeat("stopped");console.log(`[NYNZ worker] ${worker} stopped`);
+ clearInterval(timer);await heartbeat("stopped");console.log(`[NYNZ worker] ${worker} stopped`);process.exit(0);
 }
 main().catch(async error=>{console.error(`[NYNZ worker] fatal: ${safeError(error)}`);await heartbeat("error").catch(()=>undefined);process.exit(1)});

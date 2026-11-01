@@ -20,6 +20,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     mode: "restart",
     idempotency_key: `restart-${Date.now()}-${crypto.randomUUID()}`,
   }).select().single();
+  if (error?.code === "23505") return NextResponse.json({ error: "A preview restart is already in progress" }, { status: 409 });
   if (error) return NextResponse.json({ error: "Could not queue the preview restart" }, { status: 400 });
 
   await admin.from("projects").update({ status: "queued", last_error: null }).eq("id", id);
