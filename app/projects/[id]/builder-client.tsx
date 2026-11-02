@@ -354,7 +354,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const lineCount = Math.max(1, (current?.content.match(/\n/g)?.length || 0) + 1);
   const syntaxLanguage = current?.path.endsWith(".tsx") || current?.path.endsWith(".ts") ? "tsx" : current?.path.endsWith(".jsx") || current?.path.endsWith(".js") ? "jsx" : current?.path.endsWith(".css") ? "css" : current?.path.endsWith(".json") ? "json" : current?.path.endsWith(".html") ? "markup" : "text";
 
-  return <main className="nynz-builder fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main data-builder-ready={mounted} className="nynz-builder fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="relative flex h-14 shrink-0 items-center border-b border-white/[.07] bg-[#0a0f17] px-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <a href="/dashboard" aria-label="Back to projects" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white"><ArrowLeft className="h-4 w-4" /></a>
@@ -400,7 +400,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </div>
 
-        <div ref={conversation} role="region" aria-label="Conversation" onScroll={event => { const pane = event.currentTarget; followConversation.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80; }} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
+        <div ref={conversation} role="region" aria-label="Conversation" onWheel={event => { if (event.deltaY < 0) followConversation.current = false; }} onScroll={event => { const pane = event.currentTarget; followConversation.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 4; }} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5 [overflow-anchor:none]">
           {messages.length === 0 && <div className="flex min-h-full flex-col">
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6, ease }} className="pt-4 text-center">
               <div className="relative mx-auto h-14 w-14">

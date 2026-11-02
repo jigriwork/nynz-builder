@@ -75,6 +75,7 @@ try {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(`${origin}/projects/${project.id}`, { waitUntil: "domcontentloaded" });
+  await page.locator('main[data-builder-ready="true"]').waitFor();
   await page.getByRole("button", { name: "Approve and build", exact: true }).waitFor();
   await page.screenshot({ path: "/tmp/nynz-plan-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
