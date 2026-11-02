@@ -49,4 +49,23 @@ describe("OpenRouter staged generation", () => {
     expect(paidCalls).toHaveLength(3);
     expect(output.usage.costUsd).toBeCloseTo(0.03);
   });
+
+  it("stops before file generation when the INR build budget is exceeded", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only-key");
+    vi.stubEnv("OPENROUTER_MAX_COST_INR_PER_BUILD", "10");
+    const manifest = {
+      plan: { summary: "Plan", steps: ["Build"] }, message: "Ready",
+      files: [
+        { path: "package.json", purpose: "Dependencies" }, { path: "index.html", purpose: "Document" },
+        { path: "src/main.tsx", purpose: "Entry" }, { path: "src/App.tsx", purpose: "UI" },
+        { path: "src/index.css", purpose: "Styles" },
+      ],
+    };
+    const fetchMock = vi.fn(async () => reply(manifest, 1));
+    vi.stubGlobal("fetch", fetchMock);
+    const paidCalls: unknown[] = [];
+    await expect(generateWithOpenRouter({ prompt: "Build an app", files: [], mode: "create", onUsage: async (event) => { paidCalls.push(event); } })).rejects.toThrow("₹10");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(paidCalls).toHaveLength(1);
+  });
 });

@@ -127,6 +127,12 @@ async function createApplication(input: { prompt: string; references?: string; o
   assertBudget(usage);
   const manifest = manifestSchema.parse(planned.value);
   const safeManifest = manifest.files.map((file) => ({ ...file, path: safeProjectPath(file.path) }));
+  const manifestPaths = new Set(safeManifest.map((file) => file.path));
+  if (manifestPaths.size !== safeManifest.length) throw new Error("Application plan contains duplicate file paths");
+  for (const required of ["package.json", "index.html", "src/main.tsx", "src/App.tsx"]) {
+    if (!manifestPaths.has(required)) throw new Error(`Application plan is missing ${required}`);
+  }
+  if (![...manifestPaths].some((path) => path.endsWith(".css"))) throw new Error("Application plan is missing responsive styles");
   const generated: SourceFile[] = [];
   const batches = Array.from({ length: Math.ceil(safeManifest.length / 4) }, (_, index) => safeManifest.slice(index * 4, index * 4 + 4));
   for (let index = 0; index < batches.length; index += 1) {
