@@ -14,6 +14,7 @@ import {
 import { NynzIcon } from "@/components/nynz-brand";
 import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
+import { ProjectNameDialog } from "@/components/project-name-dialog";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; active_sandbox_id?: string | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; updated_at?: string };
@@ -104,6 +105,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [usageCredits, setUsageCredits] = useState(initialCredits);
   const [usageCostPaise, setUsageCostPaise] = useState(initialCostPaise);
   const [showUsage, setShowUsage] = useState(false);
+  const [showRename, setShowRename] = useState(false);
   const [tab, setTab] = useState<WorkspaceTab>("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [mobilePane, setMobilePane] = useState<"chat" | "workspace">(initialProject.status === "ready" ? "workspace" : "chat");
@@ -369,7 +371,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <a href="/dashboard" aria-label="Back to projects" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white"><ArrowLeft className="h-4 w-4" /></a>
         <NynzIcon className="hidden h-7 w-7 min-[390px]:block" />
         <span className="hidden text-white/20 sm:block">/</span>
-        <input defaultValue={project.name} aria-label="Project name" onBlur={async (event) => { await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: event.target.value }) }); }} className="min-w-0 max-w-[104px] truncate rounded-md bg-transparent px-1.5 py-1 text-[13px] font-medium outline-none transition hover:bg-white/[.04] focus:bg-white/[.06] sm:max-w-[260px]" />
+        <button type="button" onClick={() => setShowRename(true)} aria-label="Rename project" title={project.name} className="group flex min-w-0 max-w-[104px] items-center gap-2 rounded-md px-1.5 py-1 text-[13px] font-medium transition hover:bg-white/[.04] focus-visible:bg-white/[.06] sm:max-w-[260px]"><span className="truncate">{project.name}</span><Pencil className="hidden h-3 w-3 shrink-0 text-white/30 group-hover:text-[#c7ff4a] sm:block" /></button>
       </div>
       <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><div className="flex h-8 min-w-[220px] items-center gap-2.5 rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.055] px-3 text-[10px] shadow-[0_0_24px_rgba(199,255,74,.06)]"><LoaderCircle className="h-3 w-3 animate-spin text-[#c7ff4a]" /><span className="font-medium text-white/75">{currentActivity.title}</span><span className="relative h-1 w-16 overflow-hidden rounded-full bg-white/[.08]"><motion.span className="absolute inset-y-0 left-0 rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${progressPercent ?? buildPercent(running.status)}%` }} /></span><span className="ml-auto font-mono tabular-nums text-[#c7ff4a]">{progressPercent ?? buildPercent(running.status)}%</span></div></motion.div>}</AnimatePresence>
       <div className="ml-auto flex items-center gap-1.5">
@@ -521,6 +523,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       </div>
     </div>
     <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
+    {showRename && <ProjectNameDialog project={project} onClose={() => setShowRename(false)} onSaved={updated => { setProject(value => ({ ...value, name: updated.name })); setNotice("Project renamed."); }} />}
   </main>;
 }
 

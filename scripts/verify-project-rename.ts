@@ -1,0 +1,66 @@
+import { randomUUID } from "node:crypto";
+import { config } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { chromium, type Browser } from "playwright-core";
+import { redact } from "../lib/platform/redact";
+
+config({ path: ".env.local", quiet: true });
+const origin = process.env.VERIFY_APP_ORIGIN || "https://www.nynz.in";
+const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
+let userId = "";
+let projectId = "";
+let browser: Browser | undefined;
+try {
+  const email = `nynz-rename-${randomUUID()}@example.invalid`;
+  const password = `Nynz-${randomUUID()}-1a!`;
+  const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
+  if (created.error || !created.data.user) throw new Error("Could not create verification user");
+  userId = created.data.user.id;
+  let cookies: Array<{ name: string; value: string }> = [];
+  const auth = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { cookies: { getAll: () => cookies, setAll: values => { cookies = values.map(({ name, value }) => ({ name, value })); } } });
+  if ((await auth.auth.signInWithPassword({ email, password })).error) throw new Error("Could not sign in verification user");
+  browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addCookies(cookies.map(cookie => ({ ...cookie, url: origin, httpOnly: false, secure: origin.startsWith("https:"), sameSite: "Lax" as const })));
+  const response = await context.request.post(`${origin}/api/projects`, { data: { name: "Rename verification" } });
+  const body = await response.json();
+  if (!response.ok()) throw new Error("Could not create verification project");
+  projectId = body.project.id;
+  const page = await context.newPage();
+  await page.goto(`${origin}/projects/${projectId}`, { waitUntil: "domcontentloaded" });
+  await page.locator('main[data-builder-ready="true"]').waitFor();
+  await page.getByRole("button", { name: "Rename project", exact: true }).click();
+  await page.getByRole("textbox", { name: "Project name", exact: true }).fill("Renamed in builder");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  if (!(await page.getByRole("button", { name: "Rename project", exact: true }).innerText()).includes("Renamed in builder")) throw new Error("Builder name did not persist after refresh");
+  await page.goto(`${origin}/dashboard`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Renamed in builder", exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Rename Renamed in builder", exact: true }).click();
+  const nameInput = page.getByRole("textbox", { name: "Project name", exact: true });
+  await nameInput.fill("Renamed on phone");
+  const caret = await nameInput.evaluate(element => getComputedStyle(element).caretColor);
+  if (caret !== "rgb(199, 255, 74)") throw new Error("Rename field caret is not visible");
+  await page.screenshot({ path: "/tmp/nynz-project-rename-mobile.png", fullPage: false });
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("heading", { name: "Renamed on phone", exact: true }).waitFor();
+  const outsider = await browser.newContext();
+  const denied = await outsider.request.patch(`${origin}/api/projects/${projectId}`, { data: { name: "Unauthorized change" } });
+  if (denied.status() !== 401) throw new Error("Anonymous rename was not denied");
+  const saved = await context.request.get(`${origin}/api/projects/${projectId}`);
+  if ((await saved.json()).project.name !== "Renamed on phone") throw new Error("Saved project name is inconsistent");
+  console.log("PASS: builder rename, dashboard rename, phone layout, lime caret, refresh persistence, anonymous denial");
+} catch (error) {
+  console.error(redact(error instanceof Error ? error.message : String(error)));
+  process.exitCode = 1;
+} finally {
+  if (projectId) await db.from("projects").delete().eq("id", projectId);
+  if (userId) await db.auth.admin.deleteUser(userId);
+  await browser?.close();
+  console.log("Disposable rename verification resources cleaned up");
+}

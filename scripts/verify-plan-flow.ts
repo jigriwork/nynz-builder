@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
@@ -117,8 +118,16 @@ try {
   await preview.getByRole("button", { name: "3", exact: true }).click();
   await preview.getByRole("button", { name: "=", exact: true }).click();
   const display = preview.getByLabel("Result", { exact: true });
-  const result = await display.evaluate(element => element instanceof HTMLInputElement ? element.value : element.textContent);
-  if (result?.trim() !== "5") throw new Error("Calculator arithmetic did not produce 5");
+  await display.evaluate(element => new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 2000;
+    const check = () => {
+      const value = element instanceof HTMLInputElement ? element.value : element.textContent;
+      if (value?.trim() === "5") { resolve(); return; }
+      if (Date.now() > deadline) { reject(new Error(`Calculator arithmetic result was ${JSON.stringify(value)}, expected 5`)); return; }
+      setTimeout(check, 50);
+    };
+    check();
+  }));
   await preview.screenshot({ path: "/tmp/nynz-calculator-verified.png", fullPage: true });
   await preview.reload({ waitUntil: "networkidle" });
   await preview.getByText("NYNZ Calculator Verified", { exact: false }).first().waitFor();
@@ -164,6 +173,13 @@ try {
   console.log(JSON.stringify({ passed: true, checks: ["plan before code", "worker released during review", "owner authorization", "revision before code", "editable plan", "explicit browser approval", "stale approval denied", "production build", "calculator 2+3=5", "preview refresh", "unauthorized preview 401", "contextual edit", "cancel before code", "actual cost", "stable reading position", "lime carets", "chronological edit", "collapsed completed plan", "preview during review", "old link after edit", "expired session renewal"], costInr: usage.usage.modelCostPaise / 100 }));
 } catch (error) {
   console.error(redact(error instanceof Error ? error.message : String(error)));
+  if (projects[0]) {
+    const { data: files } = await db.from("project_files").select("path,content").eq("project_id", projects[0]);
+    const { data: jobs } = await db.from("build_jobs").select("status,error_code,error_message,progress,plan").eq("project_id", projects[0]);
+    const artifact = `/tmp/nynz-plan-failure-${run}.json`;
+    await writeFile(artifact, redact(JSON.stringify({ files, jobs }, null, 2)));
+    console.log(`Sanitized verification diagnostics saved to ${artifact}`);
+  }
   process.exitCode = 1;
 } finally {
   for (const id of projects) {

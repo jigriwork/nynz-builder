@@ -4,11 +4,12 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ArrowUpRight, Box, Coins, FilePlus2, LoaderCircle, LogOut, Search, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Box, Coins, FilePlus2, LoaderCircle, LogOut, Pencil, Search, Sparkles, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NynzBrand } from "@/components/nynz-brand";
 import { ProjectArt, ease } from "@/components/nynz-motion";
 import { formatDate } from "@/lib/format-date";
+import { ProjectNameDialog } from "@/components/project-name-dialog";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; updated_at: string };
 type Draft = { prompt: string; reference?: string; attachment?: { name: string; content: string } | null; createdAt: number; projectId?: string };
@@ -23,7 +24,8 @@ const statusStyle: Record<string, { label: string; dot: string; text: string }> 
 const building = (status: string) => !["ready", "failed", "draft"].includes(status);
 function projectName(prompt: string) {
   const named = prompt.match(/\b(?:called|named)\s+["“]?([\p{L}\p{N}][\p{L}\p{N}'’-]*(?:\s+[A-Z0-9][\p{L}\p{N}'’-]*){0,2})/u)?.[1];
-  return (named || prompt.replace(/^(build|create|make)\s+/i, "").split(/[,.!?\n]/)[0]).replace(/["”]+$/, "").slice(0, 72) || "New NYNZ app";
+  const inferred = prompt.replace(/^(?:please\s+)?(?:build|create|make|design|develop)\s+(?:(?:me|us)\s+)?(?:(?:a|an|the)\s+)?/i, "").split(/[,.!?\n]/)[0].replace(/["”]+$/, "").trim();
+  return named || (inferred ? inferred.charAt(0).toUpperCase() + inferred.slice(1, 72) : "New NYNZ app");
 }
 
 export default function DashboardClient({ initialProjects, email, usage = { creditsUsed: 0, creditLimit: 500, modelTokens: 0, modelCostPaise: 0, costLimitPaise: 10_000 } }: { initialProjects: Project[]; email: string; usage?: { creditsUsed: number; creditLimit: number; modelTokens: number; modelCostPaise: number; costLimitPaise: number } }) {
@@ -33,6 +35,7 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
   const [filter, setFilter] = useState<(typeof filters)[number][0]>("all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [renaming, setRenaming] = useState<Project | null>(null);
   const router = useRouter();
   const resumedDraft = useRef(false);
 
@@ -144,8 +147,9 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
                   <span className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-white/[.1] bg-[#070b12]/70 px-2.5 py-1 text-[10px] backdrop-blur-md"><span className="relative flex h-1.5 w-1.5">{(isBuilding || project.status === "ready") && <span className={`absolute inset-0 animate-ping rounded-full ${style.dot} opacity-60`} />}<span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /></span><span className={style.text}>{style.label}</span></span>
                   <span className="absolute bottom-3 right-3 z-10 grid h-9 w-9 translate-y-2 place-items-center rounded-full bg-[#c7ff4a] text-[#071019] opacity-0 shadow-[0_8px_24px_rgba(199,255,74,.35)] transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight className="h-4 w-4" /></span>
                 </div>
-                <div className="px-3 pb-2 pt-4"><h3 className="truncate pr-8 text-[15px] font-medium">{project.name}</h3><p className="mt-1 line-clamp-1 text-[12px] text-white/45">{project.description || "No description yet"}</p><p className="mt-3 text-[11px] text-white/35">Updated {formatDate(project.updated_at)}</p></div>
+                <div className="px-3 pb-2 pt-4"><h3 className="truncate pr-8 text-[15px] font-medium">{project.name}</h3><p className="mt-1 line-clamp-1 text-[12px] text-white/45">{project.description || "No description yet"}</p><p className="mt-3 pr-16 text-[11px] text-white/35">Updated {formatDate(project.updated_at)}</p></div>
               </a>
+              <button type="button" onClick={() => setRenaming(project)} aria-label={`Rename ${project.name}`} title="Rename project" className="absolute bottom-4 right-12 grid h-8 w-8 place-items-center rounded-lg text-white/40 transition hover:bg-white/[.06] hover:text-[#c7ff4a]"><Pencil className="h-3.5 w-3.5" /></button>
               <button onClick={() => remove(project.id)} aria-label={`Delete ${project.name}`} title="Delete project" className="absolute bottom-4 right-4 grid h-8 w-8 place-items-center rounded-lg text-white/30 opacity-0 transition hover:bg-red-400/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
             </motion.article>;
           })}</AnimatePresence>
@@ -153,6 +157,7 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
         </motion.div>}
       </section>
     </div>
+    {renaming && <ProjectNameDialog project={renaming} onClose={() => setRenaming(null)} onSaved={updated => setProjects(value => value.map(project => project.id === updated.id ? { ...project, name: updated.name, updated_at: updated.updated_at } : project))} />}
   </main>;
 }
 
