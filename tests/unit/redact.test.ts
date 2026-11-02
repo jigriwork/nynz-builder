@@ -3,10 +3,11 @@ import { redact } from "../../lib/platform/redact";
 
 describe("log redaction", () => {
   it("removes exact environment secret values", () => {
-    const env = { SARVAM_API_KEY: "plain-value-without-prefix-1234", PREVIEW_SIGNING_SECRET: "signing-secret-abcdef" };
-    const out = redact("key plain-value-without-prefix-1234 and signing-secret-abcdef", env);
+    const env = { SARVAM_API_KEY: "plain-value-without-prefix-1234", OPENROUTER_API_KEY: "router-value-should-never-leak", PREVIEW_SIGNING_SECRET: "signing-secret-abcdef" };
+    const out = redact("key plain-value-without-prefix-1234 router-value-should-never-leak and signing-secret-abcdef", env);
     expect(out).not.toContain("plain-value");
     expect(out).not.toContain("signing-secret");
+    expect(out).not.toContain("router-value");
   });
 
   it("removes Supabase keys, JWTs and preview session tokens", () => {
