@@ -5,6 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { stopE2B } from "../lib/platform/e2b";
 import { redact } from "../lib/platform/redact";
+import { createPreviewSession } from "../lib/preview/session";
 
 config({ path: ".env.local", quiet: true });
 const origin = process.env.VERIFY_APP_ORIGIN || "https://www.nynz.in";
@@ -125,11 +126,31 @@ try {
   if (denied.status() !== 401) throw new Error("Preview was accessible without a preview session");
   const { build: edit } = await request(owner, `${base}/builds`, "POST", { prompt: "Change only the application title from NYNZ Calculator Verified to NYNZ Calculator Updated. Preserve arithmetic, keyboard input, all buttons, and the existing ivory/navy design.", mode: "edit", idempotencyKey: `edit-test-${run}` });
   const editPlan = await waitJob(edit.id, job => job.plan?.approval === "awaiting", "Edit plan");
+  const duringReview = await preview.reload({ waitUntil: "networkidle", timeout: 60000 });
+  if (!duringReview?.ok()) throw new Error("Existing preview stopped working during plan review");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/projects/${project.id}`, { waitUntil: "domcontentloaded" });
+  await page.locator('main[data-builder-ready="true"]').waitFor();
+  const timeline = await page.getByRole("region", { name: "Conversation" }).evaluate(element => {
+    const completed = element.querySelector('details[aria-label="Completed build plan"]');
+    const messages = [...element.querySelectorAll("[data-chat-message]")];
+    const last = messages.at(-1);
+    return { collapsed: completed instanceof HTMLDetailsElement && !completed.open, followedByMessage: Boolean(completed && last && (completed.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING)) };
+  });
+  if (!timeline.collapsed || !timeline.followedByMessage) throw new Error("Completed plan did not collapse before the next edit message");
+  console.log("Completed plan collapsed; next edit appears below it");
   await request(owner, `${base}/builds`, "PATCH", { action: "approve", buildId: edit.id, revision: editPlan.plan.revision, summary: editPlan.plan.summary, steps: editPlan.plan.steps });
   await waitJob(edit.id, job => job.status === "succeeded", "Approved edit");
   const editSession = await request(owner, `${base}/preview-session`, "POST");
   await preview.goto(editSession.url, { waitUntil: "networkidle", timeout: 60000 });
   await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
+  await preview.goto(session.url, { waitUntil: "networkidle", timeout: 60000 });
+  await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
+  const expired = new URL(session.url);
+  expired.searchParams.set("ny_session", createPreviewSession({ projectId: project.id, userId: users[0], sandboxId: built.data!.active_sandbox_id, expiresAt: Date.now() - 1000 }));
+  await preview.goto(expired.toString(), { waitUntil: "networkidle", timeout: 60000 });
+  await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
+  console.log("Old preview link follows the edited app; expired browser session renewed through owner authentication");
   console.log("Contextual edit preview verified");
   const { build: cancelBuild } = await request(owner, `${base}/builds`, "POST", { prompt: "Add a history panel to this calculator", mode: "edit", idempotencyKey: `cancel-test-${run}` });
   const cancelPlan = await waitJob(cancelBuild.id, job => job.plan?.approval === "awaiting", "Cancel plan");
@@ -140,7 +161,7 @@ try {
   const usage = await request(owner, base);
   if (!usage.usage?.credits || !usage.usage?.modelCostPaise) throw new Error("Actual usage was not recorded");
   if (errors.length) throw new Error(`Browser errors: ${errors.join("; ")}`);
-  console.log(JSON.stringify({ passed: true, checks: ["plan before code", "worker released during review", "owner authorization", "revision before code", "editable plan", "explicit browser approval", "stale approval denied", "production build", "calculator 2+3=5", "preview refresh", "unauthorized preview 401", "contextual edit", "cancel before code", "actual cost"], costInr: usage.usage.modelCostPaise / 100 }));
+  console.log(JSON.stringify({ passed: true, checks: ["plan before code", "worker released during review", "owner authorization", "revision before code", "editable plan", "explicit browser approval", "stale approval denied", "production build", "calculator 2+3=5", "preview refresh", "unauthorized preview 401", "contextual edit", "cancel before code", "actual cost", "stable reading position", "lime carets", "chronological edit", "collapsed completed plan", "preview during review", "old link after edit", "expired session renewal"], costInr: usage.usage.modelCostPaise / 100 }));
 } catch (error) {
   console.error(redact(error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;

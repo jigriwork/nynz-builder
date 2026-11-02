@@ -180,7 +180,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   useEffect(() => {
     if (project.id === "design-fixture") { setPreviewSrc(project.preview_url); return; }
-    if (!project.preview_url || !project.active_sandbox_id || project.status !== "ready") { setPreviewSrc(null); return; }
+    if (!project.preview_url || !project.active_sandbox_id || project.status === "archived") { setPreviewSrc(null); return; }
     let current = true;
     fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" })
       .then(async (response) => {
@@ -351,6 +351,15 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   }
 
   const logLines = useMemo(() => latest?.progress || [], [latest]);
+  const conversationItems = useMemo(() => {
+    const items: Array<{ kind: "message"; at: string; message: Message } | { kind: "plan"; at: string; build: Build }> = messages.map(message => ({ kind: "message", at: message.created_at, message }));
+    for (const build of builds) {
+      if (!build.plan?.summary || !["planning", "queued", "generating", "installing", "running", "validating", "succeeded"].includes(build.status)) continue;
+      const planEvent = [...(build.progress || [])].reverse().find(event => event.message?.startsWith("Plan ready for your approval"));
+      items.push({ kind: "plan", at: planEvent?.at || build.created_at, build });
+    }
+    return items.sort((left, right) => left.at.localeCompare(right.at));
+  }, [messages, builds]);
   const lineCount = Math.max(1, (current?.content.match(/\n/g)?.length || 0) + 1);
   const syntaxLanguage = current?.path.endsWith(".tsx") || current?.path.endsWith(".ts") ? "tsx" : current?.path.endsWith(".jsx") || current?.path.endsWith(".js") ? "jsx" : current?.path.endsWith(".css") ? "css" : current?.path.endsWith(".json") ? "json" : current?.path.endsWith(".html") ? "markup" : "text";
 
@@ -421,10 +430,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           </div>}
 
           <div className="space-y-5">
-            <AnimatePresence initial={false}>{messages.map((message) => <motion.div key={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
+            <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
               <div className={`mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40 ${message.role === "user" ? "justify-end" : ""}`}>{message.role === "user" ? "You" : <><NynzIcon className="h-4 w-4" /> NYNZ</>}</div>
               <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}</div>
-            </motion.div>)}</AnimatePresence>
+            </motion.div>)(item.message))}</AnimatePresence>
 
             <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-5 sm:mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> Live activity</div><BuildActivity status={running.status} progress={lastProgress} percent={progressPercent} phase={activityTick} /></motion.div>}</AnimatePresence>
 
@@ -433,14 +442,6 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               ["Improve mobile", "Review the complete mobile experience and improve spacing, navigation, touch targets, and responsive layouts."],
               ["Add a feature", "I want to add another feature. Ask me what workflow I need before changing the application."],
             ].map(([label, text]) => <button key={label} type="button" onClick={() => applyPrompt(text)} className="rounded-full border border-white/[.08] bg-white/[.025] px-2.5 py-1.5 text-[9px] text-white/50 transition hover:border-[#c7ff4a]/25 hover:bg-[#c7ff4a]/[.05] hover:text-white">{label}</button>)}</motion.div>}
-
-            {pendingPlan && <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} onReview={reviewPlan} />}
-
-            {latest?.plan?.summary && !pendingPlan && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="rounded-2xl border border-white/[.07] bg-white/[.02] p-4">
-              <div className="flex items-center justify-between"><p className="flex items-center gap-2 text-[11px] font-medium"><span className="grid h-5 w-5 place-items-center rounded-md bg-[#c7ff4a]/10 text-[#c7ff4a]"><Sparkles className="h-3 w-3" /></span>Build plan</p><span className="text-[10px] text-white/40">{latest.plan.steps?.length || 0} steps</span></div>
-              {latest.plan.summary && <p className="mt-3 text-[12px] leading-5 text-white/60">{latest.plan.summary}</p>}
-              <ol className="mt-3 space-y-1.5">{latest.plan.steps?.map((step, index) => <motion.li key={`${step}-${index}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .4, delay: .1 + index * .08, ease }} className="flex gap-3 rounded-lg px-2 py-1.5 text-[11px] leading-4 text-white/60 transition hover:bg-white/[.03]"><span className="mt-px font-mono text-[#c7ff4a]/80">{String(index + 1).padStart(2, "0")}</span><span>{step}</span></motion.li>)}</ol>
-            </motion.section>}
 
             <AnimatePresence>{running && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: .4, ease }} className="nynz-edge relative hidden overflow-hidden rounded-2xl bg-[#0d1520] p-4 sm:block">
               <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-[#c7ff4a]">Building your app</span><button onClick={cancel} className="ml-auto rounded-md px-2 py-1 text-[10px] text-white/45 transition hover:bg-red-400/10 hover:text-red-300">Stop</button></div>
