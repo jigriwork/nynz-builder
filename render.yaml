@@ -33,13 +33,13 @@ services:
       - key: GENERATION_MAX_REPAIRS
         value: "2"
       - key: OPENROUTER_PLANNER_MODEL
-        value: openai/gpt-5.6-luna
+        value: google/gemini-3.8-flash
       - key: OPENROUTER_CREATE_MODEL
-        value: openai/gpt-5
+        value: anthropic/claude-sonnet-5.5
       - key: OPENROUTER_EDIT_MODEL
-        value: openai/gpt-5.6-luna
+        value: anthropic/claude-sonnet-5.5
       - key: OPENROUTER_FALLBACK_MODELS
-        value: z-ai/glm-4.6,anthropic/claude-sonnet-4.5
+        value: google/gemini-3.8-flash,anthropic/claude-sonnet-5.5
       - key: OPENROUTER_BATCH_OUTPUT_TOKENS
         value: "12000"
       - key: OPENROUTER_REQUEST_TIMEOUT_MS

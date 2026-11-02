@@ -1,6 +1,7 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import { CommandExitError } from "e2b";
 import { filesAreSafe } from "./security";
+import { APP_STARTER } from "./starter";
 
 const STARTER: Record<string, string> = {
   "package.json": JSON.stringify({ name: "nynz-app", private: true, version: "0.1.0", type: "module", scripts: { dev: "vite --host 0.0.0.0", build: "tsc -b && vite build", preview: "vite preview" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: { "@types/node": "latest", "@types/react": "latest", "@types/react-dom": "latest" } }, null, 2),
@@ -13,6 +14,7 @@ const STARTER: Record<string, string> = {
   "src/main.tsx": 'import{createRoot}from"react-dom/client";import App from"./App";import"./index.css";createRoot(document.getElementById("root")!).render(<App/>);',
   "src/App.tsx": 'export default function App(){return <main><h1>NYNZ preview</h1></main>}',
   "src/index.css": 'body{margin:0;font-family:Inter,system-ui,sans-serif}',
+  ...APP_STARTER,
 };
 
 const PREVIEW_LAUNCHER = `import { loadConfigFromFile, mergeConfig, preview } from "vite";
@@ -36,7 +38,12 @@ async function runRequiredCommand(sandbox: Sandbox, command: string, options: { 
   }
 }
 
-export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }, assets: Array<{ name: string; data: ArrayBuffer }> = []) {
+type PreviewBuildOptions = {
+  onBuildFailure?: (error: string, files: Array<{ path: string; content: string }>, attempt: number) => Promise<Array<{ path: string; content: string }>>;
+  onStage?: (message: string, percent: number) => Promise<void>;
+};
+
+export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }, assets: Array<{ name: string; data: ArrayBuffer }> = [], options: PreviewBuildOptions = {}) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
   const timeoutMs = Math.min(Number(process.env.E2B_SANDBOX_TIMEOUT_MS || 600000), 3_600_000);
   const sandbox = await Sandbox.create({
@@ -63,8 +70,29 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     for (const [path, content] of merged) await sandbox.files.write(`/home/user/app/${path}`, content);
     for (const asset of assets) await sandbox.files.write(`/home/user/app/public/uploads/${asset.name}`, asset.data);
     if (generatedBackend) await sandbox.files.write("/home/user/app/.env.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
+    await options.onStage?.("Installing application dependencies", 70);
     const install = await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
-    const build = await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 120_000 }, "Production build");
+    let build: Awaited<ReturnType<typeof runRequiredCommand>> | undefined;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await options.onStage?.(attempt === 1 ? "Compiling and typechecking the application" : "Rechecking the repaired application", 80);
+      try {
+        build = await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 120_000 }, "Production build");
+        break;
+      } catch (error) {
+        if (!options.onBuildFailure || attempt === 3 || !(error instanceof Error) || !error.message.startsWith("Production build failed")) throw error;
+        const repaired = filesAreSafe(await options.onBuildFailure(error.message, [...merged].filter(([path]) => path !== ".nynz-preview.mjs").map(([path, content]) => ({ path, content })), attempt));
+        let dependenciesChanged = false;
+        for (const file of repaired) {
+          if (file.path === ".nynz-preview.mjs" || merged.get(file.path) === file.content) continue;
+          if (file.path === "package.json") dependenciesChanged = true;
+          merged.set(file.path, file.content);
+          await sandbox.files.write(`/home/user/app/${file.path}`, file.content);
+        }
+        if (dependenciesChanged) await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
+      }
+    }
+    if (!build) throw new Error("Production build did not complete");
+    await options.onStage?.("Starting the secure application preview", 90);
     const previewHost = sandbox.getHost(5173);
     await sandbox.commands.run(`NYNZ_PREVIEW_HOST=${previewHost} npm run preview`, { cwd: "/home/user/app", background: true });
 

@@ -19,7 +19,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
+type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -126,7 +126,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const assetInput = useRef<HTMLInputElement>(null);
 
   const current = files.find((file) => file.path === selected);
-  const running = mounted ? builds.find((build) => active.has(build.status)) : undefined;
+  const pendingPlan = builds.find(build => build.status === "planning" && build.plan?.approval === "awaiting");
+  const running = mounted ? builds.find((build) => active.has(build.status) && build.plan?.approval !== "awaiting") : undefined;
   const runningId = running?.id;
   const runningStatus = running?.status;
   const latest = builds[0];
@@ -170,10 +171,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   }, [project.id]);
 
   useEffect(() => {
-    if (!running || project.id === "design-fixture") return;
+    if ((!running && !pendingPlan) || project.id === "design-fixture") return;
     const timer = setInterval(refresh, 2_500);
     return () => clearInterval(timer);
-  }, [running, refresh, project.id]);
+  }, [running, pendingPlan, refresh, project.id]);
 
   useEffect(() => {
     if (project.id === "design-fixture") { setPreviewSrc(project.preview_url); return; }
@@ -190,11 +191,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   }, [project.active_sandbox_id, project.id, project.preview_url, project.status]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running && !pendingPlan) return;
     // Scroll only the chat pane; scrollIntoView would also scroll a parent page embedding this builder.
     const pane = conversation.current;
     pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
-  }, [messages.length, running?.status, running]);
+  }, [messages.length, running?.status, running, pendingPlan]);
 
   useEffect(() => {
     if (!notice) return;
@@ -223,7 +224,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         const attachmentNote = draft.attachment?.content ? `\n\nATTACHED TEXT BRIEF (${draft.attachment.name}):\n${String(draft.attachment.content).slice(0, 50_000)}` : "";
         const fullPrompt = `${draft.prompt}${referenceNote}${attachmentNote}`;
         setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: draft.prompt, created_at: new Date().toISOString() }]);
-        setNotice("Build queued. It will continue if you leave this page.");
+        setNotice("Preparing your plan. Review and approve it before building.");
         const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: fullPrompt, mode: "create", idempotencyKey: `homepage-${draft.createdAt}-${project.id}` }) });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Could not queue build");
@@ -236,10 +237,24 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     event?.preventDefault();
     if (!prompt.trim() || running) return;
     const text = prompt; setPrompt("");
+    if (pendingPlan) {
+      await reviewPlan({ action: "revise", changes: text }).catch(() => setPrompt(text));
+      return;
+    }
     setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
     const body = await response.json();
     if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
+  }
+
+  async function reviewPlan(input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) {
+    if (!pendingPlan) return;
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingPlan.id, revision: pendingPlan.plan?.revision }) });
+    const body = await response.json();
+    if (!response.ok) { setNotice(body.error || "Could not review plan"); await refresh(); throw new Error(body.error || "Could not review plan"); }
+    setBuilds(value => value.map(build => build.id === body.build.id ? body.build : build));
+    setNotice(input.action === "approve" ? "Plan approved. Building your app." : input.action === "revise" ? "Updating the plan for your review." : "Plan cancelled.");
+    await refresh();
   }
 
   async function retryFailedBuild() {
@@ -416,7 +431,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               ["Add a feature", "I want to add another feature. Ask me what workflow I need before changing the application."],
             ].map(([label, text]) => <button key={label} type="button" onClick={() => applyPrompt(text)} className="rounded-full border border-white/[.08] bg-white/[.025] px-2.5 py-1.5 text-[9px] text-white/50 transition hover:border-[#c7ff4a]/25 hover:bg-[#c7ff4a]/[.05] hover:text-white">{label}</button>)}</motion.div>}
 
-            {latest?.plan && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="rounded-2xl border border-white/[.07] bg-white/[.02] p-4">
+            {pendingPlan && <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} onReview={reviewPlan} />}
+
+            {latest?.plan?.summary && !pendingPlan && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="rounded-2xl border border-white/[.07] bg-white/[.02] p-4">
               <div className="flex items-center justify-between"><p className="flex items-center gap-2 text-[11px] font-medium"><span className="grid h-5 w-5 place-items-center rounded-md bg-[#c7ff4a]/10 text-[#c7ff4a]"><Sparkles className="h-3 w-3" /></span>Build plan</p><span className="text-[10px] text-white/40">{latest.plan.steps?.length || 0} steps</span></div>
               {latest.plan.summary && <p className="mt-3 text-[12px] leading-5 text-white/60">{latest.plan.summary}</p>}
               <ol className="mt-3 space-y-1.5">{latest.plan.steps?.map((step, index) => <motion.li key={`${step}-${index}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .4, delay: .1 + index * .08, ease }} className="flex gap-3 rounded-lg px-2 py-1.5 text-[11px] leading-4 text-white/60 transition hover:bg-white/[.03]"><span className="mt-px font-mono text-[#c7ff4a]/80">{String(index + 1).padStart(2, "0")}</span><span>{step}</span></motion.li>)}</ol>
@@ -501,6 +518,32 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     </div>
     <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
   </main>;
+}
+
+function PlanReview({ plan, onReview }: { plan: NonNullable<Build["plan"]>; onReview: (input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) => Promise<void> }) {
+  const [summary, setSummary] = useState(plan.summary || "");
+  const [steps, setSteps] = useState((plan.steps || []).join("\n"));
+  const [changes, setChanges] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(action: "approve" | "revise" | "cancel") {
+    setBusy(true); setError("");
+    try {
+      await onReview(action === "approve" ? { action, summary, steps: steps.split("\n").map(value => value.trim()).filter(Boolean) } : action === "revise" ? { action, changes } : { action });
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Please try again."); }
+    finally { setBusy(false); }
+  }
+  return <section aria-label="Review build plan" className="rounded-2xl border border-[#c7ff4a]/20 bg-[#101a23] p-4">
+    <div className="flex items-center gap-2"><NynzIcon className="h-5 w-5" /><h2 className="text-[13px] font-medium">Review your build plan</h2><span className="ml-auto rounded-full bg-[#c7ff4a]/10 px-2 py-1 text-[9px] text-[#c7ff4a]">Your approval needed</span></div>
+    <p className="mt-2 text-[11px] leading-5 text-white/45">Check the scope below. Edit the plan directly or ask for changes. Code generation starts after you approve.</p>
+    {editing ? <div className="mt-3 space-y-3"><label className="block text-[10px] text-white/55">Summary<textarea aria-label="Plan summary" value={summary} onChange={event => setSummary(event.target.value)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label><label className="block text-[10px] text-white/55">Steps, one per line<textarea aria-label="Plan steps" value={steps} onChange={event => setSteps(event.target.value)} rows={6} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label></div> : <><p className="mt-3 text-[12px] leading-5 text-white/80">{summary}</p><ol className="mt-3 space-y-2">{steps.split("\n").filter(Boolean).map((step, index) => <li key={index} className="flex gap-2 text-[11px] leading-5 text-white/60"><span className="font-mono text-[#c7ff4a]/70">{index + 1}.</span><span>{step}</span></li>)}</ol></>}
+    <button type="button" disabled={busy} onClick={() => setEditing(value => !value)} className="mt-3 flex items-center gap-1.5 text-[11px] text-white/55 hover:text-white"><Pencil className="h-3 w-3" />{editing ? "Done editing" : "Edit plan"}</button>
+    <label className="mt-4 block text-[10px] text-white/45">Anything to add or remove?<textarea aria-label="Requested plan changes" value={changes} onChange={event => setChanges(event.target.value)} rows={2} placeholder="For example: remove history and add a light theme" className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2.5 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-[#c7ff4a]/40" /></label>
+    {error && <p role="alert" className="mt-2 text-[11px] text-red-300">{error}</p>}
+    <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => submit("approve")} disabled={busy || !summary.trim() || !steps.trim() || Boolean(changes.trim())} className="flex h-9 items-center gap-1.5 rounded-lg bg-[#c7ff4a] px-3 text-[11px] font-semibold text-[#071019] disabled:opacity-40">{busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Approve and build</button><button type="button" onClick={() => submit("revise")} disabled={busy || !changes.trim()} className="h-9 rounded-lg border border-white/10 px-3 text-[11px] text-white/70 disabled:opacity-30">Revise plan</button><button type="button" onClick={() => submit("cancel")} disabled={busy} className="ml-auto h-9 px-2 text-[10px] text-white/40">Cancel</button></div>
+    {changes.trim() && <p className="mt-2 text-[10px] text-white/40">Revise the plan to include these changes, then approve the updated version.</p>}
+  </section>;
 }
 
 function RailHint({ children }: { children: ReactNode }) {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { filesAreSafe, safeProjectPath } from "./security";
+import { APP_STARTER, FIXED_STARTER_PATHS } from "./starter";
 import {
   EDIT_SYSTEM,
   applyGeneratedEdits,
@@ -8,13 +9,15 @@ import {
   normalizeGeneratedFile,
   validateCreateDependencies,
   validateSourceSyntax,
+  validateLocalImports,
   type GeneratedApp,
 } from "./sarvam";
 
 type SourceFile = { path: string; content: string };
 type Usage = { prompt_tokens: number; completion_tokens: number; costUsd: number };
 type OnUsage = (event: Usage & { model: string; requestId: string | null }) => Promise<void>;
-type OnProgress = (event: { current: number; total: number; percent: number }) => Promise<void>;
+type OnProgress = (event: { current: number; total: number; percent: number; message?: string }) => Promise<void>;
+export type ApplicationManifest = z.infer<typeof manifestSchema>;
 
 const manifestSchema = z.object({
   plan: z.object({ summary: z.string(), steps: z.array(z.string()).min(1).max(12) }),
@@ -62,11 +65,11 @@ Use no secrets. Include every imported package in package.json. The result must 
 
 function models(role: "plan" | "create" | "edit") {
   const primary = role === "plan"
-    ? process.env.OPENROUTER_PLANNER_MODEL || "openai/gpt-5.6-luna"
+    ? process.env.OPENROUTER_PLANNER_MODEL || "google/gemini-3.8-flash"
     : role === "edit"
-      ? process.env.OPENROUTER_EDIT_MODEL || "openai/gpt-5.6-luna"
-      : process.env.OPENROUTER_CREATE_MODEL || "openai/gpt-5";
-  const fallbacks = (process.env.OPENROUTER_FALLBACK_MODELS || "z-ai/glm-4.6,anthropic/claude-sonnet-4.5").split(",").map((item) => item.trim()).filter(Boolean);
+      ? process.env.OPENROUTER_EDIT_MODEL || "anthropic/claude-sonnet-5.5"
+      : process.env.OPENROUTER_CREATE_MODEL || "anthropic/claude-sonnet-5.5";
+  const fallbacks = (process.env.OPENROUTER_FALLBACK_MODELS || "google/gemini-3.8-flash,anthropic/claude-sonnet-5.5").split(",").map((item) => item.trim()).filter(Boolean);
   return [primary, ...fallbacks.filter((item) => item !== primary)];
 }
 
@@ -80,7 +83,7 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
       method: "POST", signal: controller.signal,
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "HTTP-Referer": "https://www.nynz.in", "X-Title": "NYNZ" },
       body: JSON.stringify({
-        models: models(input.role), temperature: input.role === "plan" ? 0.25 : 0.15,
+        models: models(input.role), reasoning: { effort: "low" },
         max_tokens: input.maxTokens, usage: { include: true },
         // Source generation is a long-output workload. Prioritise sustained
         // tokens/second instead of the cheapest endpoint so users spend less
@@ -93,12 +96,12 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
     if (!response.ok) throw new Error(`OpenRouter request rejected (${response.status}): ${(await response.text()).replace(/\s+/g, " ").slice(0, 400)}`);
     const raw = await response.json();
     const choice = raw.choices?.[0];
-    if (choice?.finish_reason === "length") throw new Error("OpenRouter response reached its output limit");
-    if (!choice?.message?.content) throw new Error("OpenRouter returned an empty response");
     const usage: Usage = { prompt_tokens: Number(raw.usage?.prompt_tokens || 0), completion_tokens: Number(raw.usage?.completion_tokens || 0), costUsd: Number(raw.usage?.cost || 0) };
     const model = String(raw.model || models(input.role)[0]);
     const requestId = response.headers.get("x-request-id");
     await input.onUsage?.({ ...usage, model, requestId });
+    if (choice?.finish_reason === "length") throw new Error("OpenRouter response reached its output limit");
+    if (!choice?.message?.content) throw new Error("OpenRouter returned an empty response");
     return { value: JSON.parse(choice.message.content), usage, model, requestId };
   } finally { clearTimeout(timeout); }
 }
@@ -116,6 +119,7 @@ function assertBudget(usage: Usage) {
 function validateProduct(files: SourceFile[], prompt: string) {
   validateSourceSyntax(files);
   validateCreateDependencies(files);
+  validateLocalImports(files);
   const source = files.filter((file) => /\.[jt]sx?$/.test(file.path)).map((file) => file.content).join("\n");
   const styles = files.filter((file) => file.path.endsWith(".css")).map((file) => file.content).join("\n");
   const compactBrief = /\b(?:minimal|simple|single[- ]page|one[- ]page)\b/i.test(prompt);
@@ -131,17 +135,33 @@ function validateProduct(files: SourceFile[], prompt: string) {
   }
 }
 
-async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress }) {
+export async function planApplication(input: { prompt: string; references?: string; files?: SourceFile[]; onUsage?: OnUsage }) {
+  const planned = await completion({
+    role: "plan", schema: MANIFEST_JSON_SCHEMA, schemaName: "nynz_manifest", maxTokens: 2_000,
+    system: `${QUALITY}\nReturn a concise implementation plan and ordered file manifest for user approval. Describe user-visible features, design, interactions, and limitations in the plan steps. Do not write code. Reuse the provided React/Vite starter. For small utilities plan only src/App.tsx, src/index.css, and a data/helper file if needed, plus package.json, index.html, src/main.tsx. Do not invent unrelated features or a marketing homepage. For edits describe only requested changes and preserve the existing app.`,
+    user: `PRODUCT BRIEF:\n${input.prompt}\n\nEXISTING FILES:\n${input.files?.map(file => file.path).join("\n") || "New application"}\n\nREFERENCES AND ASSETS:\n${input.references?.slice(0, 20_000) || "None"}`, onUsage: input.onUsage,
+  });
+  assertBudget(planned.usage);
+  const manifest = manifestSchema.parse(planned.value);
+  manifest.files = manifest.files.map(file => ({ ...file, path: safeProjectPath(file.path) }));
+  const paths = new Set(manifest.files.map(file => file.path));
+  if (paths.size !== manifest.files.length) throw new Error("Application plan contains duplicate file paths");
+  for (const path of ["package.json", "index.html", "src/main.tsx", "src/App.tsx"]) {
+    if (!paths.has(path)) throw new Error(`Application plan is missing ${path}`);
+  }
+  if (!manifest.files.some(file => file.path.endsWith(".css"))) throw new Error("Application plan is missing responsive styles");
+  return { manifest, usage: planned.usage, model: planned.model, requestId: planned.requestId };
+}
+
+async function createApplication(input: { prompt: string; references?: string; approvedManifest?: ApplicationManifest; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void> }) {
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   await input.onAttempt?.(1);
-  const planned = await completion({
-    role: "plan", schema: MANIFEST_JSON_SCHEMA, schemaName: "nynz_manifest", maxTokens: 4_000,
-    system: `${QUALITY}\nReturn only a JSON implementation plan and ordered file manifest. Include package.json, index.html, TypeScript configuration, Vite configuration, src/main.tsx, responsive styles, data and focused components.`,
-    user: `PRODUCT BRIEF:\n${input.prompt}\n\nREFERENCES AND ASSETS:\n${input.references?.slice(0, 40_000) || "None"}`, onUsage: input.onUsage,
-  });
+  const planned = input.approvedManifest
+    ? { manifest: manifestSchema.parse(input.approvedManifest), usage: { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 }, model: models("create")[0], requestId: null }
+    : await planApplication(input);
   addUsage(usage, planned.usage);
   assertBudget(usage);
-  const manifest = manifestSchema.parse(planned.value);
+  const manifest = planned.manifest;
   const safeManifest = manifest.files.map((file) => ({ ...file, path: safeProjectPath(file.path) }));
   const manifestPaths = new Set(safeManifest.map((file) => file.path));
   if (manifestPaths.size !== safeManifest.length) throw new Error("Application plan contains duplicate file paths");
@@ -149,8 +169,9 @@ async function createApplication(input: { prompt: string; references?: string; o
     if (!manifestPaths.has(required)) throw new Error(`Application plan is missing ${required}`);
   }
   if (![...manifestPaths].some((path) => path.endsWith(".css"))) throw new Error("Application plan is missing responsive styles");
-  const generated: SourceFile[] = [];
-  const batches = Array.from({ length: Math.ceil(safeManifest.length / 4) }, (_, index) => safeManifest.slice(index * 4, index * 4 + 4));
+  const generated: SourceFile[] = Object.entries(APP_STARTER).filter(([path]) => FIXED_STARTER_PATHS.has(path)).map(([path, content]) => ({ path, content }));
+  const productManifest = safeManifest.filter(file => !FIXED_STARTER_PATHS.has(file.path));
+  const batches = Array.from({ length: Math.ceil(productManifest.length / 4) }, (_, index) => productManifest.slice(index * 4, index * 4 + 4));
   for (let index = 0; index < batches.length; index += 1) {
     const batch = batches[index];
     const existing = generated.map((file) => `--- ${file.path}\n${file.content}`).join("\n\n").slice(-120_000);
@@ -158,11 +179,11 @@ async function createApplication(input: { prompt: string; references?: string; o
     let completed = false;
     for (let attempt = 1; attempt <= 3 && !completed; attempt += 1) {
       await input.onAttempt?.(index + 2);
-      await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + (index / batches.length) * 42) });
+      await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + (index / batches.length) * 42), message: `Writing ${batch.map(file => file.path.split("/").pop()).join(", ")} · batch ${index + 1} of ${batches.length}` });
       try {
         const result = await completion({
           role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
-          system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated.`,
+          system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated. The supplied React/Vite/TypeScript infrastructure is fixed. Use relative imports, ordinary CSS, no source aliases, and no Tailwind configuration. Include every imported helper file in the manifest. Use the provided package versions and build script when returning package.json.`,
           user: `PRODUCT BRIEF:\n${input.prompt}\n\nCOMPLETE MANIFEST:\n${safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nGENERATE THIS BATCH (${index + 1}/${batches.length}), ATTEMPT ${attempt}:\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nFILES ALREADY GENERATED:\n${existing || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 20_000) || "None"}${attempt > 1 ? "\n\nThe previous batch was invalid or incomplete. Return all requested paths with complete syntax and no extra files." : ""}`,
           onUsage: input.onUsage,
         });
@@ -177,12 +198,23 @@ async function createApplication(input: { prompt: string; references?: string; o
         generated.push(...files);
         completed = true;
         await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + ((index + 1) / batches.length) * 42) });
-      } catch (error) { batchError = error; }
+      } catch (error) { if (error instanceof Error && /spending limit|request rejected \((401|402)\)/i.test(error.message)) throw error; batchError = error; }
     }
     if (!completed) throw batchError instanceof Error ? batchError : new Error(`Could not generate batch ${index + 1}`);
+    await input.onFiles?.(generated);
   }
-  const files = filesAreSafe(generated).map(normalizeGeneratedFile);
-  validateProduct(files, input.prompt);
+  let files = filesAreSafe(generated).map(normalizeGeneratedFile);
+  try { validateProduct(files, input.prompt); }
+  catch (error) {
+    if (!(error instanceof Error) || !/missing local imports|missing dependencies|invalid syntax/.test(error.message)) throw error;
+    await input.onProgress?.({ current: batches.length, total: batches.length, percent: 65 });
+    const repair = await editApplication({ prompt: `Fix this validation error by adding the missing helpers or correcting imports/declarations. Preserve the product and design. Error: ${error.message}`, files, onUsage: input.onUsage });
+    addUsage(usage, repair.usage); assertBudget(usage);
+    const combined = new Map(files.map(file => [file.path, file.content]));
+    repair.result.files.forEach(file => combined.set(file.path, file.content));
+    files = [...combined].map(([path, content]) => ({ path, content }));
+    validateProduct(files, input.prompt);
+  }
   const result: GeneratedApp = generatedSchema.parse({ plan: manifest.plan, message: manifest.message, files });
   return { result, usage, requestId: planned.requestId, model: `openrouter:${planned.model}` };
 }
@@ -205,11 +237,11 @@ async function editApplication(input: { prompt: string; files: SourceFile[]; ref
       const files = applyGeneratedEdits(input.files, edit.edits);
       validateSourceSyntax(files);
       return { result: generatedSchema.parse({ plan: edit.plan, message: edit.message, files }), usage, requestId: response.requestId, model: `openrouter:${response.model}` };
-    } catch (error) { lastError = error; }
+    } catch (error) { if (error instanceof Error && /spending limit|request rejected \((401|402)\)/i.test(error.message)) throw error; lastError = error; }
   }
   throw lastError instanceof Error ? lastError : new Error("OpenRouter edit failed");
 }
 
-export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress }) {
+export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; approvedManifest?: ApplicationManifest; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void> }) {
   return input.mode === "create" ? createApplication(input) : editApplication(input);
 }

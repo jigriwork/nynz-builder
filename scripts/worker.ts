@@ -6,6 +6,7 @@ import { generateApplication } from "../lib/platform/generation";
 import { runInE2B, stopE2B } from "../lib/platform/e2b";
 import { getPreviewOrigin } from "../lib/preview/session";
 import { redact } from "../lib/platform/redact";
+import { planApplication } from "../lib/platform/openrouter";
 
 config({ path: ".env.local", quiet: true });
 
@@ -44,14 +45,24 @@ async function processJob(job:any){
   if(!project)throw new Error("Project no longer exists");await progress(job,"Preparing project context","planning");if(await cancelled(job))return;
   let output:any=null;
   if(job.mode!=="restart"){
-   await progress(job,"Generating your application","generating");
    const importedReferences=(imports||[]).map((x:any)=>`SOURCE ${x.source_url} (${x.title})\n${x.markdown}`).join("\n\n");
    const backendContext=backend?"A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Use row-level security and never request or embed a service-role key.":"";
    const assetContext=assets.length?`The user uploaded these project assets. They are available in the generated app at these exact public paths:\n${assets.map((asset:any)=>`- /uploads/${asset.name}`).join("\n")}\nUse the relevant uploaded assets when the request mentions a logo, image, document or brand file.`:"";
    const references=[importedReferences,backendContext,assetContext].filter(Boolean).join("\n\n");
+   if(job.plan?.approval==="required"){
+    await progress(job,"Planning the screens, design and functionality for your approval","planning",12);
+    const planned=await planApplication({prompt:job.prompt,files:files||[],references,onUsage:async(event)=>recordOpenRouterUsage(job,event)});
+    if(await cancelled(job))return;
+    const plan={...planned.manifest.plan,manifest:planned.manifest,approval:"awaiting",revision:job.plan.revision||1};
+    const {error}=await db.from("build_jobs").update({plan,status:"planning",locked_at:null,locked_by:null,progress:[...job.progress,{at:new Date().toISOString(),message:"Plan ready for your approval. No code generation has started.",percent:18}]}).eq("id",job.id).eq("locked_by",lockOwner);
+    if(error)throw error;
+    await db.from("projects").update({status:"planning",last_error:null}).eq("id",job.project_id);
+    return;
+   }
+   await progress(job,"Writing the approved application","generating",22);
    const generationFiles=job.mode==="create"?[]:files||[];
-   output=await generateApplication({prompt:job.prompt,files:generationFiles,references,mode:job.mode==="create"?"create":"edit",onAttempt:async(attempt)=>{await progress(job,job.mode==="create"&&attempt>1?`Building application files · batch ${attempt-1}`:attempt>1?`Refining the requested changes · pass ${attempt}`:"Generating your application","generating");},onProgress:async(event)=>progress(job,`Building application files · ${event.current} of ${event.total}`,"generating",event.percent),onUsage:async(event)=>recordOpenRouterUsage(job,event)});
-   await db.from("build_jobs").update({plan:output.result.plan}).eq("id",job.id);
+   output=await generateApplication({prompt:job.prompt,files:generationFiles,references,approvedManifest:job.plan?.approval==="approved"?job.plan.manifest:undefined,mode:job.mode==="create"?"create":"edit",onAttempt:async(attempt)=>{await progress(job,job.mode==="create"&&attempt>1?`Building application files · batch ${attempt-1}`:attempt>1?`Refining the requested changes · pass ${attempt}`:"Generating your application","generating");},onProgress:async(event)=>progress(job,event.message||`Building application files · ${event.current} of ${event.total}`,"generating",event.percent),onFiles:async(next)=>{if(!await ownsLease(job.id))throw new Error("Build lease lost while saving files");const {error}=await db.from("project_files").upsert(next.map(file=>({project_id:job.project_id,...file})));if(error)throw error;},onUsage:async(event)=>recordOpenRouterUsage(job,event)});
+   await db.from("build_jobs").update({plan:{...job.plan,...output.result.plan}}).eq("id",job.id).eq("locked_by",lockOwner);
    if(output.result.files.length){
     if(job.mode==="create")await replaceProjectFiles(job.project_id,files||[],output.result.files);
     else {const {error}=await db.from("project_files").upsert(output.result.files.map((f:any)=>({project_id:job.project_id,...f})));if(error)throw error;}
@@ -60,19 +71,17 @@ async function processJob(job:any){
    if(provider!=="openrouter")await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:output.usage.prompt_tokens||0,provider,model:output.model,provider_request_id:output.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:output.usage.completion_tokens||0,provider,model:output.model,provider_request_id:output.requestId,estimated_cost_minor:estimatedCostMinor||null,metadata:{cost_currency:"INR",cost_source:estimatedCostMinor?"provider_usage":"unavailable"}}]);
   }
   if(await cancelled(job))return;await progress(job,"Preparing a secure preview environment","installing");
-  let {data:current}=await db.from("project_files").select("path,content").eq("project_id",job.project_id);const started=Date.now();let sandbox;
-  try{sandbox=await runInE2B(current||[],backend?{projectUrl:backend.project_url,publishableKey:backend.publishable_key}:undefined,assets);}catch(error){
-   const detail=error instanceof Error?error.message:"Production build failed";
-   if(job.mode==="restart"||!detail.startsWith("Production build failed"))throw error;
-   await progress(job,"Repairing a production build issue","generating");
-   const repair=await generateApplication({prompt:`Fix the production build errors below. Preserve the requested product and design. Return only files that need correction.\n\nBUILD ERRORS:\n${detail.slice(0,6000)}`,files:current||[],mode:"edit",onAttempt:async(attempt)=>{if(attempt>1)await progress(job,`Refining the build repair · pass ${attempt} of 3`,"generating");},onUsage:async(event)=>recordOpenRouterUsage(job,event)});
-   if(repair.result.files.length)await db.from("project_files").upsert(repair.result.files.map((f:any)=>({project_id:job.project_id,...f})));
-   const repairProvider=repair.model.startsWith("openrouter:")?"openrouter":"sarvam";const repairCostMinor=Math.round(Number(repair.usage.costUsd||0)*Number(process.env.USD_TO_INR_RATE||95)*100);
-   if(repairProvider!=="openrouter")await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:repair.usage.prompt_tokens||0,provider:repairProvider,model:repair.model,provider_request_id:repair.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:repair.usage.completion_tokens||0,provider:repairProvider,model:repair.model,provider_request_id:repair.requestId,estimated_cost_minor:repairCostMinor||null,metadata:{cost_currency:"INR",cost_source:repairCostMinor?"provider_usage":"unavailable"}}]);
-   ({data:current}=await db.from("project_files").select("path,content").eq("project_id",job.project_id));
-   await progress(job,"Rebuilding the corrected application","installing");
-   sandbox=await runInE2B(current||[],backend?{projectUrl:backend.project_url,publishableKey:backend.publishable_key}:undefined,assets);
-  }
+  const {data:current}=await db.from("project_files").select("path,content").eq("project_id",job.project_id);const started=Date.now();
+  const sandbox=await runInE2B(current||[],backend?{projectUrl:backend.project_url,publishableKey:backend.publishable_key}:undefined,assets,{
+   onStage:async(message,percent)=>progress(job,message,percent>=80?"validating":"installing",percent),
+   onBuildFailure:job.mode==="restart"?undefined:async(detail,workingFiles,attempt)=>{
+    await progress(job,`Repairing a compiler issue · pass ${attempt} of 2`,"generating",78);
+    const repair=await generateApplication({prompt:`Fix these production compiler errors. Add any missing helper files. Preserve the product and all working functionality. Make the smallest necessary corrections.\n\n${detail.slice(0,6000)}`,files:workingFiles,mode:"edit",onUsage:async(event)=>recordOpenRouterUsage(job,event)});
+    if(!await ownsLease(job.id))throw new Error("Build lease lost during repair");
+    if(repair.result.files.length){const {error}=await db.from("project_files").upsert(repair.result.files.map((f:any)=>({project_id:job.project_id,...f})));if(error)throw error;}
+    return repair.result.files;
+   },
+  });
   if(await cancelled(job)){await stopE2B(sandbox.sandboxId);return;}await progress(job,"Validating production build and preview","validating");
   if(!(await ownsLease(job.id))){await stopE2B(sandbox.sandboxId).catch(()=>{});console.error(`[NYNZ worker] build ${job.id} lease lost; discarding result`);return;}
   if(project.active_sandbox_id)stopE2B(project.active_sandbox_id).catch(()=>{});

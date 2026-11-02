@@ -1,6 +1,7 @@
 import { z } from "zod";
 import ts from "typescript";
 import { builtinModules } from "node:module";
+import { posix } from "node:path";
 import { filesAreSafe, safeProjectPath } from "./security";
 
 export const generatedSchema = z.object({
@@ -188,6 +189,25 @@ export function validateCreateDependencies(files: Array<{ path: string; content:
   const declared = { ...manifest.dependencies, ...manifest.devDependencies };
   const missing = [...required].filter((name) => !declared[name]);
   if (missing.length) throw new Error(`Generated package.json is missing dependencies: ${missing.join(", ")}`);
+}
+
+export function validateLocalImports(files: Array<{ path: string; content: string }>) {
+  const paths = new Set(files.map(file => `/${file.path}`));
+  const configFile = files.find(file => file.path === "tsconfig.app.json") || files.find(file => file.path === "tsconfig.json");
+  const config = configFile ? ts.parseConfigFileTextToJson(configFile.path, configFile.content).config : {};
+  const options = ts.convertCompilerOptionsFromJson(config?.compilerOptions || {}, "/").options;
+  const host: ts.ModuleResolutionHost = { fileExists: path => paths.has(posix.normalize(path)), readFile: path => files.find(file => `/${file.path}` === posix.normalize(path))?.content, directoryExists: path => [...paths].some(file => file.startsWith(`${posix.normalize(path).replace(/\/$/, "")}/`)), getCurrentDirectory: () => "/" };
+  const missing: string[] = [];
+  for (const file of files.filter(item => /\.[jt]sx?$/.test(item.path) && !item.path.endsWith(".d.ts"))) {
+    for (const imported of ts.preProcessFile(file.content, true, true).importedFiles) {
+      const name = imported.fileName.split("?")[0];
+      if (!name.startsWith(".")) continue;
+      const target = posix.normalize(posix.join("/", posix.dirname(file.path), name));
+      const candidates = [target, ...[".ts", ".tsx", ".js", ".jsx", ".json", ".css"].flatMap(ext => [`${target}${ext}`, `${target}/index${ext}`])];
+      if (!candidates.some(path => paths.has(path)) && !ts.resolveModuleName(name, `/${file.path}`, options, host).resolvedModule) missing.push(`${file.path} imports ${imported.fileName}`);
+    }
+  }
+  if (missing.length) throw new Error(`Generated application has missing local imports: ${missing.join("; ")}`);
 }
 
 export async function generateWithSarvam(input: { prompt: string; files: Array<{ path: string; content: string }>; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void> }) {

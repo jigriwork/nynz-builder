@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateWithOpenRouter } from "../../lib/platform/openrouter";
-import { normalizeGeneratedFile, validateCreateDependencies } from "../../lib/platform/sarvam";
+import { generateWithOpenRouter, planApplication } from "../../lib/platform/openrouter";
+import { normalizeGeneratedFile, validateCreateDependencies, validateLocalImports } from "../../lib/platform/sarvam";
+import { FIXED_STARTER_PATHS } from "../../lib/platform/starter";
 
 function reply(value: unknown, cost = 0.01) {
   return new Response(JSON.stringify({
@@ -40,15 +41,38 @@ describe("OpenRouter staged generation", () => {
         { path: "src/data.ts", content: "export const categories=['Skin','Body','Ritual'];" },
       ] },
     ];
-    const responses = [reply(manifest), ...batches.map((batch) => reply(batch))];
+    const productFiles = batches.flatMap(batch => batch.files).filter(file => !FIXED_STARTER_PATHS.has(file.path));
+    const responses = [reply(manifest), reply({ files: productFiles.slice(0, 4) }), reply({ files: productFiles.slice(4) })];
     const fetchMock = vi.fn(async () => responses.shift() || reply({ files: [] }));
     vi.stubGlobal("fetch", fetchMock);
     const paidCalls: unknown[] = [];
     const output = await generateWithOpenRouter({ prompt: "Build a polished store", files: [], mode: "create", onUsage: async (event) => { paidCalls.push(event); } });
-    expect(output.result.files).toHaveLength(8);
+    expect(output.result.files).toHaveLength(9);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(paidCalls).toHaveLength(3);
     expect(output.usage.costUsd).toBeCloseTo(0.03);
+  });
+
+  it("produces a reviewable plan without generating any source code", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only-key");
+    const manifest = { plan: { summary: "Calculator with keyboard input", steps: ["Arithmetic", "Keyboard input"] }, message: "Review your calculator plan", files: ["package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/index.css"].map(path => ({ path, purpose: path })) };
+    const fetchMock = vi.fn(async () => reply(manifest));
+    vi.stubGlobal("fetch", fetchMock);
+    const planned = await planApplication({ prompt: "Build a calculator" });
+    expect(planned.manifest.plan.steps).toEqual(["Arithmetic", "Keyboard input"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(planned.manifest.files.every(file => !("content" in file))).toBe(true);
+  });
+
+  it("reuses the approved plan without paying for another planning request", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only-key");
+    const manifest = { plan: { summary: "Minimal page", steps: ["Responsive page"] }, message: "Ready", files: ["package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/index.css"].map(path => ({ path, purpose: path })) };
+    const source = `export default function App(){return <main>${Array.from({ length: 12 }, (_, i) => `<section className="card"><h2>Section ${i}</h2><p>Useful content about this application.</p></section>`).join("")}</main>}`;
+    const fetchMock = vi.fn(async () => reply({ files: [{ path: "package.json", content: JSON.stringify({ scripts: { build: "vite build" }, dependencies: { react: "latest", "react-dom": "latest", vite: "latest", "@vitejs/plugin-react": "latest" } }) }, { path: "index.html", content: '<div id="root"></div>' }, { path: "src/App.tsx", content: source }, { path: "src/index.css", content: "body{margin:0}.card{padding:2rem}".repeat(20) }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const output = await generateWithOpenRouter({ prompt: "Build a minimal page", files: [], mode: "create", approvedManifest: manifest });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(output.result.plan).toEqual(manifest.plan);
   });
 
   it("stops before file generation when the INR build budget is exceeded", async () => {
@@ -82,6 +106,10 @@ describe("generated stylesheet normalization", () => {
 });
 
 describe("generated dependency validation", () => {
+  it("detects the missing calculator helper before sandbox installation", () => {
+    expect(() => validateLocalImports([{ path: "src/components/Button.tsx", content: 'import { cn } from "../utils/cn"; export const Button = () => <button className={cn("btn")} />;' }])).toThrow("src/components/Button.tsx imports ../utils/cn");
+    expect(() => validateLocalImports([{ path: "src/components/Button.tsx", content: 'import { cn } from "../utils/cn";' }, { path: "src/utils/cn.ts", content: 'export const cn = (...args: string[]) => args.join(" ");' }])).not.toThrow();
+  });
   it("accepts Node built-ins and configured source aliases", () => {
     const files = [
       { path: "package.json", content: JSON.stringify({ dependencies: { react: "latest" } }) },
