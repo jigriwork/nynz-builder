@@ -2,7 +2,7 @@ import { z } from "zod";
 import ts from "typescript";
 import { filesAreSafe, safeProjectPath } from "./security";
 
-const generatedSchema = z.object({
+export const generatedSchema = z.object({
   plan: z.object({ summary: z.string(), steps: z.array(z.string()).max(12) }),
   message: z.string(),
   files: z.array(z.object({ path: z.string(), content: z.string() })).max(120),
@@ -38,7 +38,7 @@ const responseSchema = {
   },
 } as const;
 
-const editGeneratedSchema = z.object({
+export const editGeneratedSchema = z.object({
   plan: z.object({ summary: z.string(), steps: z.array(z.string()).max(12) }),
   message: z.string(),
   edits: z.array(z.object({ path: z.string(), search: z.string(), replace: z.string() })).min(1).max(60),
@@ -92,7 +92,7 @@ Product quality requirements:
 - Every returned source file must be syntactically complete. Never end inside JSX, a string, an object, or a function.
 - When the application imports packages beyond React, include package.json with every dependency declared. If using Tailwind CSS, include the required Tailwind and PostCSS configuration.`;
 
-const EDIT_SYSTEM = `${SYSTEM}
+export const EDIT_SYSTEM = `${SYSTEM}
 
 For edit mode, do not return complete files. Return this compact shape instead:
 {"plan":{"summary":"...","steps":["..."]},"message":"...","edits":[{"path":"src/App.tsx","search":"exact unique text from the current file","replace":"replacement text"}]}
@@ -100,14 +100,14 @@ For edit mode, do not return complete files. Return this compact shape instead:
 - An empty search string is allowed only when creating a new file whose path does not exist.
 - Preserve all source outside the operations. Keep the complete response comfortably below 18,000 characters.`;
 
-function normalizeGeneratedFile(file: { path: string; content: string }) {
+export function normalizeGeneratedFile(file: { path: string; content: string }) {
   if (!/\.tsx$/.test(file.path)) return file;
   const withoutDefaultImport = file.content.replace(/^import\s+React\s+from\s+["']react["'];?\s*$/m, "");
   if (withoutDefaultImport !== file.content && !/\bReact\s*[.[]/.test(withoutDefaultImport)) return { ...file, content: withoutDefaultImport.trimStart() };
   return file;
 }
 
-function applyGeneratedEdits(inputFiles: Array<{ path: string; content: string }>, edits: z.infer<typeof editGeneratedSchema>["edits"]) {
+export function applyGeneratedEdits(inputFiles: Array<{ path: string; content: string }>, edits: z.infer<typeof editGeneratedSchema>["edits"]) {
   const working = new Map(inputFiles.map((file) => [safeProjectPath(file.path), file.content]));
   const changed = new Map<string, string>();
   for (const edit of edits) {
@@ -130,7 +130,7 @@ function applyGeneratedEdits(inputFiles: Array<{ path: string; content: string }
   return filesAreSafe([...changed].map(([path, content]) => ({ path, content }))).map(normalizeGeneratedFile);
 }
 
-function validateSourceSyntax(files: Array<{ path: string; content: string }>) {
+export function validateSourceSyntax(files: Array<{ path: string; content: string }>) {
   for (const file of files.filter((item) => /\.[jt]sx?$/.test(item.path) && !item.path.endsWith(".d.ts"))) {
     const result = ts.transpileModule(file.content, {
       fileName: file.path,
@@ -142,7 +142,7 @@ function validateSourceSyntax(files: Array<{ path: string; content: string }>) {
   }
 }
 
-function validateCreateDependencies(files: Array<{ path: string; content: string }>) {
+export function validateCreateDependencies(files: Array<{ path: string; content: string }>) {
   const source = files.filter((file) => /\.[jt]sx?$/.test(file.path)).map((file) => file.content).join("\n");
   const packages = [...source.matchAll(/(?:from\s*|import\s*)["']([^./][^"']*)["']/g)].map((match) => match[1]).filter((name) => !name.startsWith("@/"));
   const required = new Set(packages.map((name) => name.startsWith("@") ? name.split("/").slice(0, 2).join("/") : name.split("/")[0]).filter((name) => !["react", "react-dom"].includes(name)));

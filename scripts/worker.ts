@@ -2,7 +2,7 @@ import "dotenv/config";
 import { config } from "dotenv";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { generateWithSarvam } from "../lib/platform/sarvam";
+import { generateApplication } from "../lib/platform/generation";
 import { runInE2B, stopE2B } from "../lib/platform/e2b";
 import { getPreviewOrigin } from "../lib/preview/session";
 import { redact } from "../lib/platform/redact";
@@ -48,13 +48,14 @@ async function processJob(job:any){
    const assetContext=assets.length?`The user uploaded these project assets. They are available in the generated app at these exact public paths:\n${assets.map((asset:any)=>`- /uploads/${asset.name}`).join("\n")}\nUse the relevant uploaded assets when the request mentions a logo, image, document or brand file.`:"";
    const references=[importedReferences,backendContext,assetContext].filter(Boolean).join("\n\n");
    const generationFiles=job.mode==="create"?[]:files||[];
-   output=await generateWithSarvam({prompt:job.prompt,files:generationFiles,references,mode:job.mode==="create"?"create":"edit",onAttempt:async(attempt)=>{if(attempt>1)await progress(job,`Refining the generated application · pass ${attempt} of 3`,"generating");}});
+   output=await generateApplication({prompt:job.prompt,files:generationFiles,references,mode:job.mode==="create"?"create":"edit",onAttempt:async(attempt)=>{await progress(job,job.mode==="create"&&attempt>1?`Building application files · batch ${attempt-1}`:attempt>1?`Refining the requested changes · pass ${attempt}`:"Generating your application","generating");}});
    await db.from("build_jobs").update({plan:output.result.plan}).eq("id",job.id);
    if(output.result.files.length){
     if(job.mode==="create")await replaceProjectFiles(job.project_id,files||[],output.result.files);
     else {const {error}=await db.from("project_files").upsert(output.result.files.map((f:any)=>({project_id:job.project_id,...f})));if(error)throw error;}
    }
-   await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:output.usage.prompt_tokens||0,provider:"sarvam",model:output.model,provider_request_id:output.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:output.usage.completion_tokens||0,provider:"sarvam",model:output.model,provider_request_id:output.requestId}]);
+   const provider=output.model.startsWith("openrouter:")?"openrouter":"sarvam";const estimatedCostMinor=Math.round(Number(output.usage.costUsd||0)*Number(process.env.USD_TO_INR_RATE||95)*100);
+   await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:output.usage.prompt_tokens||0,provider,model:output.model,provider_request_id:output.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:output.usage.completion_tokens||0,provider,model:output.model,provider_request_id:output.requestId,estimated_cost_minor:estimatedCostMinor||null,metadata:{cost_currency:"INR",cost_source:estimatedCostMinor?"provider_usage":"unavailable"}}]);
   }
   if(await cancelled(job))return;await progress(job,"Preparing a secure preview environment","installing");
   let {data:current}=await db.from("project_files").select("path,content").eq("project_id",job.project_id);const started=Date.now();let sandbox;
@@ -62,9 +63,10 @@ async function processJob(job:any){
    const detail=error instanceof Error?error.message:"Production build failed";
    if(job.mode==="restart"||!detail.startsWith("Production build failed"))throw error;
    await progress(job,"Repairing a production build issue","generating");
-   const repair=await generateWithSarvam({prompt:`Fix the production build errors below. Preserve the requested product and design. Return only files that need correction.\n\nBUILD ERRORS:\n${detail.slice(0,6000)}`,files:current||[],mode:"edit",onAttempt:async(attempt)=>{if(attempt>1)await progress(job,`Refining the build repair · pass ${attempt} of 3`,"generating");}});
+   const repair=await generateApplication({prompt:`Fix the production build errors below. Preserve the requested product and design. Return only files that need correction.\n\nBUILD ERRORS:\n${detail.slice(0,6000)}`,files:current||[],mode:"edit",onAttempt:async(attempt)=>{if(attempt>1)await progress(job,`Refining the build repair · pass ${attempt} of 3`,"generating");}});
    if(repair.result.files.length)await db.from("project_files").upsert(repair.result.files.map((f:any)=>({project_id:job.project_id,...f})));
-   await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:repair.usage.prompt_tokens||0,provider:"sarvam",model:repair.model,provider_request_id:repair.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:repair.usage.completion_tokens||0,provider:"sarvam",model:repair.model,provider_request_id:repair.requestId}]);
+   const repairProvider=repair.model.startsWith("openrouter:")?"openrouter":"sarvam";const repairCostMinor=Math.round(Number(repair.usage.costUsd||0)*Number(process.env.USD_TO_INR_RATE||95)*100);
+   await db.from("usage_events").insert([{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_input_tokens",quantity:repair.usage.prompt_tokens||0,provider:repairProvider,model:repair.model,provider_request_id:repair.requestId},{owner_id:job.requested_by,project_id:job.project_id,build_id:job.id,kind:"model_output_tokens",quantity:repair.usage.completion_tokens||0,provider:repairProvider,model:repair.model,provider_request_id:repair.requestId,estimated_cost_minor:repairCostMinor||null,metadata:{cost_currency:"INR",cost_source:repairCostMinor?"provider_usage":"unavailable"}}]);
    ({data:current}=await db.from("project_files").select("path,content").eq("project_id",job.project_id));
    await progress(job,"Rebuilding the corrected application","installing");
    sandbox=await runInE2B(current||[],backend?{projectUrl:backend.project_url,publishableKey:backend.publishable_key}:undefined,assets);

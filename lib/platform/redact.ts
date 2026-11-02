@@ -1,7 +1,7 @@
 // Removes provider credentials, Supabase keys and preview session tokens from
 // text before it is written to logs. Exact secret values from the environment
 // are always removed, with pattern matching as a second line of defence.
-const secretNames = ["SUPABASE_SERVICE_ROLE_KEY", "SARVAM_API_KEY", "E2B_API_KEY", "PREVIEW_SIGNING_SECRET", "FIRECRAWL_API_KEY"];
+const secretNames = ["SUPABASE_SERVICE_ROLE_KEY", "SARVAM_API_KEY", "OPENROUTER_API_KEY", "E2B_API_KEY", "PREVIEW_SIGNING_SECRET", "FIRECRAWL_API_KEY"];
 
 export function redact(text: string, env: Record<string, string | undefined> = process.env) {
   let out = text;
