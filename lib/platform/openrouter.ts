@@ -120,7 +120,9 @@ function validateProduct(files: SourceFile[], prompt: string) {
   const minimumStyles = compactBrief ? 500 : 900;
   const tooSmall = source.length < minimumSource || (compactBrief ? source.length + styles.length < 2_000 : false);
   const toyCounter = /Count:\s*\{count\}|Increment<\/button>/i.test(source);
-  if (tooSmall || toyCounter || ((source.match(/className\s*=/g) || []).length < minimumClassNames && styles.length < minimumStyles)) {
+  const classNameCount = (source.match(/className\s*=/g) || []).length;
+  const tooLightlyStyled = compactBrief ? classNameCount < 8 && styles.length < 350 : classNameCount < minimumClassNames && styles.length < minimumStyles;
+  if (tooSmall || toyCounter || tooLightlyStyled) {
     throw new Error(`Generated application is not complete enough to publish (source ${source.length}, styles ${styles.length})`);
   }
 }
