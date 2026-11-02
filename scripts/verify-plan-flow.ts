@@ -114,10 +114,24 @@ try {
   await preview.getByText("NYNZ Calculator Verified", { exact: false }).first().waitFor();
   const denied = await stranger.request.get(new URL(session.url).origin);
   if (denied.status() !== 401) throw new Error("Preview was accessible without a preview session");
+  const { build: edit } = await request(owner, `${base}/builds`, "POST", { prompt: "Change only the application title from NYNZ Calculator Verified to NYNZ Calculator Updated. Preserve arithmetic, keyboard input, all buttons, and the existing ivory/navy design.", mode: "edit", idempotencyKey: `edit-test-${run}` });
+  const editPlan = await waitJob(edit.id, job => job.plan?.approval === "awaiting", "Edit plan");
+  await request(owner, `${base}/builds`, "PATCH", { action: "approve", buildId: edit.id, revision: editPlan.plan.revision, summary: editPlan.plan.summary, steps: editPlan.plan.steps });
+  await waitJob(edit.id, job => job.status === "succeeded", "Approved edit");
+  const editSession = await request(owner, `${base}/preview-session`, "POST");
+  await preview.goto(editSession.url, { waitUntil: "networkidle", timeout: 60000 });
+  await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
+  console.log("Contextual edit preview verified");
+  const { build: cancelBuild } = await request(owner, `${base}/builds`, "POST", { prompt: "Add a history panel to this calculator", mode: "edit", idempotencyKey: `cancel-test-${run}` });
+  const cancelPlan = await waitJob(cancelBuild.id, job => job.plan?.approval === "awaiting", "Cancel plan");
+  await request(owner, `${base}/builds`, "PATCH", { action: "cancel", buildId: cancelBuild.id, revision: cancelPlan.plan.revision });
+  const cancelled = await db.from("build_jobs").select("status").eq("id", cancelBuild.id).single();
+  if (cancelled.data?.status !== "cancelled") throw new Error("Plan cancellation did not stop the request");
+  console.log("Plan cancellation verified");
   const usage = await request(owner, base);
   if (!usage.usage?.credits || !usage.usage?.modelCostPaise) throw new Error("Actual usage was not recorded");
   if (errors.length) throw new Error(`Browser errors: ${errors.join("; ")}`);
-  console.log(JSON.stringify({ passed: true, checks: ["plan before code", "worker released during review", "owner authorization", "revision before code", "editable plan", "explicit browser approval", "stale approval denied", "production build", "calculator 2+3=5", "preview refresh", "unauthorized preview 401", "actual cost"], costInr: usage.usage.modelCostPaise / 100 }));
+  console.log(JSON.stringify({ passed: true, checks: ["plan before code", "worker released during review", "owner authorization", "revision before code", "editable plan", "explicit browser approval", "stale approval denied", "production build", "calculator 2+3=5", "preview refresh", "unauthorized preview 401", "contextual edit", "cancel before code", "actual cost"], costInr: usage.usage.modelCostPaise / 100 }));
 } catch (error) {
   console.error(redact(error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;

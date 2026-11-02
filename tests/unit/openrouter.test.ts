@@ -64,6 +64,13 @@ describe("OpenRouter staged generation", () => {
     expect(planned.manifest.files.every(file => !("content" in file))).toBe(true);
   });
 
+  it("allows a one-file edit plan without demanding unrelated app entry points", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-only-key");
+    vi.stubGlobal("fetch", vi.fn(async () => reply({ plan: { summary: "Change the heading", steps: ["Update the heading and preserve arithmetic"] }, message: "Review the change", files: [{ path: "src/App.tsx", purpose: "Update the heading" }] })));
+    const planned = await planApplication({ prompt: "Change the heading", files: [{ path: "src/App.tsx", content: "export default function App(){return <h1>Calculator</h1>}" }], mode: "edit" });
+    expect(planned.manifest.files.map(file => file.path)).toEqual(["src/App.tsx"]);
+  });
+
   it("reuses the approved plan without paying for another planning request", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "test-only-key");
     const manifest = { plan: { summary: "Minimal page", steps: ["Responsive page"] }, message: "Ready", files: ["package.json", "index.html", "src/main.tsx", "src/App.tsx", "src/index.css"].map(path => ({ path, purpose: path })) };

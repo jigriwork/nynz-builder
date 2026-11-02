@@ -51,7 +51,7 @@ async function processJob(job:any){
    const references=[importedReferences,backendContext,assetContext].filter(Boolean).join("\n\n");
    if(job.plan?.approval==="required"){
     await progress(job,"Planning the screens, design and functionality for your approval","planning",12);
-    const planned=await planApplication({prompt:job.prompt,files:files||[],references,onUsage:async(event)=>recordOpenRouterUsage(job,event)});
+    const planned=await planApplication({prompt:job.prompt,files:files||[],mode:job.mode==="edit"?"edit":"create",references,onUsage:async(event)=>recordOpenRouterUsage(job,event)});
     if(await cancelled(job))return;
     const plan={...planned.manifest.plan,manifest:planned.manifest,approval:"awaiting",revision:job.plan.revision||1};
     const {error}=await db.from("build_jobs").update({plan,status:"planning",locked_at:null,locked_by:null,progress:[...job.progress,{at:new Date().toISOString(),message:"Plan ready for your approval. No code generation has started.",percent:18}]}).eq("id",job.id).eq("locked_by",lockOwner);
