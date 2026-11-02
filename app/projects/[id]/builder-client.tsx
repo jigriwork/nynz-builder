@@ -47,7 +47,7 @@ function fileIcon(path: string) {
   return <FileCode2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" />;
 }
 
-export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds, initialCredits = 0 }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[]; initialCredits?: number }) {
+export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds, initialCredits = 0, initialCostPaise = 0 }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[]; initialCredits?: number; initialCostPaise?: number }) {
   const [project, setProject] = useState(initialProject);
   const [files, setFiles] = useState(initialFiles);
   const [versions, setVersions] = useState(initialVersions);
@@ -283,7 +283,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       </div>
       <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><BuildPipeline status={running?.status || latest?.status} failed={failed} compact /></motion.div>}</AnimatePresence>
       <div className="ml-auto flex items-center gap-1.5">
-        <span title="One credit equals 1,000 model tokens" className="hidden h-8 items-center gap-1.5 rounded-lg border border-white/[.07] bg-white/[.025] px-2.5 text-[10px] text-white/50 md:flex"><Coins className="h-3 w-3 text-[#c7ff4a]" />{initialCredits} credits</span>
+        <span title={`${initialCredits.toLocaleString()} token credits used. Provider charges are shown in INR.`} className="hidden h-8 items-center gap-1.5 rounded-lg border border-white/[.07] bg-white/[.025] px-2.5 text-[10px] text-white/50 md:flex"><Coins className="h-3 w-3 text-[#c7ff4a]" />₹{(initialCostPaise / 100).toFixed(2)}</span>
         <span className={`mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex ${running ? "lg:hidden" : ""} ${running ? "border-[#c7ff4a]/20 bg-[#c7ff4a]/[.08] text-[#c7ff4a]" : failed ? "border-red-400/20 bg-red-400/[.08] text-red-300" : project.status === "ready" ? "border-[#c7ff4a]/15 text-[#c7ff4a]/85" : "border-white/[.08] text-white/50"}`}>
           {running ? <LoaderCircle className="h-3 w-3 animate-spin" /> : failed ? <AlertCircle className="h-3 w-3" /> : project.status === "ready" ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inset-0 animate-ping rounded-full bg-[#c7ff4a]/60" /><span className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /></span> : <CheckCircle2 className="h-3 w-3" />}
           <span className="capitalize">{running?.status || (project.status === "ready" ? "Live" : project.status)}</span>

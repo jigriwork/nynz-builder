@@ -97,6 +97,12 @@ function addUsage(total: Usage, next: Usage) {
   total.prompt_tokens += next.prompt_tokens; total.completion_tokens += next.completion_tokens; total.costUsd += next.costUsd;
 }
 
+function assertBudget(usage: Usage) {
+  const limitInr = Number(process.env.OPENROUTER_MAX_COST_INR_PER_BUILD || 75);
+  const spentInr = usage.costUsd * Number(process.env.USD_TO_INR_RATE || 95);
+  if (spentInr > limitInr) throw new Error(`Build stopped at its ₹${limitInr.toFixed(0)} model spending limit`);
+}
+
 function validateProduct(files: SourceFile[]) {
   validateSourceSyntax(files);
   validateCreateDependencies(files);
@@ -114,26 +120,37 @@ async function createApplication(input: { prompt: string; references?: string; o
     user: `PRODUCT BRIEF:\n${input.prompt}\n\nREFERENCES AND ASSETS:\n${input.references?.slice(0, 40_000) || "None"}`,
   });
   addUsage(usage, planned.usage);
+  assertBudget(usage);
   const manifest = manifestSchema.parse(planned.value);
   const safeManifest = manifest.files.map((file) => ({ ...file, path: safeProjectPath(file.path) }));
   const generated: SourceFile[] = [];
   const batches = Array.from({ length: Math.ceil(safeManifest.length / 4) }, (_, index) => safeManifest.slice(index * 4, index * 4 + 4));
   for (let index = 0; index < batches.length; index += 1) {
-    await input.onAttempt?.(index + 2);
     const batch = batches[index];
     const existing = generated.map((file) => `--- ${file.path}\n${file.content}`).join("\n\n").slice(-120_000);
-    const result = await completion({
-      role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
-      system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated.`,
-      user: `PRODUCT BRIEF:\n${input.prompt}\n\nCOMPLETE MANIFEST:\n${safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nGENERATE THIS BATCH (${index + 1}/${batches.length}):\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nFILES ALREADY GENERATED:\n${existing || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 20_000) || "None"}`,
-    });
-    addUsage(usage, result.usage);
-    const parsed = batchSchema.parse(result.value);
-    const expected = new Set(batch.map((file) => file.path));
-    const files = filesAreSafe(parsed.files).map(normalizeGeneratedFile);
-    if (files.some((file) => !expected.has(file.path)) || expected.size !== files.length) throw new Error(`OpenRouter returned the wrong files for batch ${index + 1}`);
-    validateSourceSyntax(files);
-    generated.push(...files);
+    let batchError: unknown;
+    let completed = false;
+    for (let attempt = 1; attempt <= 3 && !completed; attempt += 1) {
+      await input.onAttempt?.(index + 2);
+      try {
+        const result = await completion({
+          role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
+          system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated.`,
+          user: `PRODUCT BRIEF:\n${input.prompt}\n\nCOMPLETE MANIFEST:\n${safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nGENERATE THIS BATCH (${index + 1}/${batches.length}), ATTEMPT ${attempt}:\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nFILES ALREADY GENERATED:\n${existing || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 20_000) || "None"}${attempt > 1 ? "\n\nThe previous batch was invalid or incomplete. Return all requested paths with complete syntax and no extra files." : ""}`,
+        });
+        addUsage(usage, result.usage);
+        assertBudget(usage);
+        const parsed = batchSchema.parse(result.value);
+        const expected = new Set(batch.map((file) => file.path));
+        const files = filesAreSafe(parsed.files).map(normalizeGeneratedFile);
+        const returned = new Set(files.map((file) => file.path));
+        if (files.some((file) => !expected.has(file.path)) || returned.size !== files.length || [...expected].some((path) => !returned.has(path))) throw new Error(`OpenRouter returned the wrong files for batch ${index + 1}`);
+        validateSourceSyntax(files);
+        generated.push(...files);
+        completed = true;
+      } catch (error) { batchError = error; }
+    }
+    if (!completed) throw batchError instanceof Error ? batchError : new Error(`Could not generate batch ${index + 1}`);
   }
   const files = filesAreSafe(generated).map(normalizeGeneratedFile);
   validateProduct(files);
@@ -143,6 +160,7 @@ async function createApplication(input: { prompt: string; references?: string; o
 
 async function editApplication(input: { prompt: string; files: SourceFile[]; references?: string; onAttempt?: (attempt: number) => Promise<void> }) {
   let lastError: unknown;
+  const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await input.onAttempt?.(attempt);
     try {
@@ -151,10 +169,12 @@ async function editApplication(input: { prompt: string; files: SourceFile[]; ref
         system: EDIT_SYSTEM,
         user: `REQUEST:\n${input.prompt}\n\nCURRENT FILES:\n${input.files.map((file) => `--- ${file.path}\n${file.content}`).join("\n").slice(0, 180_000)}\n\nREFERENCES:\n${input.references?.slice(0, 30_000) || "None"}${attempt > 1 ? "\n\nThe previous edit was invalid. Use smaller exact search and replace operations." : ""}`,
       });
+      addUsage(usage, response.usage);
+      assertBudget(usage);
       const edit = editGeneratedSchema.parse(response.value);
       const files = applyGeneratedEdits(input.files, edit.edits);
       validateSourceSyntax(files);
-      return { result: generatedSchema.parse({ plan: edit.plan, message: edit.message, files }), usage: response.usage, requestId: response.requestId, model: `openrouter:${response.model}` };
+      return { result: generatedSchema.parse({ plan: edit.plan, message: edit.message, files }), usage, requestId: response.requestId, model: `openrouter:${response.model}` };
     } catch (error) { lastError = error; }
   }
   throw lastError instanceof Error ? lastError : new Error("OpenRouter edit failed");
