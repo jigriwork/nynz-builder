@@ -13,6 +13,7 @@ import {
 
 type SourceFile = { path: string; content: string };
 type Usage = { prompt_tokens: number; completion_tokens: number; costUsd: number };
+type OnUsage = (event: Usage & { model: string; requestId: string | null }) => Promise<void>;
 
 const manifestSchema = z.object({
   plan: z.object({ summary: z.string(), steps: z.array(z.string()).min(1).max(12) }),
@@ -66,7 +67,7 @@ function models(role: "plan" | "create" | "edit") {
   return [primary, ...fallbacks.filter((item) => item !== primary)];
 }
 
-async function completion(input: { role: "plan" | "create" | "edit"; system: string; user: string; schema: object; schemaName: string; maxTokens: number }) {
+async function completion(input: { role: "plan" | "create" | "edit"; system: string; user: string; schema: object; schemaName: string; maxTokens: number; onUsage?: OnUsage }) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY is not configured");
   const controller = new AbortController();
@@ -89,7 +90,10 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
     if (choice?.finish_reason === "length") throw new Error("OpenRouter response reached its output limit");
     if (!choice?.message?.content) throw new Error("OpenRouter returned an empty response");
     const usage: Usage = { prompt_tokens: Number(raw.usage?.prompt_tokens || 0), completion_tokens: Number(raw.usage?.completion_tokens || 0), costUsd: Number(raw.usage?.cost || 0) };
-    return { value: JSON.parse(choice.message.content), usage, model: String(raw.model || models(input.role)[0]), requestId: response.headers.get("x-request-id") };
+    const model = String(raw.model || models(input.role)[0]);
+    const requestId = response.headers.get("x-request-id");
+    await input.onUsage?.({ ...usage, model, requestId });
+    return { value: JSON.parse(choice.message.content), usage, model, requestId };
   } finally { clearTimeout(timeout); }
 }
 
@@ -111,13 +115,13 @@ function validateProduct(files: SourceFile[]) {
   if (source.length < 3_500 || ((source.match(/className\s*=/g) || []).length < 16 && styles.length < 900)) throw new Error("Generated application is not complete enough to publish");
 }
 
-async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void> }) {
+async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage }) {
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   await input.onAttempt?.(1);
   const planned = await completion({
     role: "plan", schema: MANIFEST_JSON_SCHEMA, schemaName: "nynz_manifest", maxTokens: 4_000,
     system: `${QUALITY}\nReturn only a JSON implementation plan and ordered file manifest. Include package.json, index.html, TypeScript configuration, Vite configuration, src/main.tsx, responsive styles, data and focused components.`,
-    user: `PRODUCT BRIEF:\n${input.prompt}\n\nREFERENCES AND ASSETS:\n${input.references?.slice(0, 40_000) || "None"}`,
+    user: `PRODUCT BRIEF:\n${input.prompt}\n\nREFERENCES AND ASSETS:\n${input.references?.slice(0, 40_000) || "None"}`, onUsage: input.onUsage,
   });
   addUsage(usage, planned.usage);
   assertBudget(usage);
@@ -137,6 +141,7 @@ async function createApplication(input: { prompt: string; references?: string; o
           role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
           system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated.`,
           user: `PRODUCT BRIEF:\n${input.prompt}\n\nCOMPLETE MANIFEST:\n${safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nGENERATE THIS BATCH (${index + 1}/${batches.length}), ATTEMPT ${attempt}:\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nFILES ALREADY GENERATED:\n${existing || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 20_000) || "None"}${attempt > 1 ? "\n\nThe previous batch was invalid or incomplete. Return all requested paths with complete syntax and no extra files." : ""}`,
+          onUsage: input.onUsage,
         });
         addUsage(usage, result.usage);
         assertBudget(usage);
@@ -158,7 +163,7 @@ async function createApplication(input: { prompt: string; references?: string; o
   return { result, usage, requestId: planned.requestId, model: `openrouter:${planned.model}` };
 }
 
-async function editApplication(input: { prompt: string; files: SourceFile[]; references?: string; onAttempt?: (attempt: number) => Promise<void> }) {
+async function editApplication(input: { prompt: string; files: SourceFile[]; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage }) {
   let lastError: unknown;
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -168,6 +173,7 @@ async function editApplication(input: { prompt: string; files: SourceFile[]; ref
         role: "edit", schema: EDIT_JSON_SCHEMA, schemaName: "nynz_edit", maxTokens: 12_000,
         system: EDIT_SYSTEM,
         user: `REQUEST:\n${input.prompt}\n\nCURRENT FILES:\n${input.files.map((file) => `--- ${file.path}\n${file.content}`).join("\n").slice(0, 180_000)}\n\nREFERENCES:\n${input.references?.slice(0, 30_000) || "None"}${attempt > 1 ? "\n\nThe previous edit was invalid. Use smaller exact search and replace operations." : ""}`,
+        onUsage: input.onUsage,
       });
       addUsage(usage, response.usage);
       assertBudget(usage);
@@ -180,6 +186,6 @@ async function editApplication(input: { prompt: string; files: SourceFile[]; ref
   throw lastError instanceof Error ? lastError : new Error("OpenRouter edit failed");
 }
 
-export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void> }) {
+export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage }) {
   return input.mode === "create" ? createApplication(input) : editApplication(input);
 }
