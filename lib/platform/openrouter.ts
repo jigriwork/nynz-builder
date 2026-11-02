@@ -56,6 +56,7 @@ Use polished human copy, responsive layouts, accessible controls, purposeful mot
 Every visible control must work. Use local demonstration data when a real backend was not requested.
 Use supplied assets at their exact /uploads paths. Use graceful image fallbacks.
 Prefer focused components and data modules. Keep every file below 16,000 characters.
+Never use semantic Tailwind utilities such as bg-background, text-foreground or border-border inside @apply unless the Tailwind theme defines them. Prefer ordinary CSS for global defaults.
 Use no secrets. Include every imported package in package.json. The result must pass npm run build.`;
 
 function models(role: "plan" | "create" | "edit") {

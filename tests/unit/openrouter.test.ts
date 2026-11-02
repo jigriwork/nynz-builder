@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateWithOpenRouter } from "../../lib/platform/openrouter";
+import { normalizeGeneratedFile } from "../../lib/platform/sarvam";
 
 function reply(value: unknown, cost = 0.01) {
   return new Response(JSON.stringify({
@@ -67,5 +68,15 @@ describe("OpenRouter staged generation", () => {
     await expect(generateWithOpenRouter({ prompt: "Build an app", files: [], mode: "create", onUsage: async (event) => { paidCalls.push(event); } })).rejects.toThrow("₹10");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(paidCalls).toHaveLength(1);
+  });
+});
+
+describe("generated stylesheet normalization", () => {
+  it("replaces undefined semantic Tailwind utilities inside apply rules", () => {
+    const file = normalizeGeneratedFile({
+      path: "src/index.css",
+      content: "body { @apply bg-background text-foreground; } .card { @apply border-border bg-card; }",
+    });
+    expect(file.content).toBe("body { @apply bg-white text-slate-900; } .card { @apply border-slate-200 bg-white; }");
   });
 });

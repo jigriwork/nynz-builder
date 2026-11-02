@@ -101,6 +101,26 @@ For edit mode, do not return complete files. Return this compact shape instead:
 - Preserve all source outside the operations. Keep the complete response comfortably below 18,000 characters.`;
 
 export function normalizeGeneratedFile(file: { path: string; content: string }) {
+  if (/\.css$/.test(file.path)) {
+    const safeApplyUtilities: Record<string, string> = {
+      "bg-background": "bg-white",
+      "text-foreground": "text-slate-900",
+      "border-border": "border-slate-200",
+      "bg-primary": "bg-slate-900",
+      "text-primary-foreground": "text-white",
+      "bg-secondary": "bg-slate-100",
+      "text-secondary-foreground": "text-slate-900",
+      "bg-muted": "bg-slate-100",
+      "text-muted-foreground": "text-slate-500",
+      "bg-card": "bg-white",
+      "text-card-foreground": "text-slate-900",
+    };
+    const content = file.content.replace(/@apply\s+([^;]+);/g, (rule, utilities: string) => {
+      const normalized = utilities.split(/\s+/).map((utility) => safeApplyUtilities[utility] || utility).join(" ");
+      return rule.replace(utilities, normalized);
+    });
+    return content === file.content ? file : { ...file, content };
+  }
   if (!/\.tsx$/.test(file.path)) return file;
   const withoutDefaultImport = file.content.replace(/^import\s+React\s+from\s+["']react["'];?\s*$/m, "");
   if (withoutDefaultImport !== file.content && !/\bReact\s*[.[]/.test(withoutDefaultImport)) return { ...file, content: withoutDefaultImport.trimStart() };
