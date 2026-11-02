@@ -115,10 +115,12 @@ function validateProduct(files: SourceFile[], prompt: string) {
   const source = files.filter((file) => /\.[jt]sx?$/.test(file.path)).map((file) => file.content).join("\n");
   const styles = files.filter((file) => file.path.endsWith(".css")).map((file) => file.content).join("\n");
   const compactBrief = /\b(?:minimal|simple|single[- ]page|one[- ]page)\b/i.test(prompt);
-  const minimumSource = compactBrief ? 1_800 : 3_500;
+  const minimumSource = compactBrief ? 700 : 3_500;
   const minimumClassNames = compactBrief ? 12 : 16;
   const minimumStyles = compactBrief ? 500 : 900;
-  if (source.length < minimumSource || ((source.match(/className\s*=/g) || []).length < minimumClassNames && styles.length < minimumStyles)) {
+  const tooSmall = source.length < minimumSource || (compactBrief ? source.length + styles.length < 2_000 : false);
+  const toyCounter = /Count:\s*\{count\}|Increment<\/button>/i.test(source);
+  if (tooSmall || toyCounter || ((source.match(/className\s*=/g) || []).length < minimumClassNames && styles.length < minimumStyles)) {
     throw new Error(`Generated application is not complete enough to publish (source ${source.length}, styles ${styles.length})`);
   }
 }
