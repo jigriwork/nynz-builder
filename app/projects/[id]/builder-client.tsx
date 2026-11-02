@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
-  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Database, Download, ExternalLink, Eye, FileCode2,
+  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
   FileImage, FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, Paperclip, Pencil,
   Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
@@ -101,6 +101,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [prompt, setPrompt] = useState("");
   const [url, setUrl] = useState("");
   const [notice, setNotice] = useState("");
+  const [usageCredits, setUsageCredits] = useState(initialCredits);
+  const [usageCostPaise, setUsageCostPaise] = useState(initialCostPaise);
+  const [showUsage, setShowUsage] = useState(false);
   const [tab, setTab] = useState<WorkspaceTab>("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [mobilePane, setMobilePane] = useState<"chat" | "workspace">(initialProject.status === "ready" ? "workspace" : "chat");
@@ -152,7 +155,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       fetch(`/api/projects/${project.id}/builds`), fetch(`/api/projects/${project.id}/versions`),
       fetch(`/api/projects/${project.id}/messages`),
     ]);
-    if (projectResponse.ok) setProject((await projectResponse.json()).project);
+    if (projectResponse.ok) {
+      const body = await projectResponse.json();
+      setProject(body.project);
+      if (body.usage) { setUsageCredits(body.usage.credits); setUsageCostPaise(body.usage.modelCostPaise); }
+    }
     if (filesResponse.ok) {
       const next = (await filesResponse.json()).files;
       setFiles(next); setSelected((value) => value || next[0]?.path || "");
@@ -343,9 +350,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           {running ? <LoaderCircle className="h-3 w-3 animate-spin" /> : failed ? <AlertCircle className="h-3 w-3" /> : project.status === "ready" ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inset-0 animate-ping rounded-full bg-[#c7ff4a]/60" /><span className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /></span> : <CheckCircle2 className="h-3 w-3" />}
           <span className="capitalize">{running?.status || (project.status === "ready" ? "Live" : project.status)}</span>
         </span>
+        <button type="button" onClick={() => setShowUsage((value) => !value)} aria-label="Show model usage" aria-expanded={showUsage} title={`Model usage ₹${(usageCostPaise / 100).toFixed(2)}`} className={`relative flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[10px] tabular-nums transition ${showUsage ? "border-[#c7ff4a]/25 bg-[#c7ff4a]/10 text-[#c7ff4a]" : "border-white/[.07] text-white/55 hover:bg-white/[.06] hover:text-white"}`}><Coins className="h-3.5 w-3.5" /><span>{usageCredits.toLocaleString()}</span></button>
         <button onClick={saveVersion} title="Save checkpoint" aria-label="Save checkpoint" className="hidden h-8 items-center gap-2 rounded-lg px-2.5 text-[11px] text-white/55 transition hover:bg-white/[.06] hover:text-white sm:flex"><Save className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">Checkpoint</span></button>
         <a href={`/api/projects/${project.id}/export`} className="group flex h-8 items-center gap-2 rounded-lg bg-[#c7ff4a] px-3.5 text-[11px] font-semibold text-[#071019] shadow-[0_0_24px_rgba(199,255,74,.18)] transition hover:bg-[#d5ff72] hover:shadow-[0_0_32px_rgba(199,255,74,.32)]"><Download className="h-3.5 w-3.5 transition-transform group-hover:translate-y-px" /><span className="hidden sm:inline">Export</span></a>
       </div>
+      <AnimatePresence>{showUsage && <motion.div initial={{ opacity: 0, y: -6, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: .98 }} className="absolute right-3 top-12 z-50 w-64 rounded-xl border border-white/[.1] bg-[#111924]/95 p-3.5 shadow-[0_20px_60px_rgba(0,0,0,.5)] backdrop-blur-xl"><div className="flex items-center gap-2 text-[11px] font-medium text-white/80"><Coins className="h-3.5 w-3.5 text-[#c7ff4a]" /> Model usage</div><div className="mt-3 grid grid-cols-2 gap-2"><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Provider cost</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">₹{(usageCostPaise / 100).toFixed(2)}</p></div><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Credits used</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">{usageCredits.toLocaleString()}</p></div></div><p className="mt-2.5 text-[9px] leading-4 text-white/35">Usage updates while NYNZ builds. One credit represents 1,000 model tokens.</p></motion.div>}</AnimatePresence>
       {running && <span className="absolute inset-x-0 bottom-0 h-px overflow-hidden"><span className="nynz-scan absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></span>}
     </header>
 
@@ -370,7 +379,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] px-4">
           <Sparkles className="mr-2 h-3.5 w-3.5 text-[#c7ff4a]" />
           <span className="text-[12px] font-medium">Build with NYNZ</span>
-          <span className="ml-auto text-[10px] text-white/40">₹{(initialCostPaise / 100).toFixed(2)} used <span className="mx-1 text-white/20">·</span> {messages.length} message{messages.length === 1 ? "" : "s"}<span className="sr-only">. {initialCredits.toLocaleString()} model tokens used.</span></span>
+          <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </div>
 
         <div ref={conversation} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
@@ -449,7 +458,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
             {tab === "preview" && <>
               <div className="flex rounded-lg border border-white/[.07] p-0.5">{([["desktop", Monitor], ["mobile", Smartphone]] as const).map(([id, Icon]) => <button key={id} aria-label={`${id} preview`} aria-pressed={device === id} onClick={() => setDevice(id)} className={`grid h-6 w-7 place-items-center rounded-md transition ${device === id ? "bg-white/[.1] text-white" : "text-white/40 hover:text-white/75"}`}><Icon className="h-3 w-3" /></button>)}</div>
             </>}
-            {tab === "preview" && previewSrc && <a href={previewSrc} target="_blank" rel="noreferrer" className="grid h-7 w-7 place-items-center rounded-lg text-white/40 transition hover:bg-white/[.06] hover:text-white/80" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a>}
+            {tab === "preview" && (previewSrc ? <a href={previewSrc} target="_blank" rel="noreferrer" title="Open preview in a new tab" className="grid h-7 w-7 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a> : <button type="button" disabled title="Open in new tab becomes available when the preview is live" aria-label="Open preview in new tab unavailable until build completes" className="grid h-7 w-7 place-items-center rounded-lg text-white/20"><ExternalLink className="h-3.5 w-3.5" /></button>)}
             <button onClick={restart} className="group flex h-7 items-center gap-2 rounded-lg px-2 text-[10px] text-white/45 transition hover:bg-white/[.06] hover:text-white/80"><RefreshCw className="h-3.5 w-3.5 transition-transform duration-500 group-hover:rotate-180" /><span className="hidden sm:inline">Restart</span></button>
           </div>
         </div>

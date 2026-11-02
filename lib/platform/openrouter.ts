@@ -56,6 +56,7 @@ Use polished human copy, responsive layouts, accessible controls, purposeful mot
 Every visible control must work. Use local demonstration data when a real backend was not requested.
 Use supplied assets at their exact /uploads paths. Use graceful image fallbacks.
 Prefer focused components and data modules. Keep every file below 16,000 characters.
+Match architecture to the actual brief. A calculator or other single-purpose utility should normally use 7–10 files; do not split trivial UI into many tiny files. Reserve larger manifests for genuinely multi-screen products.
 Never use semantic Tailwind utilities such as bg-background, text-foreground or border-border inside @apply unless the Tailwind theme defines them. Prefer ordinary CSS for global defaults.
 Use no secrets. Include every imported package in package.json. The result must pass npm run build.`;
 
