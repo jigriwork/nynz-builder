@@ -81,7 +81,10 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
       body: JSON.stringify({
         models: models(input.role), temperature: input.role === "plan" ? 0.25 : 0.15,
         max_tokens: input.maxTokens, usage: { include: true },
-        provider: { allow_fallbacks: true, require_parameters: true, data_collection: "deny" },
+        // Source generation is a long-output workload. Prioritise sustained
+        // tokens/second instead of the cheapest endpoint so users spend less
+        // time waiting on multi-thousand-token application files.
+        provider: { allow_fallbacks: true, require_parameters: true, data_collection: "deny", sort: "throughput" },
         response_format: { type: "json_schema", json_schema: { name: input.schemaName, strict: true, schema: input.schema } },
         messages: [{ role: "system", content: input.system }, { role: "user", content: input.user }],
       }),

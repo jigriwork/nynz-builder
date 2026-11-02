@@ -7,12 +7,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
-  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
+  AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Database, Download, ExternalLink, Eye, FileCode2,
   FileImage, FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, Paperclip, Pencil,
   Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
-import { BuildPipeline, ease } from "@/components/nynz-motion";
+import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; active_sandbox_id?: string | null; sandbox_expires_at: string | null; last_error: string | null };
@@ -40,6 +40,50 @@ const starters = [
 const railButton = "group relative grid h-8 w-8 place-items-center rounded-lg transition";
 const railIdle = `${railButton} text-white/40 hover:bg-white/[.06] hover:text-white/80`;
 
+function buildActivity(status?: string, progress?: string, phase = 0) {
+  if (status === "queued") return { title: "Waiting", detail: "Your request is queued and ready for the builder.", icon: LoaderCircle };
+  if (status === "planning") return [
+    { title: "Thinking", detail: "Understanding your request and the product you need.", icon: Sparkles },
+    { title: "Planning", detail: "Mapping the screens, states, and primary workflow.", icon: Sparkles },
+    { title: "Structuring", detail: "Choosing the components and application architecture.", icon: Sparkles },
+  ][phase % 3];
+  if (status === "generating") {
+    if (/repair/i.test(progress || "")) return { title: "Repairing", detail: "Correcting the generated code while preserving the product design.", icon: Code2 };
+    const batch = progress?.match(/(\d+)\s+of\s+(\d+)/)?.slice(1).join(" of ");
+    const activities = [
+      { title: "Designing", detail: "Shaping the interface, hierarchy, and responsive layout.", icon: Palette },
+      { title: "Writing", detail: "Creating components and application logic.", icon: Code2 },
+      { title: "Connecting", detail: "Wiring interactions, states, and navigation together.", icon: Sparkles },
+    ];
+    const activity = activities[phase % activities.length];
+    return { ...activity, detail: `${activity.detail}${batch ? ` File batch ${batch}.` : ""}` };
+  }
+  if (status === "installing") return [
+    { title: "Installing", detail: "Preparing the application dependencies.", icon: Terminal },
+    { title: "Compiling", detail: "Creating an optimized production build.", icon: Code2 },
+    { title: "Checking", detail: "Looking for dependency and build issues.", icon: CheckCircle2 },
+  ][phase % 3];
+  if (status === "running") return { title: "Starting preview", detail: progress || "Starting the secure live preview.", icon: Play };
+  if (status === "validating") return [
+    { title: "Testing", detail: "Checking the production build and application routes.", icon: CheckCircle2 },
+    { title: "Inspecting", detail: "Making sure the preview responds correctly.", icon: Eye },
+    { title: "Preparing preview", detail: "Finishing the secure live application preview.", icon: Play },
+  ][phase % 3];
+  return { title: "Working", detail: progress || "Working on your request.", icon: LoaderCircle };
+}
+
+function BuildActivity({ status, progress, percent, phase }: { status?: string; progress?: string; percent?: number; phase: number }) {
+  const activity = buildActivity(status, progress, phase);
+  const Icon = activity.icon;
+  return <div className="w-full max-w-[310px] rounded-2xl rounded-tl-md border border-white/[.08] bg-white/[.03] px-3.5 py-3 shadow-[0_12px_36px_rgba(0,0,0,.18)]">
+    <div className="flex items-center gap-2.5">
+      <span className="relative grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#c7ff4a]/10 text-[#c7ff4a]"><Icon className={`h-3.5 w-3.5 ${status === "queued" ? "animate-spin" : ""}`} /><span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full border-2 border-[#111824] bg-[#c7ff4a]" /></span>
+      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-[12px] font-medium text-white/90">{activity.title}</span>{typeof percent === "number" && <span className="ml-auto font-mono text-[10px] tabular-nums text-[#c7ff4a]">{percent}%</span>}</div><AnimatePresence mode="wait"><motion.p key={activity.detail} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-white/45">{activity.detail}</motion.p></AnimatePresence></div>
+    </div>
+    <span className="mt-2.5 block h-0.5 overflow-hidden rounded-full bg-white/[.07]"><motion.span className="block h-full rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${percent ?? buildPercent(status)}%` }} transition={{ duration: .7, ease }} /></span>
+  </div>;
+}
+
 function fileIcon(path: string) {
   if (path.endsWith(".json")) return <FileJson className="h-3.5 w-3.5 shrink-0 text-amber-300/70" />;
   if (path.endsWith(".css")) return <Palette className="h-3.5 w-3.5 shrink-0 text-sky-300/70" />;
@@ -59,11 +103,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<WorkspaceTab>("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const [mobilePane, setMobilePane] = useState<"chat" | "workspace">(initialProject.status === "ready" ? "workspace" : "chat");
   const [showReference, setShowReference] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editingCode, setEditingCode] = useState(false);
   const [terminalCommand, setTerminalCommand] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
+  const [activityTick, setActivityTick] = useState(0);
   const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetBusy, setAssetBusy] = useState(false);
@@ -78,12 +124,21 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   const current = files.find((file) => file.path === selected);
   const running = mounted ? builds.find((build) => active.has(build.status)) : undefined;
+  const runningId = running?.id;
+  const runningStatus = running?.status;
   const latest = builds[0];
   const lastProgress = running?.progress?.[running.progress.length - 1]?.message;
   const progressPercent = running?.progress ? [...running.progress].reverse().find((event) => typeof event.percent === "number")?.percent : undefined;
   const failed = project.status === "failed" && !running;
+  const currentActivity = buildActivity(running?.status, lastProgress, activityTick);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!runningId) return;
+    const timer = setInterval(() => setActivityTick((value) => value + 1), 4_200);
+    return () => clearInterval(timer);
+  }, [runningId, runningStatus]);
 
   useEffect(() => {
     let active = true;
@@ -278,24 +333,28 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     <header className="relative flex h-14 shrink-0 items-center border-b border-white/[.07] bg-[#0a0f17] px-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <a href="/dashboard" aria-label="Back to projects" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white"><ArrowLeft className="h-4 w-4" /></a>
-        <NynzIcon className="h-7 w-7" />
+        <NynzIcon className="hidden h-7 w-7 min-[390px]:block" />
         <span className="hidden text-white/20 sm:block">/</span>
-        <input defaultValue={project.name} aria-label="Project name" onBlur={async (event) => { await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: event.target.value }) }); }} className="min-w-0 max-w-[170px] truncate rounded-md bg-transparent px-1.5 py-1 text-[13px] font-medium outline-none transition hover:bg-white/[.04] focus:bg-white/[.06] sm:max-w-[260px]" />
+        <input defaultValue={project.name} aria-label="Project name" onBlur={async (event) => { await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: event.target.value }) }); }} className="min-w-0 max-w-[104px] truncate rounded-md bg-transparent px-1.5 py-1 text-[13px] font-medium outline-none transition hover:bg-white/[.04] focus:bg-white/[.06] sm:max-w-[260px]" />
       </div>
-      <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><BuildPipeline status={running?.status || latest?.status} failed={failed} compact progressPercent={progressPercent} /></motion.div>}</AnimatePresence>
+      <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><div className="flex h-8 min-w-[220px] items-center gap-2.5 rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.055] px-3 text-[10px] shadow-[0_0_24px_rgba(199,255,74,.06)]"><LoaderCircle className="h-3 w-3 animate-spin text-[#c7ff4a]" /><span className="font-medium text-white/75">{currentActivity.title}</span><span className="relative h-1 w-16 overflow-hidden rounded-full bg-white/[.08]"><motion.span className="absolute inset-y-0 left-0 rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${progressPercent ?? buildPercent(running.status)}%` }} /></span><span className="ml-auto font-mono tabular-nums text-[#c7ff4a]">{progressPercent ?? buildPercent(running.status)}%</span></div></motion.div>}</AnimatePresence>
       <div className="ml-auto flex items-center gap-1.5">
-        <span title={`${initialCredits.toLocaleString()} token credits used. Provider charges are shown in INR.`} className="hidden h-8 items-center gap-1.5 rounded-lg border border-white/[.07] bg-white/[.025] px-2.5 text-[10px] text-white/50 md:flex"><Coins className="h-3 w-3 text-[#c7ff4a]" />₹{(initialCostPaise / 100).toFixed(2)}</span>
         <span className={`mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex ${running ? "lg:hidden" : ""} ${running ? "border-[#c7ff4a]/20 bg-[#c7ff4a]/[.08] text-[#c7ff4a]" : failed ? "border-red-400/20 bg-red-400/[.08] text-red-300" : project.status === "ready" ? "border-[#c7ff4a]/15 text-[#c7ff4a]/85" : "border-white/[.08] text-white/50"}`}>
           {running ? <LoaderCircle className="h-3 w-3 animate-spin" /> : failed ? <AlertCircle className="h-3 w-3" /> : project.status === "ready" ? <span className="relative flex h-1.5 w-1.5"><span className="absolute inset-0 animate-ping rounded-full bg-[#c7ff4a]/60" /><span className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /></span> : <CheckCircle2 className="h-3 w-3" />}
           <span className="capitalize">{running?.status || (project.status === "ready" ? "Live" : project.status)}</span>
         </span>
-        <button onClick={saveVersion} className="hidden h-8 items-center gap-2 rounded-lg px-3 text-[11px] text-white/55 transition hover:bg-white/[.06] hover:text-white sm:flex"><Save className="h-3.5 w-3.5" /> Checkpoint</button>
+        <button onClick={saveVersion} title="Save checkpoint" aria-label="Save checkpoint" className="hidden h-8 items-center gap-2 rounded-lg px-2.5 text-[11px] text-white/55 transition hover:bg-white/[.06] hover:text-white sm:flex"><Save className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">Checkpoint</span></button>
         <a href={`/api/projects/${project.id}/export`} className="group flex h-8 items-center gap-2 rounded-lg bg-[#c7ff4a] px-3.5 text-[11px] font-semibold text-[#071019] shadow-[0_0_24px_rgba(199,255,74,.18)] transition hover:bg-[#d5ff72] hover:shadow-[0_0_32px_rgba(199,255,74,.32)]"><Download className="h-3.5 w-3.5 transition-transform group-hover:translate-y-px" /><span className="hidden sm:inline">Export</span></a>
       </div>
       {running && <span className="absolute inset-x-0 bottom-0 h-px overflow-hidden"><span className="nynz-scan absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></span>}
     </header>
 
-    <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden grid-rows-[minmax(260px,46%)_minmax(0,1fr)] lg:grid-cols-[52px_400px_minmax(0,1fr)] lg:grid-rows-1">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <nav aria-label="Mobile builder view" className="flex h-11 shrink-0 items-center gap-1 border-b border-white/[.07] bg-[#090e16] px-3 lg:hidden">
+        {([ ["chat", "Chat", Sparkles], ["workspace", tab === "preview" ? "Preview" : "Workspace", Monitor] ] as const).map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setMobilePane(id)} className={`relative flex h-8 flex-1 items-center justify-center gap-2 rounded-lg text-[11px] transition ${mobilePane === id ? "bg-white/[.08] text-white" : "text-white/45"}`}>{mobilePane === id && <motion.span layoutId="mobile-builder-pane" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative">{label}</span>{id === "chat" && running && <span className="relative h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" />}</button>)}
+        {running && <span className="ml-2 w-9 text-right font-mono text-[10px] tabular-nums text-[#c7ff4a]">{progressPercent ?? buildPercent(running.status)}%</span>}
+      </nav>
+      <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden grid-cols-1 grid-rows-1 lg:grid-cols-[52px_400px_minmax(0,1fr)]">
       <nav aria-label="Project tools" className="hidden min-h-0 flex-col items-center gap-1 border-r border-white/[.07] bg-[#090d14] py-2.5 lg:flex">
         <a href="/dashboard" aria-label="Projects" className={railIdle}><LayoutGrid className="h-4 w-4" /><RailHint>Projects</RailHint></a>
         <a href="/dashboard" aria-label="New project" className={railIdle}><Plus className="h-4 w-4" /><RailHint>New project</RailHint></a>
@@ -307,11 +366,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <NynzIcon className="mt-1 h-7 w-7 rounded-full" />
       </nav>
 
-      <aside className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-white/[.07] bg-[#0b1019] lg:border-b-0 lg:border-r">
+      <aside className={`relative min-h-0 min-w-0 flex-col overflow-hidden bg-[#0b1019] lg:flex lg:border-r ${mobilePane === "chat" ? "flex" : "hidden"}`}>
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] px-4">
           <Sparkles className="mr-2 h-3.5 w-3.5 text-[#c7ff4a]" />
           <span className="text-[12px] font-medium">Build with NYNZ</span>
-          <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
+          <span className="ml-auto text-[10px] text-white/40">₹{(initialCostPaise / 100).toFixed(2)} used <span className="mx-1 text-white/20">·</span> {messages.length} message{messages.length === 1 ? "" : "s"}<span className="sr-only">. {initialCredits.toLocaleString()} model tokens used.</span></span>
         </div>
 
         <div ref={conversation} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
@@ -340,7 +399,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}</div>
             </motion.div>)}</AnimatePresence>
 
-            <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> NYNZ</div><div className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md border border-white/[.07] bg-white/[.025] px-4 py-3 text-[11px] text-white/50"><span className="flex gap-1">{[0, 1, 2].map((item) => <i key={item} className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#c7ff4a]" style={{ animationDelay: `${item * 120}ms` }} />)}</span>{lastProgress || "Working on your request"}</div></motion.div>}</AnimatePresence>
+            <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-5 sm:mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> Live activity</div><BuildActivity status={running.status} progress={lastProgress} percent={progressPercent} phase={activityTick} /></motion.div>}</AnimatePresence>
 
             {!running && project.status === "ready" && messages[messages.length - 1]?.role === "assistant" && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-wrap gap-1.5">{[
               ["Refine the design", "Refine the visual design so it feels more distinctive, polished, and professionally art-directed. Preserve all working functionality."],
@@ -354,9 +413,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <ol className="mt-3 space-y-1.5">{latest.plan.steps?.map((step, index) => <motion.li key={`${step}-${index}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .4, delay: .1 + index * .08, ease }} className="flex gap-3 rounded-lg px-2 py-1.5 text-[11px] leading-4 text-white/60 transition hover:bg-white/[.03]"><span className="mt-px font-mono text-[#c7ff4a]/80">{String(index + 1).padStart(2, "0")}</span><span>{step}</span></motion.li>)}</ol>
             </motion.section>}
 
-            <AnimatePresence>{running && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: .4, ease }} className="nynz-edge relative overflow-hidden rounded-2xl bg-[#0d1520] p-4">
+            <AnimatePresence>{running && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: .4, ease }} className="nynz-edge relative hidden overflow-hidden rounded-2xl bg-[#0d1520] p-4 sm:block">
               <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-[#c7ff4a]">Building your app</span><button onClick={cancel} className="ml-auto rounded-md px-2 py-1 text-[10px] text-white/45 transition hover:bg-red-400/10 hover:text-red-300">Stop</button></div>
-              <div className="mt-3"><BuildPipeline status={running.status} vertical progressPercent={progressPercent} /></div>
+              <div className="mt-3"><BuildPipeline status={running.status} compact progressPercent={progressPercent} /></div>
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 
@@ -382,9 +441,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         </form>
       </aside>
 
-      <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#0a0f17]">
+      <section className={`min-h-0 min-w-0 flex-col overflow-hidden bg-[#0a0f17] lg:flex ${mobilePane === "workspace" ? "flex" : "hidden"}`}>
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] bg-[#0b111a] px-2.5">
-          <nav className="flex items-center gap-0.5">{tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`relative flex h-8 items-center gap-2 rounded-lg px-3 text-[11px] transition ${tab === id ? "text-white" : "text-white/45 hover:text-white/80"}`}>{tab === id && <motion.span layoutId="workspace-tab" transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute inset-0 rounded-lg border border-white/[.08] bg-white/[.07]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative hidden sm:inline">{label}</span>{id === "code" && files.length > 0 && <span className="relative rounded bg-white/[.08] px-1 text-[9px] text-white/55">{files.length}</span>}</button>)}</nav>
+          <nav className="flex items-center gap-0.5">{tabs.map(({ id, label, icon: Icon }) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`relative flex h-8 items-center gap-2 rounded-lg px-3 text-[11px] transition ${tab === id ? "text-white" : "text-white/45 hover:text-white/80"}`}>{tab === id && <motion.span layoutId="workspace-tab" transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute inset-0 rounded-lg border border-white/[.08] bg-white/[.07]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative hidden sm:inline">{label}</span>{id === "code" && files.length > 0 && <span className="relative rounded bg-white/[.08] px-1 text-[9px] text-white/55">{files.length}</span>}</button>)}</nav>
           {tab === "preview" && <div className="mx-auto hidden h-7 w-[min(34vw,380px)] items-center rounded-lg border border-white/[.07] bg-[#080c13] px-3 text-[10px] text-white/45 xl:flex">{previewSrc ? <span className="mr-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#c7ff4a] shadow-[0_0_8px_#c7ff4a]" /> : <Globe2 className="mr-2 h-3 w-3 shrink-0" />}<span className="truncate">{previewSrc ? "Secure live preview" : "Preview starts after the first successful build"}</span></div>}
           <div className="ml-auto flex items-center gap-1">
             {tab === "preview" && <>
@@ -406,9 +465,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
                 </motion.div>
               </div>}
 
-              {tab === "code" && <div className="grid h-full min-h-0 grid-cols-[180px_minmax(0,1fr)] sm:grid-cols-[240px_minmax(0,1fr)]">
-                <aside className="nynz-scrollbar min-h-0 overflow-y-auto border-r border-white/[.06] bg-[#0a0f17] py-2"><div className="flex h-8 items-center px-3 text-[10px] font-medium uppercase tracking-[.13em] text-white/40">Explorer <span className="ml-auto rounded bg-white/[.06] px-1.5 font-mono text-white/50">{files.length}</span></div>{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`relative flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] transition ${selected === file.path ? "bg-white/[.06] text-white/90" : "text-white/50 hover:bg-white/[.03] hover:text-white/80"}`}>{selected === file.path && <motion.span layoutId="file-active" className="absolute inset-y-0 left-0 w-0.5 bg-[#c7ff4a]" />}{fileIcon(file.path)}<span className="truncate">{file.path}</span></button>)}{files.length === 0 && <p className="px-3 py-4 text-[11px] leading-5 text-white/40">Files appear here as NYNZ writes them.</p>}</aside>
-                <div className="min-h-0 min-w-0 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}{current.path}<button onClick={() => setEditingCode((value) => !value)} className="ml-auto flex h-6 items-center gap-1.5 rounded-md border border-white/[.08] px-2 font-sans text-[9px] text-white/55 transition hover:bg-white/[.06] hover:text-white">{editingCode ? <><Eye className="h-3 w-3" /> Preview</> : <><Pencil className="h-3 w-3" /> Edit</>}</button></div>{editingCode ? <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content: event.target.value } : file))} onBlur={(event) => saveFile(event.target.value)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div> : <div className="nynz-scrollbar min-h-0 flex-1 overflow-auto"><SyntaxHighlighter language={syntaxLanguage} style={vscDarkPlus} showLineNumbers wrapLongLines={false} customStyle={{ margin: 0, minHeight: "100%", background: "#080c13", padding: "16px 18px", fontSize: "12px", lineHeight: "1.7" }} lineNumberStyle={{ minWidth: "2.8em", paddingRight: "1.2em", color: "rgba(255,255,255,.18)" }}>{current.content}</SyntaxHighlighter></div>}</div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
+              {tab === "code" && <div className="flex h-full min-h-0 flex-col sm:grid sm:grid-cols-[240px_minmax(0,1fr)]">
+                <div className="nynz-scrollbar flex h-10 shrink-0 gap-1 overflow-x-auto border-b border-white/[.06] bg-[#0a0f17] px-2 py-1.5 sm:hidden">{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 font-mono text-[9px] ${selected === file.path ? "bg-white/[.09] text-white" : "text-white/45"}`}>{fileIcon(file.path)}<span className="max-w-[130px] truncate">{file.path.split("/").pop()}</span></button>)}{files.length === 0 && <span className="px-2 text-[10px] leading-7 text-white/40">Files appear here while NYNZ writes.</span>}</div>
+                <aside className="nynz-scrollbar hidden min-h-0 overflow-y-auto border-r border-white/[.06] bg-[#0a0f17] py-2 sm:block"><div className="flex h-8 items-center px-3 text-[10px] font-medium uppercase tracking-[.13em] text-white/40">Explorer <span className="ml-auto rounded bg-white/[.06] px-1.5 font-mono text-white/50">{files.length}</span></div>{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`relative flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] transition ${selected === file.path ? "bg-white/[.06] text-white/90" : "text-white/50 hover:bg-white/[.03] hover:text-white/80"}`}>{selected === file.path && <motion.span layoutId="file-active" className="absolute inset-y-0 left-0 w-0.5 bg-[#c7ff4a]" />}{fileIcon(file.path)}<span className="truncate">{file.path}</span></button>)}{files.length === 0 && <p className="px-3 py-4 text-[11px] leading-5 text-white/40">Files appear here as NYNZ writes them.</p>}</aside>
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}<span className="min-w-0 truncate">{current.path}</span><button onClick={() => setEditingCode((value) => !value)} className="ml-auto flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-white/[.08] px-2 font-sans text-[9px] text-white/55 transition hover:bg-white/[.06] hover:text-white">{editingCode ? <><Eye className="h-3 w-3" /> Preview</> : <><Pencil className="h-3 w-3" /> Edit</>}</button></div>{editingCode ? <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content: event.target.value } : file))} onBlur={(event) => saveFile(event.target.value)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div> : <div className="nynz-scrollbar min-h-0 flex-1 overflow-auto"><SyntaxHighlighter language={syntaxLanguage} style={vscDarkPlus} showLineNumbers wrapLongLines={false} customStyle={{ margin: 0, minHeight: "100%", background: "#080c13", padding: "16px 18px", fontSize: "12px", lineHeight: "1.7" }} lineNumberStyle={{ minWidth: "2.8em", paddingRight: "1.2em", color: "rgba(255,255,255,.18)" }}>{current.content}</SyntaxHighlighter></div>}</div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
               </div>}
 
               {tab === "terminal" && <div className="flex h-full min-h-0 flex-col bg-[#06090e] font-mono text-[11px]"><div className="flex h-9 shrink-0 items-center border-b border-white/[.06] px-4 text-white/40"><span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" />Sandbox terminal <span className="ml-auto">/home/user/app</span></div><div className="nynz-scrollbar min-h-0 flex-1 overflow-y-auto p-4 leading-5"><p className="text-white/35">Commands run only inside this project&apos;s isolated preview sandbox.</p>{terminalLines.map((line, index) => <div key={`${line.command}-${index}`} className="mt-4"><p><span className="text-[#c7ff4a]">nynz@app</span><span className="text-white/35">:</span><span className="text-sky-300">~/app</span><span className="text-white/55">$</span> <span className="text-white/85">{line.command}</span></p>{line.output && <pre className={`mt-1 whitespace-pre-wrap break-words ${line.exitCode === 0 ? "text-white/65" : "text-red-300"}`}>{line.output}</pre>}</div>)}{terminalBusy && <p className="mt-4 animate-pulse text-white/40">Running command...</p>}</div><form onSubmit={runTerminal} className="flex shrink-0 items-center gap-2 border-t border-white/[.06] p-3"><span className="text-[#c7ff4a]">$</span><input value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} placeholder="npm run build" aria-label="Terminal command" className="h-9 min-w-0 flex-1 rounded-lg border border-white/[.07] bg-white/[.025] px-3 text-white outline-none focus:border-[#c7ff4a]/30" /><button disabled={!terminalCommand.trim() || terminalBusy} className="grid h-9 w-9 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] disabled:opacity-30" aria-label="Run command"><Play className="h-3.5 w-3.5 fill-current" /></button></form></div>}
@@ -428,6 +488,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           </AnimatePresence>
         </div>
       </section>
+      </div>
     </div>
     <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
   </main>;

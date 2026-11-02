@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateWithOpenRouter } from "../../lib/platform/openrouter";
-import { normalizeGeneratedFile } from "../../lib/platform/sarvam";
+import { normalizeGeneratedFile, validateCreateDependencies } from "../../lib/platform/sarvam";
 
 function reply(value: unknown, cost = 0.01) {
   return new Response(JSON.stringify({
@@ -78,5 +78,25 @@ describe("generated stylesheet normalization", () => {
       content: "body { @apply bg-background text-foreground; } .card { @apply border-border bg-card; }",
     });
     expect(file.content).toBe("body { @apply bg-white text-slate-900; } .card { @apply border-slate-200 bg-white; }");
+  });
+});
+
+describe("generated dependency validation", () => {
+  it("accepts Node built-ins and configured source aliases", () => {
+    const files = [
+      { path: "package.json", content: JSON.stringify({ dependencies: { react: "latest" } }) },
+      { path: "tsconfig.json", content: JSON.stringify({ compilerOptions: { paths: { "@components/*": ["src/components/*"], "@hooks/*": ["src/hooks/*"] } } }) },
+      { path: "vite.config.ts", content: 'import path from "path"; export default { resolve: { alias: { "@utils": path.resolve("src/utils") } } };' },
+      { path: "src/App.tsx", content: 'import Header from "@components/Header"; import useCalc from "@hooks/useCalc"; import { sum } from "@utils/math"; export default function App(){return <Header>{sum(useCalc())}</Header>}' },
+    ];
+    expect(() => validateCreateDependencies(files)).not.toThrow();
+  });
+
+  it("still rejects undeclared external packages", () => {
+    const files = [
+      { path: "package.json", content: JSON.stringify({ dependencies: { react: "latest" } }) },
+      { path: "src/App.tsx", content: 'import { motion } from "framer-motion"; export default function App(){return <motion.main />}' },
+    ];
+    expect(() => validateCreateDependencies(files)).toThrow("framer-motion");
   });
 });

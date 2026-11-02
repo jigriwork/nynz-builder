@@ -12,11 +12,11 @@ export function Reveal({ children, delay = 0, y = 22, className }: { children: R
 }
 
 export const buildStages = [
-  { id: "queued", label: "Queued" },
-  { id: "planning", label: "Planning" },
-  { id: "generating", label: "Writing code" },
-  { id: "installing", label: "Installing" },
-  { id: "validating", label: "Validating" },
+  { id: "queued", label: "Waiting" },
+  { id: "planning", label: "Thinking" },
+  { id: "generating", label: "Writing" },
+  { id: "installing", label: "Building" },
+  { id: "validating", label: "Testing" },
   { id: "ready", label: "Live" },
 ] as const;
 

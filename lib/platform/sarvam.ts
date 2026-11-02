@@ -1,5 +1,6 @@
 import { z } from "zod";
 import ts from "typescript";
+import { builtinModules } from "node:module";
 import { filesAreSafe, safeProjectPath } from "./security";
 
 export const generatedSchema = z.object({
@@ -164,7 +165,19 @@ export function validateSourceSyntax(files: Array<{ path: string; content: strin
 
 export function validateCreateDependencies(files: Array<{ path: string; content: string }>) {
   const source = files.filter((file) => /\.[jt]sx?$/.test(file.path)).map((file) => file.content).join("\n");
-  const packages = [...source.matchAll(/(?:from\s*|import\s*)["']([^./][^"']*)["']/g)].map((match) => match[1]).filter((name) => !name.startsWith("@/"));
+  const configuredAliases = new Set<string>(["@"]);
+  for (const file of files.filter((item) => /(?:^|\/)(?:tsconfig[^/]*\.json|vite\.config\.[jt]s)$/.test(item.path))) {
+    if (/tsconfig[^/]*\.json$/.test(file.path)) {
+      try {
+        const paths = JSON.parse(file.content)?.compilerOptions?.paths || {};
+        for (const key of Object.keys(paths)) configuredAliases.add(key.replace(/\/\*$/, ""));
+      } catch { /* Invalid JSON is reported by the production compiler. */ }
+    }
+    for (const match of file.content.matchAll(/(?:^|[{,])\s*["'](@[^"']+)["']\s*:/gm)) configuredAliases.add(match[1]);
+  }
+  const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
+  const isLocalAlias = (name: string) => [...configuredAliases].some((alias) => name === alias || name.startsWith(`${alias}/`));
+  const packages = [...source.matchAll(/(?:from\s*|import\s*)["']([^./][^"']*)["']/g)].map((match) => match[1]).filter((name) => !builtins.has(name) && !isLocalAlias(name));
   const required = new Set(packages.map((name) => name.startsWith("@") ? name.split("/").slice(0, 2).join("/") : name.split("/")[0]).filter((name) => !["react", "react-dom"].includes(name)));
   if (files.some((file) => /\.css$/.test(file.path) && /@tailwind\s/.test(file.content))) required.add("tailwindcss");
   if (!required.size) return;
