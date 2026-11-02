@@ -80,6 +80,11 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Chat", exact: true }).click();
   await page.screenshot({ path: "/tmp/nynz-plan-mobile.png", fullPage: true });
+  const chat = page.getByRole("region", { name: "Conversation", exact: true });
+  await chat.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
+  await wait(6000);
+  if ((await chat.evaluate(element => element.scrollTop)) > 3) throw new Error("Polling forced the reader down while reviewing the plan");
+  console.log("Reading position stayed stable across chat refreshes");
   await page.getByLabel("Requested plan changes").fill("Use a warm ivory background and dark navy calculator keys. Keep the app title NYNZ Calculator Verified.");
   await page.getByRole("button", { name: "Revise plan", exact: true }).click();
   const revised = await waitJob(build.id, job => job.plan?.approval === "awaiting" && job.plan.revision === 2, "Revised plan");

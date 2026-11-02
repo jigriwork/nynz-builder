@@ -120,6 +120,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [mounted, setMounted] = useState(false);
   const resumedDraft = useRef(false);
   const conversation = useRef<HTMLDivElement>(null);
+  const followConversation = useRef(true);
   const composer = useRef<HTMLTextAreaElement>(null);
   const codeEditor = useRef<HTMLTextAreaElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
@@ -130,6 +131,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const running = mounted ? builds.find((build) => active.has(build.status) && build.plan?.approval !== "awaiting") : undefined;
   const runningId = running?.id;
   const runningStatus = running?.status;
+  const pendingPlanKey = pendingPlan ? `${pendingPlan.id}:${pendingPlan.plan?.revision}` : "";
   const latest = builds[0];
   const lastProgress = running?.progress?.[running.progress.length - 1]?.message;
   const progressPercent = running?.progress ? [...running.progress].reverse().find((event) => typeof event.percent === "number")?.percent : undefined;
@@ -191,11 +193,12 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   }, [project.active_sandbox_id, project.id, project.preview_url, project.status]);
 
   useEffect(() => {
-    if (!running && !pendingPlan) return;
-    // Scroll only the chat pane; scrollIntoView would also scroll a parent page embedding this builder.
+    // Polling replaces job objects even when nothing changed. Only follow new
+    // content while the reader is already near the bottom of this pane.
+    if (!followConversation.current) return;
     const pane = conversation.current;
-    pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
-  }, [messages.length, running?.status, running, pendingPlan]);
+    pane?.scrollTo({ top: pane.scrollHeight, behavior: "auto" });
+  }, [messages.length, runningStatus, lastProgress, pendingPlanKey]);
 
   useEffect(() => {
     if (!notice) return;
@@ -397,7 +400,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </div>
 
-        <div ref={conversation} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
+        <div ref={conversation} role="region" aria-label="Conversation" onScroll={event => { const pane = event.currentTarget; followConversation.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80; }} className="nynz-scrollbar min-h-0 flex-1 overscroll-contain overflow-y-auto px-4 py-5">
           {messages.length === 0 && <div className="flex min-h-full flex-col">
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6, ease }} className="pt-4 text-center">
               <div className="relative mx-auto h-14 w-14">
