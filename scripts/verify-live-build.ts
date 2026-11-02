@@ -76,7 +76,7 @@ try {
   if (createdUser.error || !createdUser.data.user) throw new Error(`Could not create verification user: ${createdUser.error?.message}`);
   userId = createdUser.data.user.id;
 
-  const createdProject = await db.from("projects").insert({ owner_id: userId, name: "NYNZ end-to-end verification", description: "Disposable Sarvam and E2B preview verification" }).select("id").single();
+  const createdProject = await db.from("projects").insert({ owner_id: userId, name: "NYNZ end-to-end verification", description: "Disposable generation and E2B preview verification" }).select("id").single();
   if (createdProject.error || !createdProject.data) throw new Error(`Could not create verification project: ${createdProject.error?.message}`);
   projectId = createdProject.data.id;
   const conversation = await db.from("conversations").insert({ project_id: projectId }).select("id").single();

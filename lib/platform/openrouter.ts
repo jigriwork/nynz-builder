@@ -108,12 +108,18 @@ function assertBudget(usage: Usage) {
   if (spentInr > limitInr) throw new Error(`Build stopped at its ₹${limitInr.toFixed(0)} model spending limit`);
 }
 
-function validateProduct(files: SourceFile[]) {
+function validateProduct(files: SourceFile[], prompt: string) {
   validateSourceSyntax(files);
   validateCreateDependencies(files);
   const source = files.filter((file) => /\.[jt]sx?$/.test(file.path)).map((file) => file.content).join("\n");
   const styles = files.filter((file) => file.path.endsWith(".css")).map((file) => file.content).join("\n");
-  if (source.length < 3_500 || ((source.match(/className\s*=/g) || []).length < 16 && styles.length < 900)) throw new Error("Generated application is not complete enough to publish");
+  const compactBrief = /\b(?:minimal|simple|single[- ]page|one[- ]page)\b/i.test(prompt);
+  const minimumSource = compactBrief ? 1_800 : 3_500;
+  const minimumClassNames = compactBrief ? 12 : 16;
+  const minimumStyles = compactBrief ? 500 : 900;
+  if (source.length < minimumSource || ((source.match(/className\s*=/g) || []).length < minimumClassNames && styles.length < minimumStyles)) {
+    throw new Error(`Generated application is not complete enough to publish (source ${source.length}, styles ${styles.length})`);
+  }
 }
 
 async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress }) {
@@ -167,7 +173,7 @@ async function createApplication(input: { prompt: string; references?: string; o
     if (!completed) throw batchError instanceof Error ? batchError : new Error(`Could not generate batch ${index + 1}`);
   }
   const files = filesAreSafe(generated).map(normalizeGeneratedFile);
-  validateProduct(files);
+  validateProduct(files, input.prompt);
   const result: GeneratedApp = generatedSchema.parse({ plan: manifest.plan, message: manifest.message, files });
   return { result, usage, requestId: planned.requestId, model: `openrouter:${planned.model}` };
 }
