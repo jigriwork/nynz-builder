@@ -87,7 +87,7 @@ async function processJob(job:any){
 }
 for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>{if(shuttingDown)return;shuttingDown=true;console.log(`[NYNZ worker] ${lockOwner} ${signal} received; finishing the active build before shutdown`);void heartbeat("stopping");});
 async function main(){
- console.log(`[NYNZ worker] ${worker} started (instance ${lockOwner})`);await heartbeat("starting");
+ console.log(`[NYNZ worker] ${worker} started (instance ${lockOwner}, generator ${process.env.OPENROUTER_API_KEY?"openrouter":"sarvam"})`);await heartbeat("starting");
  const timer=setInterval(()=>void heartbeat(),15000);timer.unref();let failures=0;let lastRecovery=0;
  while(!shuttingDown){
   if(Date.now()-lastRecovery>60000){const recovery=await db.rpc("recover_stale_build_jobs",{stale_after_seconds:120});if(recovery.error)console.error(`[NYNZ worker] recovery check failed: ${safeError(recovery.error)}`);lastRecovery=Date.now();}
