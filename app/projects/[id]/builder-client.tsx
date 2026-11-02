@@ -19,7 +19,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
+type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[] } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -80,6 +80,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const running = mounted ? builds.find((build) => active.has(build.status)) : undefined;
   const latest = builds[0];
   const lastProgress = running?.progress?.[running.progress.length - 1]?.message;
+  const progressPercent = running?.progress ? [...running.progress].reverse().find((event) => typeof event.percent === "number")?.percent : undefined;
   const failed = project.status === "failed" && !running;
 
   useEffect(() => setMounted(true), []);
@@ -281,7 +282,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <span className="hidden text-white/20 sm:block">/</span>
         <input defaultValue={project.name} aria-label="Project name" onBlur={async (event) => { await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: event.target.value }) }); }} className="min-w-0 max-w-[170px] truncate rounded-md bg-transparent px-1.5 py-1 text-[13px] font-medium outline-none transition hover:bg-white/[.04] focus:bg-white/[.06] sm:max-w-[260px]" />
       </div>
-      <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><BuildPipeline status={running?.status || latest?.status} failed={failed} compact /></motion.div>}</AnimatePresence>
+      <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .35, ease }} className="absolute left-1/2 hidden -translate-x-1/2 lg:block"><BuildPipeline status={running?.status || latest?.status} failed={failed} compact progressPercent={progressPercent} /></motion.div>}</AnimatePresence>
       <div className="ml-auto flex items-center gap-1.5">
         <span title={`${initialCredits.toLocaleString()} token credits used. Provider charges are shown in INR.`} className="hidden h-8 items-center gap-1.5 rounded-lg border border-white/[.07] bg-white/[.025] px-2.5 text-[10px] text-white/50 md:flex"><Coins className="h-3 w-3 text-[#c7ff4a]" />₹{(initialCostPaise / 100).toFixed(2)}</span>
         <span className={`mr-1 hidden items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] sm:flex ${running ? "lg:hidden" : ""} ${running ? "border-[#c7ff4a]/20 bg-[#c7ff4a]/[.08] text-[#c7ff4a]" : failed ? "border-red-400/20 bg-red-400/[.08] text-red-300" : project.status === "ready" ? "border-[#c7ff4a]/15 text-[#c7ff4a]/85" : "border-white/[.08] text-white/50"}`}>
@@ -355,7 +356,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
             <AnimatePresence>{running && <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: .4, ease }} className="nynz-edge relative overflow-hidden rounded-2xl bg-[#0d1520] p-4">
               <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-[#c7ff4a]">Building your app</span><button onClick={cancel} className="ml-auto rounded-md px-2 py-1 text-[10px] text-white/45 transition hover:bg-red-400/10 hover:text-red-300">Stop</button></div>
-              <div className="mt-3"><BuildPipeline status={running.status} vertical /></div>
+              <div className="mt-3"><BuildPipeline status={running.status} vertical progressPercent={progressPercent} /></div>
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 

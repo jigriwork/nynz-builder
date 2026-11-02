@@ -14,6 +14,7 @@ import {
 type SourceFile = { path: string; content: string };
 type Usage = { prompt_tokens: number; completion_tokens: number; costUsd: number };
 type OnUsage = (event: Usage & { model: string; requestId: string | null }) => Promise<void>;
+type OnProgress = (event: { current: number; total: number; percent: number }) => Promise<void>;
 
 const manifestSchema = z.object({
   plan: z.object({ summary: z.string(), steps: z.array(z.string()).min(1).max(12) }),
@@ -115,7 +116,7 @@ function validateProduct(files: SourceFile[]) {
   if (source.length < 3_500 || ((source.match(/className\s*=/g) || []).length < 16 && styles.length < 900)) throw new Error("Generated application is not complete enough to publish");
 }
 
-async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage }) {
+async function createApplication(input: { prompt: string; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress }) {
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   await input.onAttempt?.(1);
   const planned = await completion({
@@ -142,6 +143,7 @@ async function createApplication(input: { prompt: string; references?: string; o
     let completed = false;
     for (let attempt = 1; attempt <= 3 && !completed; attempt += 1) {
       await input.onAttempt?.(index + 2);
+      await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + (index / batches.length) * 42) });
       try {
         const result = await completion({
           role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
@@ -159,6 +161,7 @@ async function createApplication(input: { prompt: string; references?: string; o
         validateSourceSyntax(files);
         generated.push(...files);
         completed = true;
+        await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + ((index + 1) / batches.length) * 42) });
       } catch (error) { batchError = error; }
     }
     if (!completed) throw batchError instanceof Error ? batchError : new Error(`Could not generate batch ${index + 1}`);
@@ -192,6 +195,6 @@ async function editApplication(input: { prompt: string; files: SourceFile[]; ref
   throw lastError instanceof Error ? lastError : new Error("OpenRouter edit failed");
 }
 
-export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage }) {
+export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; onProgress?: OnProgress }) {
   return input.mode === "create" ? createApplication(input) : editApplication(input);
 }

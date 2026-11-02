@@ -33,9 +33,9 @@ export function buildPercent(status?: string) {
 }
 
 /** Horizontal or vertical pipeline of build stages with the active one animated. */
-export function BuildPipeline({ status, failed = false, vertical = false, compact = false }: { status?: string; failed?: boolean; vertical?: boolean; compact?: boolean }) {
+export function BuildPipeline({ status, failed = false, vertical = false, compact = false, progressPercent }: { status?: string; failed?: boolean; vertical?: boolean; compact?: boolean; progressPercent?: number }) {
   const current = stageIndex(status);
-  const percent = buildPercent(status);
+  const percent = Math.max(0, Math.min(100, progressPercent ?? buildPercent(status)));
   return <div className={vertical ? "w-full" : compact ? "flex min-w-0 items-center gap-3" : "min-w-0"} aria-label={`Build ${percent}% complete`}>
     <div className={`flex items-center gap-2 ${compact ? "order-last" : "mb-2"} ${vertical ? "" : "justify-end"}`}><span className="text-[10px] font-medium tabular-nums text-[#c7ff4a]">{percent}%</span><span className={`relative h-1 overflow-hidden rounded-full bg-white/[.08] ${vertical ? "flex-1" : compact ? "w-16" : "w-24"}`}><motion.span className="absolute inset-y-0 left-0 rounded-full bg-[#c7ff4a]" initial={false} animate={{ width: `${percent}%` }} transition={{ duration: .7, ease }} />{percent > 0 && percent < 100 && <span className="nynz-progress-sweep absolute inset-y-0 w-8 bg-gradient-to-r from-transparent via-white/40 to-transparent" />}</span></div>
     <ol className={vertical ? "space-y-1" : "flex items-center gap-1.5"}>
