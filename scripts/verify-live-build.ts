@@ -33,7 +33,7 @@ async function queueBuild(prompt: string, mode: "create" | "edit" | "restart", c
 
 async function waitForBuild(buildId: string, label: string) {
   let previousStatus = "";
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  for (let attempt = 0; attempt < 360; attempt += 1) {
     const job = await db.from("build_jobs").select("status,error_message").eq("id", buildId).single();
     if (job.error || !job.data) throw new Error(`Could not read ${label} build: ${job.error?.message}`);
     if (job.data.status !== previousStatus) { console.log(`${label} stage: ${job.data.status}`); previousStatus = job.data.status; }
@@ -41,7 +41,7 @@ async function waitForBuild(buildId: string, label: string) {
     if (["failed", "cancelled"].includes(job.data.status)) throw new Error(`${label} ended as ${job.data.status}: ${job.data.error_message || "No error detail"}`);
     await wait(2_000);
   }
-  throw new Error(`${label} did not complete within six minutes`);
+  throw new Error(`${label} did not complete within twelve minutes`);
 }
 
 async function currentProject() {
