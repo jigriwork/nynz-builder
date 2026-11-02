@@ -92,6 +92,9 @@ try {
   if (notWritten.data?.length) throw new Error("Revision generated code before approval");
   await page.getByRole("button", { name: "Approve and build", exact: true }).waitFor({ timeout: 15000 });
   await page.getByRole("button", { name: "Edit plan", exact: true }).click();
+  const caretColors = await page.locator(".nynz-builder input, .nynz-builder textarea").evaluateAll(elements => elements.map(element => ({ label: element.getAttribute("aria-label"), caret: getComputedStyle(element).caretColor })));
+  if (caretColors.some(field => field.caret !== "rgb(199, 255, 74)")) throw new Error("A builder input has an invisible or incorrect caret");
+  console.log("All builder input and textarea caret colors verified as lime");
   await page.getByLabel("Plan summary").fill(`${revised.plan.summary} Use clear, concise labels.`);
   await page.getByRole("button", { name: "Done editing", exact: true }).click();
   const approvedAt = Date.now();

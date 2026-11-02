@@ -354,7 +354,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const lineCount = Math.max(1, (current?.content.match(/\n/g)?.length || 0) + 1);
   const syntaxLanguage = current?.path.endsWith(".tsx") || current?.path.endsWith(".ts") ? "tsx" : current?.path.endsWith(".jsx") || current?.path.endsWith(".js") ? "jsx" : current?.path.endsWith(".css") ? "css" : current?.path.endsWith(".json") ? "json" : current?.path.endsWith(".html") ? "markup" : "text";
 
-  return <main className="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main className="nynz-builder fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden overscroll-none bg-[#080c13] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="relative flex h-14 shrink-0 items-center border-b border-white/[.07] bg-[#0a0f17] px-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <a href="/dashboard" aria-label="Back to projects" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white"><ArrowLeft className="h-4 w-4" /></a>

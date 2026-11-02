@@ -1,5 +1,13 @@
 @import "../styles/main.css";
 
+/* Builder fields sit on navy surfaces; the shared light-theme caret is black. */
+.nynz-builder input,
+.nynz-builder textarea,
+.nynz-builder [contenteditable="true"] {
+  caret-color: #c7ff4a;
+  color-scheme: dark;
+}
+
 .nynz-grid,
 .nynz-hero-grid,
 .nynz-auth-grid {
