@@ -17,7 +17,7 @@
   color-scheme: dark;
 }
 
-.nynz-dark :where(
+.nynz-dark :is(
   [class~="text-white/10"], [class~="text-white/15"],
   [class~="text-white/18"], [class~="text-white/20"],
   [class~="text-white/25"], [class~="text-white/28"],
@@ -30,13 +30,13 @@
   color: var(--nynz-text-muted);
 }
 
-.nynz-dark :where(input, textarea, select, [contenteditable="true"]) {
+.nynz-dark :is(input, textarea, select, [contenteditable="true"]) {
   color: var(--nynz-text-primary);
   caret-color: #c7ff4a;
   color-scheme: dark;
 }
 
-.nynz-dark :where(input, textarea)::placeholder {
+.nynz-dark :is(input, textarea)::placeholder {
   color: #95a5bb;
   opacity: 1;
 }
