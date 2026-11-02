@@ -7,6 +7,8 @@ import { createPreviewSession, getPreviewOrigin } from "../lib/preview/session";
 import { stopE2B } from "../lib/platform/e2b";
 
 config({ path: ".env.local", quiet: true });
+// This command verifies the deployed gateway, never the optional local proxy.
+process.env.PREVIEW_ORIGIN = process.env.LIVE_PREVIEW_ORIGIN || "https://preview.nynz.in";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
