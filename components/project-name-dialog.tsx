@@ -22,7 +22,7 @@ export function ProjectNameDialog({ project, onClose, onSaved }: { project: { id
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not rename project"); }
     finally { setBusy(false); }
   }
-  return <dialog ref={dialog} aria-labelledby="rename-project-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === event.currentTarget && !busy) onClose(); }} className="fixed inset-0 z-[100] m-auto w-[calc(100%_-_32px)] max-w-sm rounded-2xl border border-white/10 bg-[#101823] p-0 text-[#f4f1e8] shadow-[0_30px_100px_rgba(0,0,0,.6)] backdrop:bg-black/65 backdrop:backdrop-blur-sm">
+  return <dialog ref={dialog} aria-labelledby="rename-project-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === event.currentTarget && !busy) onClose(); }} className="nynz-dark fixed inset-0 z-[100] m-auto w-[calc(100%_-_32px)] max-w-sm rounded-2xl border border-white/10 bg-[#101823] p-0 text-[#f4f1e8] shadow-[0_30px_100px_rgba(0,0,0,.6)] backdrop:bg-black/65 backdrop:backdrop-blur-sm">
     <form onSubmit={save} className="p-5">
       <div className="flex items-center justify-between"><h2 id="rename-project-title" className="text-base font-medium">Rename project</h2><button type="button" disabled={busy} onClick={onClose} aria-label="Close rename dialog" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 hover:bg-white/5 hover:text-white"><X className="h-4 w-4" /></button></div>
       <p className="mt-2 text-xs leading-5 text-white/45">Choose the name shown in your workspace. Your app content and preview address stay the same.</p>

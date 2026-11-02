@@ -31,7 +31,7 @@ export default function LoginPage() {
   }
 
   const isSignup = mode === "signup";
-  return <main className="relative min-h-screen overflow-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main className="nynz-dark relative min-h-screen overflow-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <div aria-hidden className="absolute inset-0 nynz-auth-grid" />
     <div aria-hidden className="absolute -right-32 -top-48 h-[700px] w-[700px] rounded-full bg-[#274c68]/25 blur-[150px]" />
     <div aria-hidden className="absolute -bottom-64 left-[12%] h-[500px] w-[500px] rounded-full bg-[#c7ff4a]/[.05] blur-[120px]" />

@@ -37,6 +37,7 @@ try {
   await page.reload({ waitUntil: "domcontentloaded" });
   if (!(await page.getByRole("button", { name: "Rename project", exact: true }).innerText()).includes("Renamed in builder")) throw new Error("Builder name did not persist after refresh");
   await page.goto(`${origin}/dashboard`, { waitUntil: "domcontentloaded" });
+  await page.locator('main[data-dashboard-ready="true"]').waitFor();
   await page.getByRole("heading", { name: "Renamed in builder", exact: true }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Rename Renamed in builder", exact: true }).click();

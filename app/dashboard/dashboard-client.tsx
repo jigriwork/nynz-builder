@@ -36,6 +36,8 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState<Project | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const router = useRouter();
   const resumedDraft = useRef(false);
 
@@ -94,7 +96,7 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
     return !q || project.name.toLowerCase().includes(q) || project.description?.toLowerCase().includes(q);
   }), [projects, filter, query]);
 
-  return <main className="relative min-h-screen overflow-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main data-dashboard-ready={mounted} className="nynz-dark relative min-h-screen overflow-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[640px] nynz-hero-grid" />
     <div aria-hidden className="nynz-float pointer-events-none absolute -top-72 left-[20%] h-[560px] w-[760px] rounded-full bg-[#294662]/25 blur-[160px]" />
     <div aria-hidden className="nynz-float-slow pointer-events-none absolute -right-40 top-20 h-[380px] w-[480px] rounded-full bg-[#c7ff4a]/[.05] blur-[130px]" />

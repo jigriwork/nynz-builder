@@ -8,6 +8,62 @@
   color-scheme: dark;
 }
 
+/* Shared contrast floor for NYNZ's dark product surfaces. Low-opacity white
+   was being used for functional labels, placeholders and help text. */
+.nynz-dark {
+  --nynz-text-primary: #f4f1e8;
+  --nynz-text-secondary: #bdc7d5;
+  --nynz-text-muted: #a5b2c4;
+  color-scheme: dark;
+}
+
+.nynz-dark :where(
+  [class~="text-white/10"], [class~="text-white/15"],
+  [class~="text-white/18"], [class~="text-white/20"],
+  [class~="text-white/25"], [class~="text-white/28"],
+  [class~="text-white/30"], [class~="text-white/32"],
+  [class~="text-white/35"], [class~="text-white/38"],
+  [class~="text-white/40"], [class~="text-white/42"],
+  [class~="text-white/45"], [class~="text-white/50"],
+  [class~="text-white/55"], [class~="text-white/60"]
+) {
+  color: var(--nynz-text-muted);
+}
+
+.nynz-dark :where(input, textarea, select, [contenteditable="true"]) {
+  color: var(--nynz-text-primary);
+  caret-color: #c7ff4a;
+  color-scheme: dark;
+}
+
+.nynz-dark :where(input, textarea)::placeholder {
+  color: #95a5bb;
+  opacity: 1;
+}
+
+.nynz-dark :where(button, a, input, textarea, select, summary):focus-visible {
+  outline: 2px solid #c7ff4a;
+  outline-offset: 3px;
+}
+
+.nynz-dark ::selection {
+  color: #071019;
+  background: #c7ff4a;
+}
+
+.nynz-dark :where([class~="text-[9px]"], [class~="text-[10px]"], [class~="text-[11px]"]) {
+  font-size: 12px;
+}
+
+.nynz-dark [aria-label="Review build plan"] :where(p, li, label, textarea) {
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.nynz-dark [aria-label="Review build plan"] h2 {
+  font-size: 15px;
+}
+
 .nynz-grid,
 .nynz-hero-grid,
 .nynz-auth-grid {

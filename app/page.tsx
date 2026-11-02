@@ -90,7 +90,7 @@ export default function HomePage() {
   }
 
   const words = ["Your", "idea."];
-  return <main className="min-h-screen overflow-x-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
+  return <main className="nynz-dark min-h-screen overflow-x-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
     <header className="sticky top-0 z-40 border-b border-transparent bg-[#070b12]/60 backdrop-blur-xl transition-colors">
       <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-5 md:px-8">
         <Link href="/" aria-label="NYNZ home"><NynzBrand className="h-7" /></Link>

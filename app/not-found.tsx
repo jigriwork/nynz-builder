@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
 
 export default function NotFound() {
-  return <main className="relative grid min-h-screen place-items-center overflow-hidden bg-[#070b12] px-5 text-center text-[#f4f1e8]">
+  return <main className="nynz-dark relative grid min-h-screen place-items-center overflow-hidden bg-[#070b12] px-5 text-center text-[#f4f1e8]">
     <div aria-hidden className="absolute inset-0 nynz-auth-grid" />
     <div aria-hidden className="nynz-float absolute left-1/2 top-1/3 h-[420px] w-[680px] -translate-x-1/2 rounded-full bg-[#294662]/30 blur-[150px]" />
     <div className="relative">

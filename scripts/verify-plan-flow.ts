@@ -118,16 +118,14 @@ try {
   await preview.getByRole("button", { name: "3", exact: true }).click();
   await preview.getByRole("button", { name: "=", exact: true }).click();
   const display = preview.getByLabel("Result", { exact: true });
-  await display.evaluate(element => new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + 2000;
-    const check = () => {
-      const value = element instanceof HTMLInputElement ? element.value : element.textContent;
-      if (value?.trim() === "5") { resolve(); return; }
-      if (Date.now() > deadline) { reject(new Error(`Calculator arithmetic result was ${JSON.stringify(value)}, expected 5`)); return; }
-      setTimeout(check, 50);
-    };
-    check();
-  }));
+  let renderedResult = "";
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const value = await display.evaluate(element => element instanceof HTMLInputElement ? element.value : element instanceof HTMLElement ? element.innerText : element.textContent);
+    renderedResult = value?.trim().split("\n").map(line => line.trim()).filter(Boolean).at(-1) || "";
+    if (renderedResult === "5") break;
+    await wait(50);
+  }
+  if (renderedResult !== "5") throw new Error(`Calculator arithmetic result was ${JSON.stringify(renderedResult)}, expected 5`);
   await preview.screenshot({ path: "/tmp/nynz-calculator-verified.png", fullPage: true });
   await preview.reload({ waitUntil: "networkidle" });
   await preview.getByText("NYNZ Calculator Verified", { exact: false }).first().waitFor();
