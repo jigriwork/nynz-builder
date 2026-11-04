@@ -7,13 +7,15 @@ import { ActionForm } from "@/components/admin/action-form";
 export const metadata = { title: "Credits" };
 
 export default async function CreditsPage() {
-  const { supabase, can, email, user, access } = await loadStaff("credits.read");
+  // Read with the server client only after the credits.read check above; customer
+  // ledgers are not readable by staff sessions through RLS.
+  const { can, email, user, access } = await loadStaff("credits.read");
   const admin = createAdmin();
   const [{ data: ledger }, { data: grants }, { data: limits }, { data: reservations }, { data: budget }] = await Promise.all([
-    supabase.from("credit_ledger").select("id,user_id,entry_type,amount,reason,provider,model,cost_paise,cost_source,actor_id,created_at").order("id", { ascending: false }).limit(60),
-    supabase.from("credit_grants").select("source,remaining,expires_at"),
+    admin.from("credit_ledger").select("id,user_id,entry_type,amount,reason,provider,model,cost_paise,cost_source,actor_id,created_at").order("id", { ascending: false }).limit(60),
+    admin.from("credit_grants").select("source,remaining,expires_at"),
     admin.from("staff_credit_limits").select("*"),
-    supabase.from("credit_reservations").select("id,user_id,amount,consumed,created_at").eq("status", "active").order("created_at").limit(50),
+    admin.from("credit_reservations").select("id,user_id,amount,consumed,created_at").eq("status", "active").order("created_at").limit(50),
     admin.from("owner_testing_budget").select("monthly_credit_cap").maybeSingle(),
   ]);
   const live = (grants || []).filter((g) => !g.expires_at || new Date(g.expires_at) > new Date());

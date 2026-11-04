@@ -19,9 +19,9 @@ export default async function BillingPage() {
   const [{ data: ent }, { data: balance }, { data: plans }, { data: subs }, { data: payments }, { data: ledger }, { data: packs }] = await Promise.all([
     supabase.rpc("my_entitlements"), supabase.rpc("my_credit_balance"),
     supabase.from("plans").select("code,name,description,price_minor,tax_rate_bps,monthly_credits,max_concurrent_builds,max_projects,features,provider_plan_id").is("retired_at", null).eq("public", true).order("price_minor"),
-    supabase.from("subscriptions").select("status,current_period_end,cancel_at_period_end,grace_until,checkout_verified_at,plan_id,scheduled_plan_id").order("created_at", { ascending: false }).limit(1),
-    supabase.from("payments").select("kind,amount_minor,tax_minor,net_minor,status,refunded_minor,provider_payment_id,provider_invoice_id,captured_at,created_at").order("created_at", { ascending: false }).limit(50),
-    supabase.from("credit_ledger").select("entry_type,amount,reason,provider,model,cost_source,created_at,metadata").not("entry_type", "in", "(reserve,release)").order("id", { ascending: false }).limit(50),
+    supabase.from("subscriptions").select("status,current_period_end,cancel_at_period_end,grace_until,checkout_verified_at,plan_id,scheduled_plan_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
+    supabase.from("payments").select("kind,amount_minor,tax_minor,net_minor,status,refunded_minor,provider_payment_id,provider_invoice_id,captured_at,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+    supabase.from("credit_ledger").select("entry_type,amount,reason,provider,model,cost_source,created_at,metadata").eq("user_id", user.id).not("entry_type", "in", "(reserve,release)").order("id", { ascending: false }).limit(50),
     supabase.from("topup_packs").select("code,name,credits,price_minor,tax_rate_bps").eq("active", true),
   ]);
   const config = razorpayConfig();

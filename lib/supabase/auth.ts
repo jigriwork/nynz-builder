@@ -20,7 +20,7 @@ export async function requireProject(projectId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(projectId)) return { error: apiError("NOT_FOUND", "Project not found") } as const;
   const auth = await requireUser();
   if ("error" in auth) return { error: auth.error } as const;
-  const { data: project } = await auth.supabase.from("projects").select("*").eq("id", projectId).single();
+  const { data: project } = await auth.supabase.from("projects").select("*").eq("id", projectId).eq("owner_id", auth.user.id).maybeSingle();
   if (!project) return { error: apiError("NOT_FOUND", "Project not found") } as const;
   return { supabase: auth.supabase, user: auth.user, project } as const;
 }

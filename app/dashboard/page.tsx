@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const [{ data: projects }, account] = await Promise.all([
-    supabase.from("projects").select("id,name,description,status,preview_url,updated_at").order("updated_at", { ascending: false }),
+    supabase.from("projects").select("id,name,description,status,preview_url,updated_at").eq("owner_id", user.id).order("updated_at", { ascending: false }),
     accountSummary(supabase, user.email || ""),
   ]);
   return <DashboardClient initialProjects={projects || []} account={account} />;

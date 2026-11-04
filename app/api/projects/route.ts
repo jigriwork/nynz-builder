@@ -10,7 +10,7 @@ const input = z.object({ name: z.string().trim().min(1).max(100), description: z
 export async function GET() {
   const auth = await requireUser();
   if ("error" in auth) return auth.error;
-  const { data, error } = await auth.supabase.from("projects").select("id,name,description,status,preview_url,updated_at,created_at").order("updated_at", { ascending: false });
+  const { data, error } = await auth.supabase.from("projects").select("id,name,description,status,preview_url,updated_at,created_at").eq("owner_id", auth.user.id).order("updated_at", { ascending: false });
   return error ? apiError("INTERNAL", "Could not load projects", { cause: error, scope: "projects" }) : json({ projects: data });
 }
 
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const admin = createAdmin();
   const [entitlements, { count }] = await Promise.all([
     entitlementsFor(admin, auth.user.id),
-    auth.supabase.from("projects").select("id", { count: "exact", head: true }),
+    auth.supabase.from("projects").select("id", { count: "exact", head: true }).eq("owner_id", auth.user.id),
   ]);
   if ((count || 0) >= entitlements.max_projects) return apiError("FORBIDDEN", `Your ${entitlements.plan_name} plan includes up to ${entitlements.max_projects} projects. Delete a project or upgrade to create more.`);
   const { data: project, error } = await auth.supabase.from("projects").insert({ owner_id: auth.user.id, ...parsed.data }).select().single();
