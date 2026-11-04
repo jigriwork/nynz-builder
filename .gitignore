@@ -58,3 +58,6 @@ e2b-template-*
 repomix-output.txt
 bun.lockb
 .env*.local
+
+# Build stamp written by scripts/stamp-build.ts before each deploy
+build-info.json

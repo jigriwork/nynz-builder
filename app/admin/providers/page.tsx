@@ -30,11 +30,11 @@ export default async function ProvidersPage() {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Configuration">
         <Table head={["Service", "Role", "Status"]} rows={[
-          ["OpenRouter", "Planning and generation", configured("OPENROUTER_API_KEY") ? <Badge key="o" tone="good">configured on web app</Badge> : <Badge key="o" tone="warn">not configured on web app (worker reports separately)</Badge>],
+          ["OpenRouter", "Planning and generation (used by the worker)", "See worker health on the Overview"],
           ["Firecrawl", "Website reference import", configured("FIRECRAWL_API_KEY") ? <Badge key="f" tone="good">configured</Badge> : <Badge key="f">not configured</Badge>],
-          ["E2B", "Isolated builds, previews and terminal", configured("E2B_API_KEY") ? <Badge key="e" tone="good">configured</Badge> : <Badge key="e" tone="bad">not configured</Badge>],
+          ["E2B", "Terminal on the web app; builds use the worker", configured("E2B_API_KEY") ? <Badge key="e" tone="good">set on web app</Badge> : <Badge key="e" tone="bad">missing on web app</Badge>],
           ["Razorpay", "Subscriptions and top-ups", configured("RAZORPAY_KEY_ID") ? <Badge key="r" tone="good">configured</Badge> : <Badge key="r">not configured</Badge>],
-          ["Preview signing", "Isolated preview sessions", configured("PREVIEW_SIGNING_SECRET") ? <Badge key="p" tone="good">dedicated secret set</Badge> : <Badge key="p" tone="bad">missing</Badge>],
+          ["Preview signing", "Preview sessions (web app and preview host)", configured("PREVIEW_SIGNING_SECRET") ? <Badge key="p" tone="good">set on web app</Badge> : <Badge key="p" tone="bad">missing on web app</Badge>],
         ]} />
       </Card>
       <Card title="Spending this month">

@@ -16,7 +16,17 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: nynz_concurrency
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      # Real multi-connection concurrency tests (tests/concurrency) run against this service.
+      NYNZ_PG_URL: postgres://postgres:ci-only@localhost:5432/nynz_concurrency
       NYNZ_EMAIL_DELIVERY: disabled
       # Placeholder values so the production build can compile; no real services are contacted.
       NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
@@ -34,7 +44,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - name: Unit and database tests (real migrations on in-process Postgres)
+      - name: Unit, database and multi-connection concurrency tests
         run: pnpm test
       - run: pnpm check:brand
       - run: pnpm build

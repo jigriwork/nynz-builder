@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 
-const SUPABASE_STUB = `
+export const SUPABASE_STUB = `
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;

@@ -12,7 +12,7 @@ import { planApplication } from "../lib/platform/openrouter";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
-import { previewKeys } from "../lib/preview/token";
+import { readFileSync } from "node:fs";
 
 config({ path: ".env.local", quiet: true });
 
@@ -37,12 +37,20 @@ function safeError(error: unknown) {
   return redact(raw).slice(0, 1000);
 }
 
-/** Readiness is checked once at start-up and advertised in every heartbeat. */
+/**
+ * Readiness of what this worker itself needs, checked at start-up and
+ * advertised in every heartbeat. The worker never signs or verifies preview
+ * sessions, so the preview signing secret is not part of its health.
+ */
 function capabilities() {
   const generation = generationReadiness();
-  let preview = true;
-  try { previewKeys(); getPreviewOrigin("00000000-0000-4000-8000-000000000000"); } catch { preview = false; }
-  return { generation: generation.ready, generator: generation.provider, sandbox: Boolean(process.env.E2B_API_KEY), preview_signing: preview };
+  let previewOrigin = true;
+  try { getPreviewOrigin("00000000-0000-4000-8000-000000000000"); } catch { previewOrigin = false; }
+  return {
+    generation: generation.ready, generator: generation.provider, sandbox: Boolean(process.env.E2B_API_KEY), preview_origin: previewOrigin, database: true,
+    version: JSON.parse(readFileSync("package.json", "utf8")).version as string,
+    commit: (process.env.RENDER_GIT_COMMIT || "").slice(0, 7) || "unknown",
+  };
 }
 const caps = capabilities();
 
@@ -319,8 +327,9 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => {
 });
 
 async function main() {
-  console.log(`[NYNZ worker] ${worker} started (instance ${lockOwner}, generation ${caps.generation ? caps.generator : "unavailable"}, sandbox ${caps.sandbox ? "ready" : "unavailable"}, preview signing ${caps.preview_signing ? "ready" : "missing"})`);
+  console.log(`[NYNZ worker] ${worker} v${caps.version} (${caps.commit}) started (instance ${lockOwner}, generation ${caps.generation ? caps.generator : "unavailable"}, sandbox ${caps.sandbox ? "ready" : "unavailable"}, preview origin ${caps.preview_origin ? "valid" : "invalid"})`);
   if (!caps.generation) console.error("[NYNZ worker] OPENROUTER_API_KEY is missing: the build API will refuse new generation requests until it is configured.");
+  if (!caps.preview_origin) console.error("[NYNZ worker] PREVIEW_ORIGIN is invalid: built previews cannot be linked.");
   await heartbeat("starting");
   const timer = setInterval(() => void heartbeat(), 15000);
   timer.unref();

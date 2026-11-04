@@ -1,6 +1,6 @@
 {
   "name": "nynz-builder",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,7 +22,10 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm check:brand",
     "check:brand": "tsx scripts/check-brand.ts",
     "notices": "tsx scripts/third-party-notices.ts",
-    "verify:release": "tsx scripts/verify-release.ts"
+    "verify:release": "tsx scripts/verify-release.ts",
+    "stamp": "tsx scripts/stamp-build.ts",
+    "deploy:web": "tsx scripts/stamp-build.ts && vercel --prod --yes",
+    "test:concurrency": "bash scripts/test-concurrency.sh"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.9.0",
@@ -48,11 +51,13 @@
     "@electric-sql/pglite": "0.5.15",
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
+    "@types/pg": "8.11.10",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "15.5.13",
     "eslint": "^9",
     "eslint-config-next": "15.5.27",
+    "pg": "8.13.1",
     "playwright-core": "^1.64.1",
     "postcss": "^8.5.6",
     "postcss-import": "^16.1.1",
