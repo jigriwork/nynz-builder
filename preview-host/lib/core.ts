@@ -12,7 +12,7 @@
  *  - When the preview host is per project (<projectId>.preview...), the host
  *    must match the token's project.
  */
-import { EXCHANGE_PATH, hostProjectId, issuePreviewToken, normalizeHost, previewKeys, safeNextPath, verifyPreviewToken } from "./token";
+import { EXCHANGE_PATH, hostProjectId, issuePreviewToken, normalizeHost, previewKeys, safeNextPath, verifyPreviewToken } from "./token.js";
 
 export type ProxyRequest = { method: string; host: string; url: string; headers: Record<string, string | undefined>; body?: ArrayBuffer | string };
 export type ProxyResponse = { status: number; headers: Record<string, string>; body?: ArrayBuffer | string };

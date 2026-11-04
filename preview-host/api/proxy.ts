@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { e2bConnector, handlePreview } from "../lib/core";
-import { redactPreviewUrl } from "../lib/token";
-import { handleSite } from "../lib/site-host";
+import { e2bConnector, handlePreview } from "../lib/core.js";
+import { redactPreviewUrl } from "../lib/token.js";
+import { handleSite } from "../lib/site-host.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,7 +47,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         resolve: async (h) => { const { data } = await db.rpc("resolve_site", { p_host: h, p_suffix: sitesSuffix }); return Array.isArray(data) && data[0] ? data[0] : null; },
         download: async (path) => { const { data } = await db.storage.from("published-sites").download(path); return data ? await data.arrayBuffer() : null; },
       });
-      for (const [key, value] of Object.entries(site.headers)) response.setHeader(key, value);
+      for (const [key, value] of Object.entries(site.headers)) response.setHeader(key, String(value));
       response.status(site.status).send(typeof site.body === "string" ? site.body : site.body ? Buffer.from(site.body) : "");
       return;
     }
@@ -56,7 +56,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       insertNonce: async (jti, projectId) => !(await db.from("preview_exchange_nonces").insert({ jti, project_id: projectId })).error,
       connectSandbox, appOrigin, frameAncestors,
     });
-    for (const [key, value] of Object.entries(result.headers)) response.setHeader(key, value);
+    for (const [key, value] of Object.entries(result.headers)) response.setHeader(key, String(value));
     response.status(result.status).send(typeof result.body === "string" ? result.body : result.body ? Buffer.from(result.body) : "");
   } catch (error) {
     console.error(`[preview-host] ${redactPreviewUrl(error instanceof Error ? error.message : "Request failed")}`);

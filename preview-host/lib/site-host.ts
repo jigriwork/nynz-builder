@@ -1,4 +1,4 @@
-import { resolveSitePath, siteHeaders, type ArtifactFile } from "./sites";
+import { resolveSitePath, siteHeaders, type ArtifactFile } from "./sites.js";
 
 export type SiteDeps = {
   resolve: (host: string) => Promise<{ deployment_id: string; manifest: { files: ArtifactFile[] } } | null>;
