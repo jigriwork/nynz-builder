@@ -38,12 +38,16 @@ async function main() {
     const page = context.pages()[0] || await context.newPage();
     await page.goto(`${BASE}/login?next=/admin`);
     console.log("[owner-browser] A Chrome window is open at the NYNZ sign-in page. Waiting up to 20 minutes for the owner to sign in…");
+    let closed = false;
+    context.on("close", () => { closed = true; });
+    page.on("close", () => { closed = true; });
     const deadline = Date.now() + 20 * 60_000;
-    while (Date.now() < deadline) {
+    while (Date.now() < deadline && !closed) {
       const path = new URL(page.url()).pathname;
       if (path === "/admin" || path === "/dashboard") break;
-      await page.waitForTimeout(2000);
+      await new Promise((r) => setTimeout(r, 2000));
     }
+    if (closed) { console.log("[owner-browser] The window was closed before sign-in finished. Nothing was stored."); process.exit(3); }
     const path = new URL(page.url()).pathname;
     if (path !== "/admin" && path !== "/dashboard") { console.log("[owner-browser] Timed out without a sign-in."); await context.close(); process.exit(2); }
     await page.waitForTimeout(1500);
