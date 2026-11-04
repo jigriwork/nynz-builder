@@ -1,122 +1,192 @@
-# NYNZ release 0.3: implementation status
+# NYNZ release 0.3.4 — implementation status
 
-**Date:** 4 November 2026 (Asia/Kolkata)
-**Branch:** `feat/nynz-platform` (pushed). Base: `e24612b`.
-**Commits:** `e71b8a9` isolation and preview sessions · `726dea5` staged builds, ledger, staff and billing schema · `6721aef` admin console, team, account security, billing UI · `c7389d7` inherited-surface removal, metadata, safe errors · `83b9235` backends, publishing, GitHub · final commit: verification scripts, CI and documentation.
-**Production state (4 Nov 2026):** released. All nine 0.3 migrations were first rehearsed on production inside a rolled-back transaction, then applied with `supabase db push`. The web app (Vercel `nynz-platform-preview`, www.nynz.in) and preview host (Vercel `preview-host`, preview.nynz.in) were deployed, and the Render worker auto-deployed from the branch. All 7 existing previews were bound to their projects; no conflicts. Post-deploy: `verify:release` 28/28 and `verify-public-pages` 34/34 against www.nynz.in. Follow-up fix: the preview host needed explicit `.js` imports (it returned 500 for a few minutes after the first deploy).
+Date: 4 November 2026 (Asia/Kolkata).
+Branch: `feat/nynz-platform`.
+Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
+Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
-## Status key
+## Release disposition
 
-- **Verified in production** = checked against www.nynz.in / the production database after deployment (named check below).
-- **Verified by tests** = deployed, and covered by automated tests on the real migrations (in-process Postgres, plus multi-connection tests on a real PostgreSQL server for credit concurrency), but not yet exercised end to end in production.
-- **Not verified** = deployed but not yet checked, usually because the owner sign-in or a paid run is needed.
-- **Awaiting config** = code deployed; it stays switched off and reports "not available" until external setup exists.
-- **Remaining** = not built.
-- **Superseded** = replaced by a different, evidenced decision.
+The existing 0.3 implementation was retained and checked. This increment closes additional isolation, runtime-budget, cleanup, cancellation, restore-concurrency and publishing-transaction gaps, and adds working file search and generation identity validation.
 
-Versions deployed: 0.3.0, 0.3.1 (staff workspace isolation), 0.3.2 (phone layout), 0.3.3 (visible version, worker health, concurrency tests). The live version is shown in the footer and at https://www.nynz.in/version.
+**0.3.4 is committed locally and has not been pushed or deployed.** Its two new migrations have been applied successfully to disposable databases, including an upgrade fixture. They have not been applied to production. A production RPC probe confirmed the runtime migration is absent.
 
-## Owner
+The deployed 0.3 release and the local 0.3.4 candidate are different environments. Historical production verification in earlier release notes is not proof that this increment is deployed.
 
-| Item | State |
-|---|---|
-| ID ↔ email | Verified read-only against production: user `41080a24-57a9-4686-8d53-c0a3a9e09588` is `adib@nynz.in`, email confirmed, not banned, no MFA factor, currently `profiles.role = member`. `pnpm bootstrap:owner … --check` passes; a mismatched email is refused (exit 3). |
-| Owner assigned? | **Yes, in production** (Supabase `rgrlilmfjurdchcnxolt`): bootstrap returned `created_owner`, re-run returned `already_owner`; staff record owner/active, logged and audited. |
-| Admin URL | `https://www.nynz.in/admin`. Verified in production: anonymous visitors are sent to sign-in and signed-in customers receive 404. **Not verified:** the owner's own signed-in console (desktop or phone); no owner session is available to the verifier and the owner's password must not be reset. Phone layout verified only on a development fixture of the same components. |
-| Back to workspace | "Back to workspace" in the console header → `/dashboard`. The owner keeps the normal builder; the account menu shows "Admin console". |
-| Adding team members (not yet verified with a live owner session) | Admin → Team → "Add a team member": email, optional name, role, optional capabilities, reason. Existing accounts accept in-app (Account menu → Staff invitation); new addresses get a Supabase activation email and choose their own password. Resend/revoke from the Invitations table; Manage → role, capabilities, require 2FA, suspend/reactivate, remove. Details: [PERMISSIONS.md](PERMISSIONS.md), [OWNERSHIP.md](OWNERSHIP.md). |
+Fresh public production version check returned **0.3.3 / 97db14a** from https://www.nynz.in/version.
 
-## Current-state audit findings
+Status meanings:
 
-| ID | Finding | State | Evidence |
-|---|---|---|---|
-| SEC-01 | Owners could rewrite `active_sandbox_id`; terminal/preview trusted it | Verified | Column grants (name/description only); server-owned `platform_resources`; trigger refuses unbound sandboxes even for service role; `authorize_sandbox_access` used by terminal and proxy; terminal checks sandbox metadata. `tests/db/isolation-and-builds.test.ts`, `tests/unit/preview-token.test.ts` |
-| REL-01 | Failed generation mutated canonical source | Verified (SQL); worker path not run live | Build-scoped staging, `promote_build` single transaction, failure keeps source/version/preview byte-identical; manual edits during a build block promotion |
-| REL-02 | Non-transactional restore/checkpoint | Verified | `create_checkpoint`, `restore_version` (lock, revision check, backup checkpoint, integrity check), `save_project_files` hash conflicts |
-| REL-03 | Leaked sandboxes/storage | Verified (logic); live E2B reconciliation not run | Registry, termination on replace/fail/cancel/delete/idle, recursive storage cleanup, orphan scan by metadata, retries. `tests/unit/reconcile.test.ts` |
-| BILL-01 | No billing/entitlements | Verified (logic); **Awaiting config** (Razorpay test keys) | Plans with versions, subscriptions, payments with tax split, refunds, top-ups, out-of-order/duplicate webhook handling. `tests/db/billing.test.ts` |
-| ADM-01 | No owner/admin console | Verified locally | Staff model, audit, console pages; owner assignment pending release |
-| SEC-02 | Unrestricted `npm install` lifecycle scripts | **Remaining** | Not changed; needs a paid live build to validate `--ignore-scripts` compatibility |
-| BILL-02 | Incomplete, non-atomic metering | Verified, with gaps | Reservation + headroom + platform caps checked **before** each provider call; actual cost consumed idempotently; model-aware pricing. Gaps: E2B idle/resume time and provider invoices are manual entries |
-| GEN-01 | Sarvam fallback unusable | Verified | OpenRouter required; worker advertises readiness; API refuses before reserving credits |
-| AUTH-01 | No recovery/suspension/session control | Verified (browser for recovery pages; SQL for suspension/sessions); email delivery unverified | Forgot/reset/set-password, expired/reused link messages, suspension in RLS/APIs/queue/previews/sites, session revocation, MFA. Remaining: terms/AUP consent, account deletion/export |
-| SEC-03 | Upload checks by MIME only | Partial | Magic-byte checks, active-SVG rejection, UTF-8/JSON checks, 50 MB project quota. Malware scanning remaining |
-| SEC-04 | Weak rate limits | Verified | Atomic limiter on project creation, builds, restarts, imports, uploads, saves, terminal, preview sessions, exports, publishing, GitHub, checkout, password reset, admin actions. CAPTCHA/IP risk scoring remaining; Supabase limits sign-in/sign-up |
-| REL-04 | Cancellation not propagated | Partial | Queued and awaiting-approval work cancels immediately with hold released; in-flight provider calls/commands still finish |
-| OBS-01 | Little monitoring | Partial | Overview shows worker freshness, queue age, cleanup failures, last reconciliation, spend vs limits. Alerts, tracing, backup drill remaining |
-| SEC-05 | Preview signing used service key | Verified | Dedicated required secret, rotation via `_PREVIOUS`, host-bound single-use exchange, HttpOnly host-only cookie, clean redirect, redaction |
-| PROD-01 | Legacy endpoints compiled | Verified | All legacy handlers deleted; unsupported `/api/*` returns 404 (browser check) |
-| CLAIM-01 | "Production-ready"/"Systems operational" | Verified | Copy replaced; public pricing page states scope |
-| Feature: file search | Button only opens Code tab | **Remaining** | |
-| Feature: ZIP import | Missing | **Remaining** (GitHub import added instead) | |
-| Feature: separate origins per generated app | Shared `preview.nynz.in` | **Awaiting config** | Code supports `{projectId}` hosts and binds tokens to host; needs `*.preview.nynz.in` wildcard |
+- **Implemented and verified**: named tests or browser checks passed; environment stated.
+- **Implemented, awaiting configuration**: code and fixtures exist; external setup prevents a live workflow.
+- **Remaining**: engineering or operational verification is incomplete.
+- **Superseded**: a documented replacement resolved the original finding.
 
-## Branding and provenance audit findings
+## Completion checklist
 
-| # | Finding | State |
+- [x] Read both audits and revalidate against the newer implementation.
+- [x] Preserve existing customer data and provider configuration.
+- [x] Verify the exact owner's ID/email against connected Supabase Auth.
+- [x] Run the privileged idempotent owner bootstrap and confirm owner/active.
+- [x] Preserve server-owned resource bindings and test cross-user boundaries.
+- [x] Refuse shared production preview origins and invalid origin configuration.
+- [x] Reserve estimated bounded E2B allocation cost before sandbox creation.
+- [x] Admit preview and terminal resume against allowance and combined spending limits.
+- [x] Abort model requests and new sandboxes on cancellation, suspension or lost lease.
+- [x] Preserve canonical source and preview on failed generation.
+- [x] Test parallel saves, restores, credit reservations and resume deduplication.
+- [x] Fail closed on rate-limit/account-state lookup errors.
+- [x] Prevent orphan deletion when resource-registry lookup fails.
+- [x] Preserve project README, existing export notes and licence files.
+- [x] Add generation title/description/favicon/package validation and real file search.
+- [x] Typecheck both the application and independently deployed preview host.
+- [x] Run lint, tests, production build and no-cost browser journeys.
+- [x] Prepare additive migrations and release/rollback instructions.
+- [ ] Configure isolated preview DNS and environment settings, then approve production release.
+- [ ] Complete owner-session browser verification, payment sandbox integration and paid create/edit verification.
+- [ ] Complete the remaining accounting and operational work listed below.
+
+## Owner and access
+
+Production Supabase project: `rgrlilmfjurdchcnxolt`.
+
+On this pass, Supabase Auth confirmed that ID `41080a24-57a9-4686-8d53-c0a3a9e09588` belongs to the confirmed email `adib@nynz.in`. The bootstrap returned `already_owner` and the staff record returned `owner / active`. The bootstrap's server-side function records the assignment/run and an audit event.
+
+No substitute owner, duplicate login, password reset, email-verification change, or client metadata privilege was created.
+
+- Exact admin URL: https://www.nynz.in/admin
+- Workspace URL: https://www.nynz.in/dashboard
+- Account menu → **Admin console** opens administration.
+- Console header → **Back to workspace** returns to the ordinary builder.
+- Admin → **Team** → **Add a team member** accepts email, optional name, role, capabilities and reason.
+- Existing users accept their pending invitation through the account menu; new users activate their individual account through Supabase's invitation flow.
+- The Team table supports resend/revoke, permission changes, MFA requirements, suspension/reactivation and removal of staff access.
+- Acceptance requires the intended verified email. Removing staff access preserves the person's customer account.
+- Only owners can appoint owners or grant owner-level capabilities. Last-owner protection and ownership transfer/recovery are documented in OWNERSHIP.md and PERMISSIONS.md.
+
+Verified scope: production owner identity/bootstrap; database fixtures for roles, invitations, verified-email acceptance, expiry, revocation, escalation prevention, recent authentication, MFA, last-owner protection, audit records and ordinary owner workspace access.
+
+Remaining verification: the real owner's signed-in browser journey and real invitation-email delivery. No owner session was available and no real recipient received a test invitation or reset message.
+
+## Current-state audit mapping
+
+| Finding | Current disposition | Evidence and limits |
 |---|---|---|
-| 1–2 | Title and missing metadata | Verified: title template, canonical, OG/Twitter image, manifest, theme colour, apple icon, robots, sitemap (browser check) |
-| 3 | Icons from one master artwork | Remaining (design decision); existing icons kept, apple icon added from `app/icon.png` |
-| 4 | Live pages already NYNZ | Retained; automated in `scripts/verify-public-pages.ts` |
-| 5 | Public Firecrawl logos | Verified removed (404 locally) |
-| 6–7, 13 | Dormant landing, hero, livecast | Verified removed |
-| 8 | Header/icons/`styles/fire.css`/`design-system` | Components removed. **Superseded for CSS:** `styles/fire.css` and `styles/design-system/**` are imported by `app/globals.css` (live), so rules were kept, the file renamed `styles/base.css` and inherited marketing comments removed |
-| 9 | `create-open-lovable` CLI | Verified removed |
-| 10 | `lib/build-validator.ts` | Verified removed |
-| 11 | "Firecrawl is not configured" | Verified: vendor-neutral messages; provider details only in logs |
-| 12 | Legacy handlers in server build | Verified removed |
-| 14–15 | Generation identity | Prompt rules added; automated post-generation identity validation remaining |
-| 16 | Export README overwrite | Verified: project README preserved, notes in `NYNZ_EXPORT.md` |
-| 17 | Raw database errors | Verified for all API routes (stable codes + correlation IDs, redacted logs) |
-| 18 | Session token in URL | Verified: one-time exchange token, cookie, clean redirect, log redaction |
-| 19 | Server build paths/source maps | Partial: CI builds in a standard path; server artifacts remain internal |
-| 20 | Client bundle | Pass (local browser smoke) |
-| 21 | Personal data in Git history | Remaining owner decision (`.mailmap`/no-reply addresses); history not rewritten |
-| 22 | Licence/provenance | Verified preserved; `docs/UPSTREAM.md` updated truthfully; `THIRD_PARTY_NOTICES.md` added; brand check enforces both |
+| SEC-01: customer-editable sandbox identifiers | Implemented and verified in database fixtures | Column grants, server resource registry, binding trigger, ownership RPC and cross-project tests retained. |
+| REL-01: failed builds overwrite working source | Implemented and verified in fixtures | Build staging and transactional promotion retained; failures preserve source/version/preview. No fresh paid production generation in this pass. |
+| REL-02: non-transactional restore/checkpoint | Implemented and verified | Transactional snapshots/restores plus hash/revision checks. New migration advances revision even for no-op restores; real parallel PostgreSQL test passes. |
+| REL-03: leaked resources | Implemented and verified in fixtures; live inventory reconciliation remaining | Replacement/deletion/failure/cancellation/idle cleanup retained. Registry failures now stop orphan deletion; invalid broad storage targets are refused; cleanup errors retain retry state. |
+| BILL-01: no billing/entitlements | Implemented, awaiting Razorpay configuration | Versioned plans, subscription/payment/refund/top-up tables, signed idempotent webhooks and customer billing UI; no live or test-provider transaction executed. |
+| ADM-01: no owner/console | Implemented; exact owner verified in production | Owner/active confirmed. Real-data admin pages and staff controls exist. Owner browser verification remains. |
+| SEC-02: unrestricted install hooks | Partly implemented and verified | Initial, repair and publish installs use --ignore-scripts. Sandboxes remain isolated. Full package screening, restrictive egress policy and a live compatibility run remain. |
+| BILL-02: incomplete/non-atomic accounting | Partly implemented and verified | Atomic allowance reservations and spending caps; E2B allocation/resume admission added. Actual invoice reconciliation and automatic correction of runtime estimates remain. |
+| GEN-01: broken Sarvam fallback | Superseded with evidence | Customer planning/generation require OpenRouter; readiness refuses unsupported configuration before a reservation. Sarvam code/configuration is preserved but not advertised as a working customer-flow fallback. |
+| AUTH-01: recovery/suspension/session controls | Implemented and fixture/browser verified in supported scope | Recovery pages, expired-link messages, suspension, staff-session revocation and MFA exist. Real email delivery, terms/consent and customer account deletion/export remain. |
+| SEC-03: upload validation | Partly implemented | Signature/active-SVG checks and quotas exist; malware scanning remains. |
+| SEC-04: weak admission/rate limits | Implemented, with abuse-control gaps | Atomic limiter covers active operations and now fails closed during errors. CAPTCHA/device/IP risk controls remain. |
+| REL-04: cancellation only between stages | Implemented and fixture verified | Two-second control polling aborts HTTP requests and terminates the new sandbox on cancellation/suspension/lease loss. Provider-side billing after HTTP abort cannot be assumed to stop. Live stage-by-stage latency verification remains. |
+| OBS-01: limited monitoring | Partly implemented | Real worker/queue/reconciliation/spend health shown. Alert delivery, distributed tracing and backup restore drill remain. |
+| SEC-05: preview signing coupled to service key | Implemented; external settings required | Dedicated required signing secret, rotation, host-bound single-use exchange, HttpOnly cookie and clean redirect retained. This workspace lacks the signing secret; hosted environment configuration was not changed. |
+| PROD-01: legacy endpoints | Implemented and verified | Removed in preceding 0.3 commits; public browser smoke confirms removed paths/assets return 404. |
+| CLAIM-01: unsupported product claims | Implemented in existing release | NYNZ copy describes supported scope; no new production-readiness claim made. |
+| File search | Implemented and browser verified | Filename and content search opens the matching source file; replaces the previous placeholder button. |
+| ZIP import | Remaining | GitHub source import is available in code; ZIP import has not been added or advertised as completed. |
+| Separate generated-app origins | Implemented, awaiting DNS/configuration | Production requires a UUID project hostname. Shared-origin mode is refused. Configure wildcard hosting before deploying this change. |
 
-Also removed after import tracing: unused UI kits and helpers (245 files) and 57 unused dependencies.
+## Branding/provenance audit mapping
 
-## Payments
-
-Test/live state: **not configured** (no Razorpay keys in this workspace). Live keys are refused unless `BILLING_LIVE_ENABLED=true`. No GSTIN, legal entity, invoice data or real payment was created. Starter ₹999 and Pro ₹1,499 excl. GST are seeded as plan versions; allowances and grace behaviour are in [BILLING.md](BILLING.md).
-
-## Credits and provider accounting
-
-Covered: customer grants (included, purchased, promotional, owner testing, adjustments), reservations, consumption, release, expiry, staff grant limits, duplicate prevention, customer-visible history, platform spend caps (all providers or per provider; day, month or fixed window), OpenRouter provider-reported cost, price-table estimates labelled as such, E2B build time and Firecrawl pages as estimates. Provider balances: Firecrawl via API; OpenRouter key usage via API (account balance needs a management key); E2B, Sarvam, Supabase, Vercel, Render are dated manual entries. Not covered: E2B idle/resume time, automatic invoice ingestion, payment fees. No profit figure is computed.
-
-## Publishing, backends, GitHub
-
-- **Publishing:** implemented (isolated build, artifact validation, immutable deployments, update, rollback, unpublish, retention, suspended-owner blocking, custom-domain TXT verification). **Awaiting config:** a site domain with wildcard DNS on the preview/site host (`PUBLISH_SITES_SUFFIX`), and Vercel API credentials for custom-domain TLS. The UI shows "not available yet" until then.
-- **Customer Supabase:** key validated against the exact project, rotation recorded, secret keys refused, migration review and table verification; RLS template verified with a two-user fixture. Applying SQL remains the customer's step (NYNZ holds no admin credentials). Live two-user check against a real customer project not run (none connected).
-- **GitHub:** implemented (App install with signed state, scoped tokens, export with conflict detection and secret exclusion, transactional import). **Awaiting config:** a GitHub App (see RELEASE.md §8).
-
-## Checks performed
-
-| Check | Result |
+| Audit items | Current disposition |
 |---|---|
-| `pnpm typecheck` (now includes tests and preview host) | Pass |
-| `pnpm lint` | Pass |
-| `pnpm test` | Pass: 117 tests in 17 files (63 run the real migrations, including an upgrade over production-shaped pre-0.3 data) |
-| `pnpm check:brand` | Pass (and verified to fail on injected violations) |
-| `pnpm build` | Pass |
-| `scripts/verify-public-pages.ts` on local production build | Pass: 34/34 browser checks |
-| `pnpm bootstrap:owner --check` against production | Pass (read-only); mismatch correctly refused |
-| `pnpm verify:release` against www.nynz.in | Pass: 28/28 (fixture accounts removed) |
-| `verify-public-pages` against www.nynz.in | Pass: 34/34 |
-| Paid generation, E2B, Firecrawl calls | **Not run** |
+| 1–2: titles, canonical/social/manifest metadata | Implemented; 34/34 public-page browser checks passed locally. |
+| 3: icon master artwork | Existing approved NYNZ artwork preserved; normalisation remains a design decision. |
+| 4: NYNZ public identity | Retained and browser verified. |
+| 5–7, 9–10, 12–13: public logos, dormant marketing/CLI/helpers/handlers/livecast | Removed in existing 0.3 source; removal checks pass. |
+| 8: inherited CSS | Superseded after tracing: live style rules retained with truthful provenance; unused marketing components removed. |
+| 11, 17: provider/raw database errors | Customer-safe codes/correlation IDs retained; rate/account admission now fails closed. |
+| 14–15: generated identity | New deterministic metadata completion and inherited-badge rejection tested. Existing customer projects are not rewritten. |
+| 16: export README overwrite | Actual downloaded ZIP preserves README; unit fixtures also preserve existing export notes and licence files. |
+| 18: session-bearing URLs | One-time exchange, clean redirect, host-only HttpOnly cookie and redaction retained; production shared hosts are refused. |
+| 19–20: build paths, client bundles/maps | Client/public checks pass; server artifacts remain internal. Exhaustive deployed map/log review remains. |
+| 21: Git identity information | Historical records retained. Future author-address choice remains the owner's decision; no history rewritten. |
+| 22: required notices/provenance | LICENSE, THIRD_PARTY_NOTICES.md and UPSTREAM.md preserved. |
 
-Concurrency: credit reservation, plan concurrency, duplicate-event and spend-cap behaviour are verified with 15–20 simultaneous connections on PostgreSQL 17 (`pnpm test:concurrency`, also in CI). Restore/promotion concurrency is still covered only sequentially (single-connection tests).
+The two original audit files are historical evidence. Their findings are mapped here; they have not been edited to imply that the old audited commit already contained these fixes.
 
-**Additional provider spending in this work: ₹0.** Only free calls were made (OpenRouter public model price list, read-only Supabase queries).
+## Credits, spending and payments
 
-## Exact blockers and remaining setup
+Customer allowance, provider usage, provider balances and company payments/expenses remain distinct records.
 
-1. Done: release applied and deployed. Rotate the Supabase database password (it was shared in chat).
-2. `PREVIEW_SIGNING_SECRET` is set on both Vercel projects. Not set on Render (no API access); the worker does not sign previews, so this only shows as "preview signing missing" in its health report.
-3. Wildcard DNS for per-app preview origins and for published sites; Vercel API token for custom domains.
-4. Razorpay test keys, webhook secret and webhook registration; later merchant activation, legal entity, GSTIN and invoice details for live mode.
-5. GitHub App registration.
-6. Optional: `OPENROUTER_MANAGEMENT_KEY` for account balance.
-7. Remaining engineering: SEC-02 install hardening, malware scanning, in-flight cancellation, monitoring/alerts and backup drill, file search, ZIP import, terms/consent, account deletion/export, E2B idle metering.
+Model calls reserve credits and shared spending headroom before requests, use model/input/output-specific rates, send a matching provider price ceiling, and settle returned costs using provider generation IDs when available. A provider-reported zero cost remains zero; an omitted cost uses a labelled estimate. Retries and aborted calls retain conservative unknown-cost provider holds; unused customer reservations are released.
 
-This release is **not production-ready by virtue of a passing build**. Its verified scope is the automated test suite and local browser checks above; production behaviour must be confirmed with `pnpm verify:release` and the owner checklist after deployment, and a ₹50 fixed-window spend cap should be set before any paid verification.
+E2B creation reserves its configured lifetime before allocation. Successful/uncertain allocations are counted using that bounded runtime estimate. Preview/terminal resume uses an atomic per-sandbox time window; twenty parallel proxy instances were verified to charge it once. Repeated connections in one window are covered by a conservative two-timeout allocation estimate. These estimates can exceed measured runtime. They are labelled **allocated_runtime_estimate**, not provider invoices.
+
+**Remaining:** automatic reconciliation/refund of overestimated E2B allocations, paused-storage costs, provider invoice ingestion, shared expenses and payment fees. Operators must reconcile vendor statements and apply reasoned audited credit corrections; this is not complete actual-cost accounting or proven profitability.
+
+Owner testing uses the existing explicit expiring grant/budget model. No testing grant or hidden bypass was added on this pass.
+
+Starter: ₹999/month excluding GST. Pro: ₹1,499/month excluding GST. Money is stored in paise and tax separately. Allowances, versioning and grace rules are documented in BILLING.md.
+
+Payment state: **not configured; no real payment and no provider test-mode checkout performed**. Razorpay test key ID/secret/webhook secret are missing locally. Live mode remains gated; merchant, legal entity, GSTIN and tax invoice details are still external prerequisites. No business/tax identity was fabricated.
+
+## Publishing, customer backends and GitHub
+
+- Publishing implementation builds immutable frontend artifacts in E2B and serves them separately from previews. New snapshot/completion RPCs check cancellation, ownership, lease and source revision, then activate the deployment and succeed the job in one transaction. Fixture tests cover cancellation/concurrent edits. Publish/update/rollback/unpublish/domain records and static artifact controls exist.
+- Live publishing is unavailable until the site suffix/wildcard DNS and hosting configuration exist. Custom-domain attachment needs Vercel credentials/project ID and verified DNS/TLS. None were invented or purchased.
+- Customer Supabase URL/key validation, migration review/table checks, disconnect and rotation exist. New checks refuse the platform database as a customer backend at API and database boundaries. The controlled two-user RLS template fixture passes. SQL application remains the customer's documented step without a customer-authorised privileged integration.
+- GitHub App import/export/sync, scoped installation tokens, secret exclusion and conflict handling exist and have fixture tests. A GitHub App and its private key/state configuration are missing; no live sync was simulated.
+
+## Verification performed on this pass
+
+| Check | Actual result |
+|---|---|
+| Application plus standalone preview-host typecheck | Pass |
+| ESLint | Pass |
+| Unit/database suite | 147 passed; 7 real-concurrency tests skipped in this command and run separately |
+| PostgreSQL 17 multi-connection suite | 7 passed: parallel allowance reservations, plan concurrency, duplicate events, shared cap, manual saves, restores, resume deduplication |
+| Branding check | Pass |
+| Production build | Pass; existing Browserslist-age and Tailwind screen-variant warnings remain |
+| Public browser journey on local production build | 34/34 passed |
+| Release API/ownership smoke against local production app and connected Supabase | 28/28 passed |
+| Authenticated customer browser journey | 12/12 passed against local production app with disposable accounts in connected Supabase |
+| Exact production owner bootstrap | ID/email confirmed; already_owner; owner/active |
+| Admin page MFA gate | Fixtures confirm required MFA redirects before service-role data queries; satisfied sessions retain access |
+| Runtime migration presence in production | Absent; not applied by this work |
+| Paid generation, Firecrawl scraping, E2B allocation, publishing, payment transaction | Not run |
+
+The customer browser journey covered sign-in, project creation, source save, content search, manual edit persistence, stale-write rejection, real ZIP download/README preservation, admin denial, dashboard return and project deletion. All created workspace fixture accounts were cleaned up, including one interrupted initial test run.
+
+CI now installs/typechecks the preview host, runs the real database/concurrency suite, builds and runs the public browser smoke. The new CI workflow has not yet executed remotely because this candidate has not been pushed.
+
+**Additional paid provider spending: ₹0.** No subscription/service purchase, real invitation/reset email or payment was made.
+
+## External setup and release blockers
+
+1. Configure a supported wildcard host/DNS setup for *.preview.nynz.in and PREVIEW_ORIGIN=https://{projectId}.preview.nynz.in on web/worker. Verify two project hosts independently. Do not deploy the stricter origin enforcement with shared production settings.
+2. Set/check the same dedicated preview signing secret on the web and preview host through secure configuration. It is missing locally; no secret value belongs in Git/chat.
+3. Apply the two pending additive migrations and coordinate web, worker and preview-host deployment after approval; see RELEASE.md. A push auto-deploys Render.
+4. Run the real owner's console/team/MFA journeys using their own session; do not reset their password for verification.
+5. Supply Razorpay test keys and register the signed webhook; complete test renewals/failures/refunds before considering live billing.
+6. Configure publishing DNS/site suffix and custom-domain hosting credentials.
+7. Register/configure the GitHub App.
+8. Before any paid verification, activate a combined fixed-window cap of at most ₹50, verify rates/FX and ensure the worker/web/preview host all use the same accounting settings. No paid verification has been claimed.
+
+## Remaining engineering/operational work
+
+Automatic actual-cost reconciliation for runtime estimates and aborted requests; dependency screening/egress restrictions; malware scanning; live cancellation timing; alerts/tracing/backup drill; terms/consent and customer account deletion/export; ZIP import if product scope requires it; authoritative font/dependency licence inventory; real customer-backend auth/storage verification.
+
+These remaining items and missing external integrations prevent an unconditional production-readiness or paid-launch claim.
+
+## Official documentation consulted
+
+Provider behavior was checked against current official documentation; no paid calls were required:
+
+- [E2B sandbox lifecycle](https://docs.e2b.dev/sandbox)
+- [npm install / ignore-scripts](https://docs.npmjs.com/cli/v11/commands/npm-install/)
+- [OpenRouter API](https://openrouter.ai/docs/api/reference/overview)
+- [OpenRouter provider price ceilings](https://github.com/OpenRouterTeam/docs/blob/main/guides/routing/provider-selection.mdx)
+- [Supabase invitation API](https://supabase.com/docs/reference/javascript/auth-admin-inviteuserbyemail)
+- [Razorpay webhook validation](https://razorpay.com/docs/webhooks/validate-test)
+- [Firecrawl scraping](https://docs.firecrawl.dev/api-reference/endpoint/scrape)
+- [Firecrawl credit usage](https://docs.firecrawl.dev/api-reference/endpoint/credit-usage)
+- [GitHub installation access tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+- [Vercel custom-domain setup](https://vercel.com/docs/domains/working-with-domains/add-a-domain)

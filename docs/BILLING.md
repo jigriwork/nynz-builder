@@ -41,6 +41,21 @@ time, hosting, database, support and tax obligations, which are not yet fully
 measured. Treat these allowances as provisional until a month of real paid
 usage has been reconciled against provider invoices and recorded expenses.
 
+## 0.3.4 runtime accounting changes (candidate, not yet deployed)
+
+Sandbox allocations reserve the configured bounded runtime before E2B creation.
+Preview and terminal resume require an atomic allowance/spend admission; warm
+and cold proxy instances deduplicate the same sandbox time window. The window
+estimate covers connections at either end of that window. These amounts are
+labelled allocated_runtime_estimate and may exceed measured usage. Automated
+vendor reconciliation and correction of excess estimates are still remaining;
+operators must reconcile vendor records and use audited credit adjustments.
+
+Model requests send the configured provider price ceilings as well as reserving
+their token allowance. Unknown-cost aborted calls retain conservative provider
+holds; an aborted HTTP request is not assumed to be free. No new paid test was
+run while preparing 0.3.4.
+
 ## Subscription lifecycle (Razorpay)
 
 - Checkout creates a Razorpay subscription and a local `created` record. The
