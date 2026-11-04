@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_PAGES = ["/dashboard", "/projects", "/admin", "/billing", "/account"];
-const SUPPORTED_API = ["/api/projects", "/api/builds", "/api/admin", "/api/billing", "/api/account/invitations"];
+const SUPPORTED_API = ["/api/projects", "/api/builds", "/api/admin", "/api/billing", "/api/account/invitations", "/api/github"];
 // Authenticated by their own mechanism (provider signature, generic recovery response).
 const PUBLIC_API = ["/api/webhooks/razorpay", "/api/account/password-reset"];
 

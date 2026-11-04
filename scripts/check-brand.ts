@@ -9,7 +9,9 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
-const ALLOWED_FILES = new Set(["LICENSE", "docs/UPSTREAM.md", "docs/NYNZ_BRANDING_PROVENANCE_AUDIT.md", "docs/NYNZ_CURRENT_STATE_AUDIT.md", "docs/NYNZ_IMPLEMENTATION_STATUS.md", "docs/RELEASE.md", "THIRD_PARTY_NOTICES.md", "scripts/check-brand.ts", "pnpm-lock.yaml"]);
+const ALLOWED_FILES = new Set(["LICENSE", "docs/UPSTREAM.md", "docs/NYNZ_BRANDING_PROVENANCE_AUDIT.md", "docs/NYNZ_CURRENT_STATE_AUDIT.md", "docs/NYNZ_IMPLEMENTATION_STATUS.md", "docs/RELEASE.md", "THIRD_PARTY_NOTICES.md", "scripts/check-brand.ts", "scripts/third-party-notices.ts", "pnpm-lock.yaml"]);
+// Tests may name forbidden strings in order to assert they are absent.
+const ALLOWED_PREFIXES = ["tests/"];
 const FORBIDDEN = [/open[\s-]?lovable/i, /\blovable\b/i, /mendable(?!\/firecrawl-js)/i, /firecrawl\.svg|firecrawl-logo|FirecrawlLogo|FirecrawlIcon/, /create-open-lovable|OpenLovable/];
 // Operational provider references (class C) are fine in server code, never as customer-visible copy.
 const PROVIDER_NAME = /firecrawl/i;
@@ -19,7 +21,7 @@ const BASE_PROVENANCE = /originate\s*$|open-lovable starter \(see docs\/UPSTREAM
 const files = execSync("git ls-files -co --exclude-standard", { encoding: "utf8" }).split("\n").filter(Boolean).filter((f) => existsSync(f) && !f.startsWith("node_modules/") && !/\.(png|ico|woff2?|jpg|jpeg|gif|webp)$/i.test(f));
 const problems: string[] = [];
 for (const file of files) {
-  if (ALLOWED_FILES.has(file)) continue;
+  if (ALLOWED_FILES.has(file) || ALLOWED_PREFIXES.some((prefix) => file.startsWith(prefix))) continue;
   const lines = readFileSync(file, "utf8").split("\n");
   lines.forEach((line, index) => {
     if (file === "styles/base.css" && BASE_PROVENANCE.test(line)) return;

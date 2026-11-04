@@ -150,3 +150,39 @@ export async function listNynzSandboxes() {
   }
   return out;
 }
+
+
+/**
+ * Builds the project's production bundle in a fresh isolated sandbox and
+ * returns the files under dist/. Nothing from the customer's app runs on the
+ * platform host; the sandbox is always killed afterwards.
+ */
+export async function buildArtifactInE2B(input: Array<{ path: string; content: string }>, generatedBackend: { projectUrl: string; publishableKey: string } | undefined, assets: Array<{ name: string; data: ArrayBuffer }>, options: { owner: { projectId: string; buildId: string }; onCreated?: (sandboxId: string) => Promise<void>; maxFiles: number; maxBytes: number }) {
+  if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
+  const sandbox = await Sandbox.create({ apiKey: process.env.E2B_API_KEY, timeoutMs: 600_000, network: { allowPublicTraffic: false }, metadata: { purpose: SANDBOX_PURPOSE, projectId: options.owner.projectId, buildId: options.owner.buildId } });
+  try {
+    await options.onCreated?.(sandbox.sandboxId);
+    const files = filesAreSafe(input);
+    const merged = new Map(Object.entries(STARTER));
+    files.forEach((file) => merged.set(file.path, file.content));
+    const starterPackageJson = JSON.parse(STARTER["package.json"]);
+    const packageJson = JSON.parse(merged.get("package.json") || STARTER["package.json"]);
+    packageJson.dependencies = { ...starterPackageJson.dependencies, ...packageJson.dependencies };
+    packageJson.devDependencies = { ...starterPackageJson.devDependencies, ...packageJson.devDependencies };
+    packageJson.scripts = { ...packageJson.scripts, build: packageJson.scripts?.build || "vite build" };
+    merged.set("package.json", JSON.stringify(packageJson, null, 2));
+    for (const [path, content] of merged) await sandbox.files.write(`/home/user/app/${path}`, content);
+    for (const asset of assets) await sandbox.files.write(`/home/user/app/public/uploads/${asset.name}`, asset.data);
+    if (generatedBackend) await sandbox.files.write("/home/user/app/.env.production.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
+    await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
+    await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Production build");
+    const listing = await runRequiredCommand(sandbox, "cd dist && find . -type f -printf '%s %P\\n'", { cwd: "/home/user/app", timeoutMs: 30_000 }, "Artifact listing");
+    const entries = listing.stdout.split("\n").filter(Boolean).map((line) => { const [size, ...rest] = line.split(" "); return { size: Number(size), path: rest.join(" ") }; });
+    if (entries.length > options.maxFiles || entries.reduce((sum, entry) => sum + entry.size, 0) > options.maxBytes) throw new Error("Build output exceeds publishing limits");
+    const out: Array<{ path: string; data: Uint8Array }> = [];
+    for (const entry of entries) out.push({ path: entry.path, data: await sandbox.files.read(`/home/user/app/dist/${entry.path}`, { format: "bytes" }) });
+    return { sandboxId: sandbox.sandboxId, files: out };
+  } finally {
+    await sandbox.kill().catch(() => undefined);
+  }
+}

@@ -3,7 +3,9 @@ import { config } from "dotenv";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { generateApplication, generationReadiness } from "../lib/platform/generation";
-import { listNynzSandboxes, runInE2B, stopE2B } from "../lib/platform/e2b";
+import { buildArtifactInE2B, listNynzSandboxes, runInE2B, stopE2B } from "../lib/platform/e2b";
+import { createHash } from "node:crypto";
+import { MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FILES, contentType, validateArtifact } from "../preview-host/lib/sites";
 import { getPreviewOrigin } from "../lib/preview/session";
 import { redact } from "../lib/platform/redact";
 import { planApplication } from "../lib/platform/openrouter";
@@ -28,7 +30,7 @@ let currentBuildId: string | null = null;
 let heartbeatBusy = false;
 
 type SourceFile = { path: string; content: string };
-type Job = { id: string; project_id: string; requested_by: string; conversation_id: string | null; prompt: string; mode: "create" | "edit" | "restart"; plan: any; progress: any[]; generation_complete?: boolean; cancel_requested_at?: string | null };
+type Job = { id: string; project_id: string; requested_by: string; conversation_id: string | null; prompt: string; mode: "create" | "edit" | "restart" | "publish"; plan: any; progress: any[]; generation_complete?: boolean; cancel_requested_at?: string | null };
 
 function safeError(error: unknown) {
   const raw = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message: unknown }).message) : String(error);
@@ -122,6 +124,60 @@ function assistantReply(message: string, mode: string) {
   return /\?\s*$/.test(base) ? base : `${base}\n\nWhat would you like to change, add, or improve next?`;
 }
 
+/**
+ * Publish: build the project's current source in a fresh sandbox, validate the
+ * static output, upload it to an immutable per-deployment prefix and activate
+ * it atomically. A failed publish leaves the live site unchanged.
+ */
+async function processPublish(job: Job, meter: BuildMeter) {
+  const started = Date.now();
+  let sandboxId: string | null = null;
+  const { data: deployment, error: deploymentError } = await db.from("deployments").insert({ project_id: job.project_id, owner_id: job.requested_by, build_id: job.id }).select("id").single();
+  if (deploymentError || !deployment) throw deploymentError || new Error("Could not create deployment");
+  const prefix = `published-sites/${deployment.id}`;
+  try {
+    const [{ data: project }, { data: files }, { data: backend }, assets] = await Promise.all([
+      db.from("projects").select("active_version_id,source_revision").eq("id", job.project_id).single(),
+      db.from("project_files").select("path,content").eq("project_id", job.project_id),
+      db.from("generated_backend_connections").select("project_url,publishable_key").eq("project_id", job.project_id).maybeSingle(),
+      projectAssets(job.project_id),
+    ]);
+    if (!files?.length) throw new Error("There are no files to publish");
+    await progress(job, "Building a production version of your app", "installing", 40);
+    const built = await buildArtifactInE2B(files, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
+      owner: { projectId: job.project_id, buildId: job.id }, maxFiles: MAX_ARTIFACT_FILES, maxBytes: MAX_ARTIFACT_BYTES,
+      onCreated: async (id) => { sandboxId = id; await db.rpc("register_sandbox", { p_sandbox: id, p_project: job.project_id, p_build: job.id, p_purpose: "publish" }); },
+    });
+    const total = validateArtifact(built.files.map((file) => ({ path: file.path, size: file.data.byteLength })));
+    await progress(job, "Uploading the validated build", "validating", 80);
+    await db.from("platform_resources").insert({ kind: "deployment_artifact", provider_ref: prefix, project_id: job.project_id, owner_id: job.requested_by, build_id: job.id, purpose: "publish", state: "active" });
+    const manifest = [];
+    for (const file of built.files) {
+      const type = contentType(file.path);
+      const { error } = await db.storage.from("published-sites").upload(`${deployment.id}/${file.path}`, file.data, { contentType: type, upsert: false });
+      if (error) throw error;
+      manifest.push({ path: file.path, size: file.data.byteLength, sha256: createHash("sha256").update(file.data).digest("hex"), type });
+    }
+    await db.from("deployments").update({ artifact_prefix: prefix, file_count: manifest.length, total_bytes: total, manifest: { files: manifest }, version_id: project?.active_version_id, source_revision: project?.source_revision }).eq("id", deployment.id);
+    const { error: activateError } = await db.rpc("activate_deployment", { p_deployment: deployment.id });
+    if (activateError) throw new Error(activateError.message);
+    const { error } = await db.from("build_jobs").update({ status: "succeeded", finished_at: new Date().toISOString(), locked_at: null, progress: [...job.progress, { at: new Date().toISOString(), message: "Published", percent: 100 }] }).eq("id", job.id).eq("locked_by", lockOwner);
+    if (error) throw error;
+    return "succeeded";
+  } catch (error) {
+    await db.from("deployments").update({ status: "failed", error: publicFailure(error).message }).eq("id", deployment.id);
+    await db.rpc("request_resource_termination", { p_kind: "deployment_artifact", p_ref: prefix, p_reason: "publish failed" });
+    const { data: site } = await db.from("published_sites").select("active_deployment_id").eq("project_id", job.project_id).maybeSingle();
+    await db.from("published_sites").update({ status: site?.active_deployment_id ? "live" : "failed" }).eq("project_id", job.project_id);
+    throw error;
+  } finally {
+    if (sandboxId) {
+      await db.rpc("request_resource_termination", { p_kind: "e2b_sandbox", p_ref: sandboxId, p_reason: "publish build finished" });
+      await meter.recordSandbox(sandboxId, Math.ceil((Date.now() - started) / 1000), "publish").catch(() => undefined);
+    }
+  }
+}
+
 async function processJob(job: Job) {
   const meter = new BuildMeter(db, job);
   let sandboxId: string | null = null;
@@ -137,6 +193,7 @@ async function processJob(job: Job) {
       projectAssets(job.project_id),
     ]);
     if (!project) throw new Error("Project no longer exists");
+    if (job.mode === "publish") { outcome = await processPublish(job, meter); return; }
     await progress(job, "Preparing project context", "planning");
     if (await cancelled(job)) { outcome = "cancelled"; return; }
 
@@ -145,7 +202,7 @@ async function processJob(job: Job) {
     if (job.mode !== "restart") {
       if (!caps.generation) throw new Error("GENERATOR_NOT_CONFIGURED");
       const importedReferences = (imports || []).map((x) => `SOURCE ${x.source_url} (${x.title})\n${x.markdown}`).join("\n\n");
-      const backendContext = backend ? "A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Use row-level security and never request or embed a service-role key." : "";
+      const backendContext = backend ? "A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Put every schema change in a new file under supabase/migrations/ (for example supabase/migrations/0001_notes.sql) with row-level security enabled and owner-scoped policies using auth.uid(); the customer reviews and applies it. Never request or embed a service-role key." : "";
       const assetContext = assets.length ? `The user uploaded these project assets. They are available in the generated app at these exact public paths:\n${assets.map((asset) => `- /uploads/${asset.name}`).join("\n")}\nUse the relevant uploaded assets when the request mentions a logo, image, document or brand file.` : "";
       const references = [importedReferences, backendContext, assetContext].filter(Boolean).join("\n\n");
       const hooks = { onUsage: (event: Parameters<BuildMeter["afterModelCall"]>[0]) => meter.afterModelCall(event), beforeRequest: (event: { models: string[]; estimatedPaise: number }) => meter.beforeModelCall(event) };

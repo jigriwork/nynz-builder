@@ -9,6 +9,24 @@ export type ReconcileDeps = {
   orphanGraceMinutes?: number;
 };
 
+/** Removes every object under a storage prefix, including nested folders. */
+async function removePrefix(db: SupabaseClient, bucket: string, prefix: string, depth = 0): Promise<number> {
+  if (depth > 8) return 0;
+  let removed = 0;
+  for (let page = 0; page < 50; page += 1) {
+    const { data: entries, error } = await db.storage.from(bucket).list(prefix, { limit: 100 });
+    if (error) throw error;
+    const files = (entries || []).filter((item) => item.id).map((item) => `${prefix}/${item.name}`);
+    const folders = (entries || []).filter((item) => !item.id).map((item) => `${prefix}/${item.name}`);
+    for (const folder of folders) removed += await removePrefix(db, bucket, folder, depth + 1);
+    if (!files.length) break;
+    const result = await db.storage.from(bucket).remove(files);
+    if (result.error) throw result.error;
+    removed += files.length;
+  }
+  return removed;
+}
+
 const isNotFound = (error: unknown) => /not\s*found|404|does not exist/i.test(error instanceof Error ? `${error.name} ${error.message}` : String(error));
 
 /**
@@ -37,18 +55,9 @@ export async function reconcileResources(deps: ReconcileDeps) {
       if (resource.kind === "e2b_sandbox") {
         try { await deps.killSandbox(resource.provider_ref); } catch (error) { if (!isNotFound(error)) throw error; }
         summary.killed += 1;
-      } else if (resource.kind === "storage_prefix") {
+      } else if (resource.kind === "storage_prefix" || resource.kind === "deployment_artifact") {
         const [bucket, ...rest] = String(resource.provider_ref).split("/");
-        const prefix = rest.join("/");
-        for (let page = 0; page < 50; page += 1) {
-          const { data: objects, error } = await db.storage.from(bucket).list(prefix, { limit: 100 });
-          if (error) throw error;
-          const names = (objects || []).filter((item) => item.id).map((item) => `${prefix}/${item.name}`);
-          if (!names.length) break;
-          const removed = await db.storage.from(bucket).remove(names);
-          if (removed.error) throw removed.error;
-          summary.storageRemoved += names.length;
-        }
+        summary.storageRemoved += await removePrefix(db, bucket, rest.join("/"));
       }
       await db.from("platform_resources").update({ state: "terminated", terminated_at: new Date(now).toISOString(), last_error: null }).eq("id", resource.id).eq("state", "terminating");
     } catch (error) {

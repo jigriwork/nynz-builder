@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { e2bConnector, handlePreview } from "../lib/core";
 import { redactPreviewUrl } from "../lib/token";
+import { handleSite } from "../lib/site-host";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -13,6 +14,10 @@ if (!supabaseUrl || !serviceKey || !e2bKey || !process.env.PREVIEW_SIGNING_SECRE
 const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const appOrigin = process.env.NYNZ_APP_ORIGIN || "https://www.nynz.in";
 const frameAncestors = process.env.PREVIEW_FRAME_ANCESTORS || "https://www.nynz.in https://nynz.in";
+// Hosts under PREVIEW_HOST_SUFFIX are private previews; every other host is a published site.
+const previewSuffix = (process.env.PREVIEW_HOST_SUFFIX || "preview.nynz.in").toLowerCase();
+const sitesSuffix = (process.env.PUBLISH_SITES_SUFFIX || "").toLowerCase();
+const isPreviewHost = (host: string) => host === previewSuffix || host.endsWith(`.${previewSuffix}`);
 const connectSandbox = e2bConnector(e2bKey, Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600)));
 
 export const config = { api: { bodyParser: false } };
@@ -36,7 +41,17 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const url = `/${raw.replace(/^\/+/, "")}${query.size ? `?${query}` : ""}`;
     const headers: Record<string, string | undefined> = {};
     for (const [key, value] of Object.entries(request.headers)) headers[key] = Array.isArray(value) ? value.join(", ") : value;
-    const result = await handlePreview({ method: request.method || "GET", host: String(request.headers.host || ""), url, headers, body: await rawBody(request) }, {
+    const host = String(request.headers.host || "").toLowerCase();
+    if (!isPreviewHost(host)) {
+      const site = await handleSite({ method: request.method || "GET", host, url, headers }, {
+        resolve: async (h) => { const { data } = await db.rpc("resolve_site", { p_host: h, p_suffix: sitesSuffix }); return Array.isArray(data) && data[0] ? data[0] : null; },
+        download: async (path) => { const { data } = await db.storage.from("published-sites").download(path); return data ? await data.arrayBuffer() : null; },
+      });
+      for (const [key, value] of Object.entries(site.headers)) response.setHeader(key, value);
+      response.status(site.status).send(typeof site.body === "string" ? site.body : site.body ? Buffer.from(site.body) : "");
+      return;
+    }
+    const result = await handlePreview({ method: request.method || "GET", host, url, headers, body: await rawBody(request) }, {
       rpc: async (fn, args) => { const { data, error } = await db.rpc(fn, args); return { data, error }; },
       insertNonce: async (jti, projectId) => !(await db.from("preview_exchange_nonces").insert({ jti, project_id: projectId })).error,
       connectSandbox, appOrigin, frameAncestors,
