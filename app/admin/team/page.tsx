@@ -22,7 +22,7 @@ export default async function TeamPage() {
   const roles = ["owner", "operations", "support", "billing", "readonly"];
   return <>
     <PageHeader title="Team" description="Each person uses their own NYNZ account. Staff access is separate from customer plans; removing staff access never deletes the person's customer account or projects." />
-    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
       <Card title="Staff members">
         <Table head={["Person", "Role", "Status", "Since", ""]} rows={(members || []).map((m) => [
           <span key="p">{m.email}{m.user_id === user.id ? " (you)" : ""}{m.display_name ? <span className="block text-[10px] text-white/45">{m.display_name}</span> : null}</span>,

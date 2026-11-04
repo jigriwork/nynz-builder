@@ -39,7 +39,7 @@ export default async function AdminOverview({ searchParams }: { searchParams: Pr
       <Stat label="Queue" value={o.queue.queued} hint={`${o.queue.running} running · ${o.queue.awaiting_approval} awaiting approval${o.queue.oldest_queued_at ? ` · oldest ${ago(o.queue.oldest_queued_at)}` : ""}`} tone={o.queue.queued > 5 ? "warn" : undefined} />
       <Stat label="Workers" value={(o.workers as unknown[]).length - staleWorkers} hint={staleWorkers ? `${staleWorkers} not reporting` : "All reporting"} tone={staleWorkers || !(o.workers as unknown[]).length ? "bad" : "good"} />
     </div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Money in range (INR)">
         <Table head={["Measure", "Amount"]} rows={[
           ["Collected from customers (incl. tax)", rupees(o.money.gross_collected_minor)], ["Tax collected (not revenue)", rupees(o.money.tax_collected_minor)],

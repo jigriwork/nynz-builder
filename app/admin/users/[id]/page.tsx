@@ -20,7 +20,7 @@ export default async function UserDetail({ params }: { params: Promise<{ id: str
       <Stat label="Available credits" value={d.credits ? Number(d.credits.available).toLocaleString() : "—"} hint={d.credits ? `${d.credits.reserved} reserved · ${d.credits.used} used` : "Requires credits access"} />
       <Stat label="Sessions" value={d.sessions} hint={`${d.mfa_factors} MFA factor(s)`} />
     </div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Account timeline">
         <Table head={["Event", "When"]} rows={[["Registered", when(d.user.created_at)], ["Email verified", when(d.user.email_confirmed_at)], ["Last sign-in", when(d.user.last_sign_in_at)], ["Last activity", `${when(d.activity?.last_activity_at)}${d.activity?.last_activity_kind ? ` (${d.activity.last_activity_kind.replaceAll("_", " ")})` : ""}`], ["Last seen (approximate)", ago(d.activity?.last_presence_at)], ["Staff role", d.staff ? `${d.staff.role} (${d.staff.status})` : "None"]]} />
       </Card>

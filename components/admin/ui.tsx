@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-    <div><h1 className="text-2xl font-medium tracking-[-.03em] text-white md:text-3xl">{title}</h1>{description && <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-white/55">{description}</p>}</div>
+    <div className="min-w-0"><h1 className="break-words text-2xl font-medium tracking-[-.03em] text-white md:text-3xl">{title}</h1>{description && <p className="mt-1.5 max-w-2xl text-[13px] leading-5 text-white/55">{description}</p>}</div>
     {actions}
   </div>;
 }
 
 export function Card({ title, children, className = "", aside }: { title?: string; children: ReactNode; className?: string; aside?: ReactNode }) {
-  return <section className={`rounded-xl border border-white/[.08] bg-[#0f1621] p-4 md:p-5 ${className}`}>
+  return <section className={`min-w-0 max-w-full rounded-xl border border-white/[.08] bg-[#0f1621] p-4 md:p-5 ${className}`}>
     {(title || aside) && <div className="mb-3 flex items-center justify-between gap-3">{title && <h2 className="text-[13px] font-medium text-white/85">{title}</h2>}{aside}</div>}
     {children}
   </section>;
@@ -16,18 +16,18 @@ export function Card({ title, children, className = "", aside }: { title?: strin
 
 export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: "warn" | "bad" | "good" }) {
   const color = tone === "bad" ? "text-red-300" : tone === "warn" ? "text-amber-200" : tone === "good" ? "text-[#c7ff4a]" : "text-white";
-  return <div className="rounded-xl border border-white/[.08] bg-[#0f1621] p-4">
+  return <div className="min-w-0 rounded-xl border border-white/[.08] bg-[#0f1621] p-4">
     <p className="text-[11px] text-white/50">{label}</p>
-    <p className={`mt-2 text-2xl font-medium tabular-nums tracking-[-.02em] ${color}`}>{value}</p>
+    <p className={`mt-2 break-words text-xl font-medium tabular-nums tracking-[-.02em] sm:text-2xl ${color}`}>{value}</p>
     {hint && <p className="mt-1 text-[11px] leading-4 text-white/45">{hint}</p>}
   </div>;
 }
 
 export function Table({ head, rows, empty = "Nothing to show." }: { head: string[]; rows: ReactNode[][]; empty?: string }) {
-  if (!rows.length) return <p className="py-6 text-center text-[12px] text-white/45">{empty}</p>;
-  return <div className="-mx-1 overflow-x-auto"><table className="w-full min-w-[560px] border-collapse text-left text-[12px]">
-    <thead><tr className="border-b border-white/[.08] text-[11px] text-white/45">{head.map((h) => <th key={h} className="px-2 py-2 font-normal">{h}</th>)}</tr></thead>
-    <tbody>{rows.map((row, i) => <tr key={i} className="border-b border-white/[.05] align-top text-white/80 last:border-0">{row.map((cell, j) => <td key={j} className="px-2 py-2.5">{cell}</td>)}</tr>)}</tbody>
+  if (!rows.length) return <p className="py-6 text-center text-[12px] leading-5 text-white/45">{empty}</p>;
+  return <div className="max-w-full overflow-x-auto overscroll-x-contain"><table className={`w-full border-collapse text-left text-[12px] ${head.length > 3 ? "min-w-[560px]" : ""}`}>
+    <thead><tr className="border-b border-white/[.08] text-[11px] text-white/45">{head.map((h) => <th key={h} className={`px-2 py-2 font-normal ${head.length > 3 ? "whitespace-nowrap" : ""}`}>{h}</th>)}</tr></thead>
+    <tbody>{rows.map((row, i) => <tr key={i} className="border-b border-white/[.05] align-top text-white/80 last:border-0">{row.map((cell, j) => <td key={j} className={`px-2 py-2.5 ${head.length > 3 ? "whitespace-nowrap" : ""}`}>{cell}</td>)}</tr>)}</tbody>
   </table></div>;
 }
 

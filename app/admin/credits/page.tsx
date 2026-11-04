@@ -27,7 +27,7 @@ export default async function CreditsPage() {
       <Stat label="Promotional and adjustments" value={sum(["promotional", "adjustment", "refund_restore"]).toLocaleString()} /><Stat label="Owner testing" value={sum(["owner_testing"]).toLocaleString()} hint={`Budget ${budget?.monthly_credit_cap ?? 0} per 30 days`} />
       <Stat label="Held by running work" value={(reservations || []).reduce((s, r) => s + Number(r.amount) - Number(r.consumed), 0).toLocaleString()} />
     </div>
-    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Recent ledger entries"><Table head={["When", "User", "Type", "Credits", "Detail"]} rows={(ledger || []).map((l) => [when(l.created_at), <Link key="u" href={`/admin/users/${l.user_id}`} className="font-mono text-[10px] text-[#c7ff4a]">{l.user_id.slice(0, 8)}</Link>, l.entry_type, Number(l.amount).toLocaleString(), <span key="d" className="text-white/60">{l.reason || [l.provider, l.model, l.cost_paise !== null ? rupees(l.cost_paise) : null, l.cost_source].filter(Boolean).join(" · ")}</span>])} empty="No credit activity yet." /></Card>
       <div className="space-y-4">
         <Card title="Staff grant limits"><Table head={["Role", "Per grant", "Per day"]} rows={(limits || []).map((l) => [l.role, l.max_per_grant ?? "No limit", l.max_per_day ?? "No limit"])} /><p className="mt-2 text-[11px] text-white/45">Grants to customers are made from a user's page and require a reason. Duplicate submissions are rejected by idempotency key.</p></Card>

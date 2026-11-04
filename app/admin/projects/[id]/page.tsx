@@ -15,7 +15,7 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
   return <>
     <PageHeader title={p.name} description={`Owner ${p.owner_email} · ${p.file_count} files · source revision ${p.source_revision}, preview revision ${p.preview_revision ?? "none"}`} actions={<Link href="/admin/projects" className="text-[12px] text-white/60 hover:text-white">← All projects</Link>} />
     {p.last_error && <p className="mb-4 rounded-lg border border-red-400/20 bg-red-400/[.06] p-3 text-[12px] text-red-200">{p.last_error}</p>}
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Builds">
         <Table head={["Build", "Status", "Mode", "Error", "Created", "Actions"]} rows={(d.builds as Array<Record<string, any>>).map((b) => [
           <code key="i" className="text-[10px]">{b.id.slice(0, 8)}</code>, <Badge key="s" tone={b.status === "succeeded" ? "good" : b.status === "failed" ? "bad" : "neutral"}>{b.status}</Badge>, b.mode,

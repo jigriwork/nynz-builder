@@ -42,7 +42,7 @@ export default async function BillingPage() {
         <Stat label="Used so far" value={Number(balance?.used || 0).toLocaleString()} hint={`${Number(balance?.reserved || 0).toLocaleString()} held by running builds`} />
       </div>
       <Card title="Allowance" className="mt-4"><Table head={["Monthly plan", "Purchased", "Promotional", "Testing", "Held", "Available"]} rows={[[balance?.included, balance?.purchased, balance?.promotional, balance?.owner_testing, balance?.reserved, balance?.available].map((v) => Number(v || 0).toLocaleString())]} /></Card>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         {(plans || []).filter((p) => p.price_minor > 0).map((p) => <Card key={p.code} title={p.name}>
           <p className="text-2xl font-medium">{rupees(p.price_minor)}<span className="text-[12px] text-white/50"> / month + GST ({rupees(grossWithTax(Number(p.price_minor), p.tax_rate_bps))} charged)</span></p>
           <p className="mt-2 text-[12px] text-white/60">{p.description}</p>
@@ -51,7 +51,7 @@ export default async function BillingPage() {
         </Card>)}
       </div>
       {packs && packs.length > 0 && <Card title="Add credits" className="mt-4"><div className="flex flex-wrap gap-3">{packs.map((pack) => <BillingActions key={pack.code} kind="topup" pack={pack.code} label={`${pack.name} · ${rupees(grossWithTax(Number(pack.price_minor), pack.tax_rate_bps))} incl. GST`} available={Boolean(config)} />)}</div><p className="mt-2 text-[11px] text-white/45">Purchased credits stay valid for 12 months.</p></Card>}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title="Credit history"><Table head={["When", "Activity", "Credits", "Detail"]} rows={(ledger || []).map((l) => [when(l.created_at), ENTRY_LABEL[l.entry_type] || l.entry_type, l.entry_type === "overrun_absorbed" ? `${(l.metadata as { uncharged_credits?: number })?.uncharged_credits ?? 0} not charged` : Number(l.amount).toLocaleString(), l.reason || [l.provider, l.model].filter(Boolean).join(" · ")])} empty="No credit activity yet." /></Card>
         <Card title="Payments and invoices"><Table head={["Date", "For", "Charged", "GST", "Status", "Reference"]} rows={(payments || []).map((p) => [when(p.captured_at || p.created_at), p.kind === "topup" ? "Credits" : "Subscription", rupees(p.amount_minor), rupees(p.tax_minor), p.refunded_minor > 0 ? `${p.status} (${rupees(p.refunded_minor)} refunded)` : p.status, <code key="r" className="text-[10px]">{p.provider_invoice_id || p.provider_payment_id}</code>])} empty="No payments yet." />
           <p className="mt-2 text-[11px] text-white/45">Razorpay emails a receipt for every payment. GST tax invoices will be issued once NYNZ's GST registration details are configured.</p></Card>

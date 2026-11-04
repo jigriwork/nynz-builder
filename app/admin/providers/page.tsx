@@ -27,7 +27,7 @@ export default async function ProvidersPage() {
   const configured = (key: string) => Boolean(process.env[key]);
   return <>
     <PageHeader title="Providers and spend" description={`Month to date from ${when(monthStart.toISOString())}. “Provider-reported” is cost returned by the provider with each call; “estimated” uses NYNZ's dated price table; “awaiting result” is held against limits until the call reports.`} />
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Configuration">
         <Table head={["Service", "Role", "Status"]} rows={[
           ["OpenRouter", "Planning and generation", configured("OPENROUTER_API_KEY") ? <Badge key="o" tone="good">configured on web app</Badge> : <Badge key="o" tone="warn">not configured on web app (worker reports separately)</Badge>],
