@@ -1,121 +1,50 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-
-type Claims = { projectId: string; userId: string; sandboxId: string; expiresAt: number };
+import { e2bConnector, handlePreview } from "../lib/core";
+import { redactPreviewUrl } from "../lib/token";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const e2bKey = process.env.E2B_API_KEY;
-const signingKey = process.env.PREVIEW_SIGNING_SECRET || serviceKey;
-if (!supabaseUrl || !serviceKey || !e2bKey || !signingKey) throw new Error("Preview host configuration is incomplete");
+// PREVIEW_SIGNING_SECRET is required by the token module; there is no fallback
+// to the database service key.
+if (!supabaseUrl || !serviceKey || !e2bKey || !process.env.PREVIEW_SIGNING_SECRET) throw new Error("Preview host configuration is incomplete");
 
 const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-const sandboxCache = new Map<string, { target: string; trafficToken: string; expiresAt: number }>();
-const sessionCookie = "nynz_preview_session";
-const resumeTimeoutSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
+const appOrigin = process.env.NYNZ_APP_ORIGIN || "https://www.nynz.in";
+const frameAncestors = process.env.PREVIEW_FRAME_ANCESTORS || "https://www.nynz.in https://nynz.in";
+const connectSandbox = e2bConnector(e2bKey, Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600)));
 
-function cookie(request: VercelRequest, name: string) {
-  for (const part of (request.headers.cookie || "").split(";")) {
-    const [key, ...value] = part.trim().split("=");
-    if (key === name) return decodeURIComponent(value.join("="));
-  }
-  return "";
-}
+export const config = { api: { bodyParser: false } };
 
-function verifySession(token: string, allowExpired = false): Claims | null {
-  const [payload, supplied, extra] = token.split(".");
-  if (!payload || !supplied || extra) return null;
-  const expected = createHmac("sha256", signingKey!).update(`nynz-preview-v1.${payload}`).digest("base64url");
-  const left = Buffer.from(supplied);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
-  try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Claims;
-    return /^[a-f0-9-]{36}$/i.test(claims.projectId || "") && claims.userId && claims.sandboxId && Number.isFinite(claims.expiresAt) && (allowExpired || claims.expiresAt > Date.now()) ? claims : null;
-  } catch { return null; }
-}
-
-async function targetFor(claims: Claims) {
-  const cached = sandboxCache.get(claims.sandboxId);
-  if (cached && cached.expiresAt > Date.now()) return cached;
-  const connected = await fetch(`https://api.e2b.app/v2/sandboxes/${encodeURIComponent(claims.sandboxId)}/connect`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": e2bKey! },
-    // Connecting resumes a paused sandbox. It pauses again after this active
-    // window instead of being destroyed.
-    body: JSON.stringify({ timeout: resumeTimeoutSeconds }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!connected.ok) throw new Error(`Sandbox connection failed (${connected.status})`);
-  const sandbox = await connected.json() as { domain?: string | null; sandboxID?: string; trafficAccessToken?: string | null };
-  if (!sandbox.trafficAccessToken) throw new Error("Sandbox traffic authentication is unavailable");
-  const domain = sandbox.domain || "e2b.app";
-  const target = { target: `https://5173-${claims.sandboxId}.${domain}`, trafficToken: sandbox.trafficAccessToken, expiresAt: Math.min(claims.expiresAt, Date.now() + 30_000) };
-  sandboxCache.set(claims.sandboxId, target);
-  return target;
-}
-
-function requestedPath(request: VercelRequest) {
-  const raw = Array.isArray(request.query.path) ? request.query.path.join("/") : request.query.path || "";
-  const path = `/${String(raw).replace(/^\/+/, "")}`;
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(request.query)) {
-    if (key === "path" || key === "ny_session") continue;
-    for (const item of Array.isArray(value) ? value : [value]) if (item !== undefined) query.append(key, item);
-  }
-  return `${path}${query.size ? `?${query}` : ""}`;
+async function rawBody(request: VercelRequest) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  const body = Buffer.concat(chunks);
+  return body.length ? body.buffer.slice(body.byteOffset, body.byteOffset + body.length) as ArrayBuffer : undefined;
 }
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
-  if (request.method === "OPTIONS") { response.status(204).end(); return; }
   try {
-    const queryToken = Array.isArray(request.query.ny_session) ? request.query.ny_session[0] : request.query.ny_session;
-    const token = queryToken || cookie(request, sessionCookie);
-    const claims = token ? verifySession(token, true) : null;
-    if (!claims) { response.status(401).setHeader("cache-control", "no-store").send("Preview authorization required"); return; }
-
-    const { data: project } = await db.from("projects").select("id,active_sandbox_id,status").eq("id", claims.projectId).eq("owner_id", claims.userId).maybeSingle();
-    if (!project) { response.status(403).setHeader("cache-control", "no-store").send("Preview access denied"); return; }
-    if (claims.expiresAt <= Date.now()) {
-      if ((request.method || "GET") === "GET" && request.headers.accept?.includes("text/html")) {
-        response.setHeader("cache-control", "no-store");
-        response.setHeader("referrer-policy", "no-referrer");
-        response.redirect(303, `https://www.nynz.in/api/projects/${encodeURIComponent(claims.projectId)}/preview-session`);
-        return;
-      }
-      response.status(401).setHeader("cache-control", "no-store").send("Preview session expired. Reopen this preview from your NYNZ project."); return;
+    // vercel.json rewrites every path to /api/proxy?path=…; rebuild the original URL.
+    const raw = Array.isArray(request.query.path) ? request.query.path.join("/") : String(request.query.path || "");
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(request.query)) {
+      if (key === "path") continue;
+      for (const item of Array.isArray(value) ? value : [value]) if (item !== undefined) query.append(key, item);
     }
-    if (!project.active_sandbox_id || project.status === "archived") { response.status(409).setHeader("cache-control", "no-store").send("This project does not have a live preview yet."); return; }
-
-    // The signed grant is project-scoped. Resolve the current sandbox only after
-    // checking ownership, so existing tabs can refresh after edits or restarts.
-    const sandbox = await targetFor({ ...claims, sandboxId: project.active_sandbox_id });
-    const headers = new Headers({ "e2b-traffic-access-token": sandbox.trafficToken });
-    for (const name of ["accept", "accept-language", "content-type", "if-none-match", "range", "user-agent"]) {
-      const value = request.headers[name];
-      if (typeof value === "string") headers.set(name, value);
-    }
-    const method = request.method || "GET";
-    let body: BodyInit | undefined;
-    if (!["GET", "HEAD"].includes(method) && request.body) {
-      body = Buffer.isBuffer(request.body)
-        ? new Uint8Array(request.body).buffer as ArrayBuffer
-        : typeof request.body === "string" ? request.body : JSON.stringify(request.body);
-    }
-    const upstream = await fetch(`${sandbox.target}${requestedPath(request)}`, { method, headers, body, redirect: "manual", signal: AbortSignal.timeout(45_000) });
-
-    for (const name of ["content-type", "cache-control", "etag", "last-modified", "location", "accept-ranges", "content-range"]) {
-      const value = upstream.headers.get(name);
-      if (value) response.setHeader(name, value);
-    }
-    response.setHeader("referrer-policy", "no-referrer");
-    response.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
-    response.setHeader("content-security-policy", "frame-ancestors https://www.nynz.in https://nynz.in https://nynz-platform-preview.vercel.app http://localhost:3000");
-    if (queryToken) response.setHeader("set-cookie", `${sessionCookie}=${encodeURIComponent(token!)}; Path=/; HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=${Math.max(0, Math.floor((claims.expiresAt - Date.now()) / 1000))}`);
-    response.status(upstream.status).send(Buffer.from(await upstream.arrayBuffer()));
+    const url = `/${raw.replace(/^\/+/, "")}${query.size ? `?${query}` : ""}`;
+    const headers: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(request.headers)) headers[key] = Array.isArray(value) ? value.join(", ") : value;
+    const result = await handlePreview({ method: request.method || "GET", host: String(request.headers.host || ""), url, headers, body: await rawBody(request) }, {
+      rpc: async (fn, args) => { const { data, error } = await db.rpc(fn, args); return { data, error }; },
+      insertNonce: async (jti, projectId) => !(await db.from("preview_exchange_nonces").insert({ jti, project_id: projectId })).error,
+      connectSandbox, appOrigin, frameAncestors,
+    });
+    for (const [key, value] of Object.entries(result.headers)) response.setHeader(key, value);
+    response.status(result.status).send(typeof result.body === "string" ? result.body : result.body ? Buffer.from(result.body) : "");
   } catch (error) {
-    console.error(`[preview-host] ${error instanceof Error ? error.message : "Request failed"}`);
+    console.error(`[preview-host] ${redactPreviewUrl(error instanceof Error ? error.message : "Request failed")}`);
     response.status(502).setHeader("cache-control", "no-store").send("Preview temporarily unavailable");
   }
 }

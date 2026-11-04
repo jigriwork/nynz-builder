@@ -228,6 +228,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.15
+        version: 0.5.15
       '@eslint/eslintrc':
         specifier: ^3
         version: 3.3.1
@@ -429,6 +432,9 @@ packages:
   '@e2b/dockerfile-utils@0.1.1':
     resolution: {integrity: sha512-eDmlWRMrJNzSUbBOf6Y/qTChd1Ys/o3YY8PK6tRQmwkV2u7z3ZS2cak/YJB07odHMT/Z6HJKoUElR/b0N6bHUw==}
     engines: {node: '>=22'}
+
+  '@electric-sql/pglite@0.5.15':
+    resolution: {integrity: sha512-ERZWgaRTxueGV4cvL1tfpAOzFCWTXoUtbCBqnf2FhHDVs/so9eAKaanvrwWF9Dntx7BYsmFQujVQ0/B4S8Mmiw==}
 
   '@emnapi/core@1.4.5':
     resolution: {integrity: sha512-XsLw1dEOpkSX/WucdqUhPWP7hDxSvZiY+fsUC14h+FtQ2Ifni4znbBt8punRX+Uj2JG/uDb8nEHVKvrVlvdZ5Q==}
@@ -4422,6 +4428,8 @@ snapshots:
       e2b: 2.62.0
 
   '@e2b/dockerfile-utils@0.1.1': {}
+
+  '@electric-sql/pglite@0.5.15': {}
 
   '@emnapi/core@1.4.5':
     dependencies:

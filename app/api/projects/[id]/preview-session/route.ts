@@ -1,29 +1,36 @@
 import { NextResponse } from "next/server";
 import { requireProject } from "@/lib/supabase/auth";
-import { createPreviewSession, getPreviewOrigin } from "@/lib/preview/session";
+import { createAdmin } from "@/lib/supabase/server";
+import { createPreviewExchangeUrl } from "@/lib/preview/session";
+import { safeNextPath } from "@/lib/preview/token";
+import { apiError } from "@/lib/http/errors";
+import { rateLimit } from "@/lib/platform/rate-limit";
 
+/**
+ * Issues a one-time, host-bound exchange URL for the project's isolated preview
+ * origin. The preview host swaps it for an HttpOnly cookie and redirects to a
+ * clean URL, so no long-lived credential remains in the address bar, history
+ * or logs. GET is used when an expired preview tab renews through the app.
+ */
 async function issueSession(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const auth = await requireProject(id);
+  if ("error" in auth) return auth.error;
+  const limited = await rateLimit(`preview:${auth.user.id}`, 60, 60);
+  if (limited) return limited;
   try {
-    const { id } = await params;
-    const auth = await requireProject(id);
-    if ("error" in auth) return auth.error;
-    if (!auth.project.active_sandbox_id || auth.project.status === "archived") {
-      return NextResponse.json({ error: "Preview is not ready" }, { status: 409 });
-    }
-    const expiresAt = Date.now() + 6 * 60 * 60_000;
-    const session = createPreviewSession({ projectId: id, userId: auth.user.id, sandboxId: auth.project.active_sandbox_id, expiresAt });
-    const url = new URL(getPreviewOrigin(id));
-    url.searchParams.set("ny_session", session);
-    if (request.method === "GET") return NextResponse.redirect(url, { status: 303, headers: { "cache-control": "private, no-store", "referrer-policy": "no-referrer" } });
-    return NextResponse.json({ url: url.toString(), expiresAt: new Date(expiresAt).toISOString() }, { headers: { "cache-control": "private, no-store" } });
+    const { data, error } = await createAdmin().rpc("authorize_sandbox_access", { p_project: id, p_user: auth.user.id });
+    if (error) return apiError("SERVICE_UNAVAILABLE", "The live preview service is temporarily unavailable.", { cause: error, scope: "preview-session" });
+    if (!Array.isArray(data) || !data.length) return apiError("CONFLICT", "Preview is not ready");
+    const next = request.method === "GET" ? safeNextPath(new URL(request.url).searchParams.get("next")) : "/";
+    const exchange = createPreviewExchangeUrl(id, auth.user.id, next);
+    const headers = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
+    if (request.method === "GET") return NextResponse.redirect(exchange.url, { status: 303, headers });
+    return NextResponse.json(exchange, { headers });
   } catch (error) {
-    console.error(`[preview-session] ${error instanceof Error ? error.message : "Preview configuration failed"}`);
-    return NextResponse.json({ error: "The live preview service is temporarily unavailable" }, { status: 503, headers: { "cache-control": "no-store" } });
+    return apiError("SERVICE_UNAVAILABLE", "The live preview service is temporarily unavailable.", { cause: error, scope: "preview-session" });
   }
 }
 
 export const POST = issueSession;
-// An expired preview can renew only by visiting the authenticated application.
-// This endpoint always authorizes the owner and redirects to the configured
-// isolated preview origin; no arbitrary redirect URL is accepted.
 export const GET = issueSession;

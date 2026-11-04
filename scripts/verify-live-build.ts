@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { chromium, type Browser, type Page } from "playwright-core";
-import { createPreviewSession, getPreviewOrigin } from "../lib/preview/session";
+import { createPreviewExchangeUrl, getPreviewOrigin } from "../lib/preview/session";
 import { stopE2B } from "../lib/platform/e2b";
 
 config({ path: ".env.local", quiet: true });
@@ -51,11 +51,10 @@ async function currentProject() {
   return result.data;
 }
 
-function signedPreviewUrl(sandboxId: string) {
-  const session = createPreviewSession({ projectId, userId, sandboxId, expiresAt: Date.now() + 5 * 60_000 });
-  const previewUrl = new URL(getPreviewOrigin(projectId));
-  previewUrl.searchParams.set("ny_session", session);
-  return previewUrl.toString();
+// The sandbox id is no longer part of the grant: the proxy resolves the
+// project's current registered sandbox on every request.
+function signedPreviewUrl(_sandboxId: string) {
+  return createPreviewExchangeUrl(projectId, userId).url;
 }
 
 async function assertPreview(page: Page, sandboxId: string, expectedText: string, label: string) {

@@ -6,7 +6,6 @@ import { createServerClient } from "@supabase/ssr";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { stopE2B } from "../lib/platform/e2b";
 import { redact } from "../lib/platform/redact";
-import { createPreviewSession } from "../lib/preview/session";
 
 config({ path: ".env.local", quiet: true });
 const origin = process.env.VERIFY_APP_ORIGIN || "https://www.nynz.in";
@@ -151,13 +150,11 @@ try {
   const editSession = await request(owner, `${base}/preview-session`, "POST");
   await preview.goto(editSession.url, { waitUntil: "networkidle", timeout: 60000 });
   await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
-  await preview.goto(session.url, { waitUntil: "networkidle", timeout: 60000 });
+  await preview.goto(new URL(editSession.url).origin, { waitUntil: "networkidle", timeout: 60000 });
   await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
-  const expired = new URL(session.url);
-  expired.searchParams.set("ny_session", createPreviewSession({ projectId: project.id, userId: users[0], sandboxId: built.data!.active_sandbox_id, expiresAt: Date.now() - 1000 }));
-  await preview.goto(expired.toString(), { waitUntil: "networkidle", timeout: 60000 });
-  await preview.getByText("NYNZ Calculator Updated", { exact: false }).first().waitFor();
-  console.log("Old preview link follows the edited app; expired browser session renewed through owner authentication");
+  const reused = await preview.goto(session.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  if (reused?.status() !== 401) throw new Error("A used preview exchange link must be rejected");
+  console.log("Cookie session follows the edited app; used exchange links are rejected");
   console.log("Contextual edit preview verified");
   const { build: cancelBuild } = await request(owner, `${base}/builds`, "POST", { prompt: "Add a history panel to this calculator", mode: "edit", idempotencyKey: `cancel-test-${run}` });
   const cancelPlan = await waitJob(cancelBuild.id, job => job.plan?.approval === "awaiting", "Cancel plan");
