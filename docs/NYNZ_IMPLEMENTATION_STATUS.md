@@ -7,10 +7,14 @@
 
 ## Status key
 
-- **Verified** = implemented and verified by automated tests in this workspace (real SQL migrations on in-process Postgres, unit tests, local production build and browser smoke test). Not yet verified in production because nothing is deployed.
-- **Awaiting config** = implemented; live operation needs external setup that does not exist yet.
-- **Remaining** = not done.
-- **Superseded** = finding replaced by a different, evidenced decision.
+- **Verified in production** = checked against www.nynz.in / the production database after deployment (named check below).
+- **Verified by tests** = deployed, and covered by automated tests on the real migrations (in-process Postgres, plus multi-connection tests on a real PostgreSQL server for credit concurrency), but not yet exercised end to end in production.
+- **Not verified** = deployed but not yet checked, usually because the owner sign-in or a paid run is needed.
+- **Awaiting config** = code deployed; it stays switched off and reports "not available" until external setup exists.
+- **Remaining** = not built.
+- **Superseded** = replaced by a different, evidenced decision.
+
+Versions deployed: 0.3.0, 0.3.1 (staff workspace isolation), 0.3.2 (phone layout), 0.3.3 (visible version, worker health, concurrency tests). The live version is shown in the footer and at https://www.nynz.in/version.
 
 ## Owner
 
@@ -18,9 +22,9 @@
 |---|---|
 | ID ↔ email | Verified read-only against production: user `41080a24-57a9-4686-8d53-c0a3a9e09588` is `adib@nynz.in`, email confirmed, not banned, no MFA factor, currently `profiles.role = member`. `pnpm bootstrap:owner … --check` passes; a mismatched email is refused (exit 3). |
 | Owner assigned? | **Yes, in production** (Supabase `rgrlilmfjurdchcnxolt`): bootstrap returned `created_owner`, re-run returned `already_owner`; staff record owner/active, logged and audited. |
-| Admin URL | `https://www.nynz.in/admin`. Non-staff receive 404 (verified in production). Mobile layout is responsive but has not been checked signed-in on a phone. |
+| Admin URL | `https://www.nynz.in/admin`. Verified in production: anonymous visitors are sent to sign-in and signed-in customers receive 404. **Not verified:** the owner's own signed-in console (desktop or phone); no owner session is available to the verifier and the owner's password must not be reset. Phone layout verified only on a development fixture of the same components. |
 | Back to workspace | "Back to workspace" in the console header → `/dashboard`. The owner keeps the normal builder; the account menu shows "Admin console". |
-| Adding team members | Admin → Team → "Add a team member": email, optional name, role, optional capabilities, reason. Existing accounts accept in-app (Account menu → Staff invitation); new addresses get a Supabase activation email and choose their own password. Resend/revoke from the Invitations table; Manage → role, capabilities, require 2FA, suspend/reactivate, remove. Details: [PERMISSIONS.md](PERMISSIONS.md), [OWNERSHIP.md](OWNERSHIP.md). |
+| Adding team members (not yet verified with a live owner session) | Admin → Team → "Add a team member": email, optional name, role, optional capabilities, reason. Existing accounts accept in-app (Account menu → Staff invitation); new addresses get a Supabase activation email and choose their own password. Resend/revoke from the Invitations table; Manage → role, capabilities, require 2FA, suspend/reactivate, remove. Details: [PERMISSIONS.md](PERMISSIONS.md), [OWNERSHIP.md](OWNERSHIP.md). |
 
 ## Current-state audit findings
 
@@ -101,7 +105,7 @@ Covered: customer grants (included, purchased, promotional, owner testing, adjus
 | `verify-public-pages` against www.nynz.in | Pass: 34/34 |
 | Paid generation, E2B, Firecrawl calls | **Not run** |
 
-Concurrency note: PGlite runs one connection, so "concurrent" credit and restore tests exercise the locking logic sequentially; row locks guarantee the behaviour on Postgres but true parallel load was not tested.
+Concurrency: credit reservation, plan concurrency, duplicate-event and spend-cap behaviour are verified with 15–20 simultaneous connections on PostgreSQL 17 (`pnpm test:concurrency`, also in CI). Restore/promotion concurrency is still covered only sequentially (single-connection tests).
 
 **Additional provider spending in this work: ₹0.** Only free calls were made (OpenRouter public model price list, read-only Supabase queries).
 
