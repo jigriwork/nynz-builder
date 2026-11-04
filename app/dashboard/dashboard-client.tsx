@@ -10,6 +10,8 @@ import { NynzBrand } from "@/components/nynz-brand";
 import { ProjectArt, ease } from "@/components/nynz-motion";
 import { formatDate } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
+import { AccountMenu, type AccountSummary } from "@/components/account-menu";
+import { usePresence } from "@/hooks/use-presence";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; updated_at: string };
 type Draft = { prompt: string; reference?: string; attachment?: { name: string; content: string } | null; createdAt: number; projectId?: string };
@@ -28,7 +30,8 @@ function projectName(prompt: string) {
   return named || (inferred ? inferred.charAt(0).toUpperCase() + inferred.slice(1, 72) : "New NYNZ app");
 }
 
-export default function DashboardClient({ initialProjects, email, usage = { creditsUsed: 0, creditLimit: 500, modelTokens: 0, modelCostPaise: 0, costLimitPaise: 10_000 } }: { initialProjects: Project[]; email: string; usage?: { creditsUsed: number; creditLimit: number; modelTokens: number; modelCostPaise: number; costLimitPaise: number } }) {
+export default function DashboardClient({ initialProjects, account }: { initialProjects: Project[]; account: AccountSummary }) {
+  usePresence();
   const [projects, setProjects] = useState(initialProjects);
   const [prompt, setPrompt] = useState("");
   const [query, setQuery] = useState("");
@@ -87,7 +90,6 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
     const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
     if (res.ok) setProjects((value) => value.filter((project) => project.id !== id));
   }
-  async function signOut() { await createClient().auth.signOut(); window.location.assign("/"); }
 
   const counts = useMemo(() => ({ all: projects.length, ready: projects.filter((p) => p.status === "ready").length, building: projects.filter((p) => building(p.status)).length, draft: projects.filter((p) => p.status === "draft").length, failed: projects.filter((p) => p.status === "failed").length }), [projects]);
   const visible = useMemo(() => projects.filter((project) => {
@@ -104,7 +106,7 @@ export default function DashboardClient({ initialProjects, email, usage = { cred
     <header className="sticky top-0 z-30 border-b border-white/[.07] bg-[#070b12]/75 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1320px] items-center justify-between px-5 md:px-8">
         <Link href="/"><NynzBrand className="h-7" /></Link>
-        <div className="flex items-center gap-2.5"><div title={`${usage.modelTokens.toLocaleString()} model tokens today. OpenRouter charges are measured from provider-reported usage.`} className="hidden h-9 items-center gap-2 rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.05] px-3 text-[11px] text-[#c7ff4a] md:flex"><Coins className="h-3.5 w-3.5" /><span>₹{(usage.modelCostPaise / 100).toFixed(2)}</span><span className="text-white/35">of ₹{(usage.costLimitPaise / 100).toFixed(0)} today</span></div><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-white/[.03] py-1.5 pl-1.5 pr-3.5 text-[12px] text-white/60 sm:flex"><span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-[#c7ff4a] to-[#5ad1b3] text-[10px] font-semibold text-[#071019]">{email.slice(0, 1).toUpperCase()}</span>{email}</div><button onClick={signOut} aria-label="Sign out" title="Sign out" className="grid h-9 w-9 place-items-center rounded-full border border-white/[.08] bg-white/[.03] text-white/50 transition hover:bg-white/[.07] hover:text-white"><LogOut className="h-3.5 w-3.5" /></button></div>
+        <div className="flex items-center gap-2.5">{account.availableCredits !== null && <Link href="/billing" title="Credits available. Credits are charged from measured provider cost." className="hidden h-9 items-center gap-2 rounded-full border border-[#c7ff4a]/15 bg-[#c7ff4a]/[.05] px-3 text-[11px] text-[#c7ff4a] md:flex"><Coins className="h-3.5 w-3.5" /><span>{account.availableCredits.toLocaleString()}</span><span className="text-white/35">credits</span></Link>}<AccountMenu account={account} /></div>
       </div>
     </header>
 

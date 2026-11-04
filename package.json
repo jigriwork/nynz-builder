@@ -17,7 +17,9 @@
     "verify:live-build": "tsx scripts/verify-live-build.ts",
     "test:api": "node tests/api-endpoints.test.js",
     "test:code": "node tests/code-execution.test.js",
-    "test:all": "npm run test:integration && npm run test:api && npm run test:code"
+    "test:all": "npm run test:integration && npm run test:api && npm run test:code",
+    "bootstrap:owner": "tsx scripts/bootstrap-owner.ts",
+    "reconcile": "tsx scripts/reconcile.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.1",
