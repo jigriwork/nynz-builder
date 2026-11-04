@@ -151,3 +151,27 @@ describe("platform spend caps", () => {
     expect(await outcome(asUser(db, owner, (tx) => tx.query("select public.admin_set_spend_limit(null,'Daily',null,'day',100000,80,true,null,null,'set cap')")))).toBe("OK");
   });
 });
+
+describe("account deletion with credit history", () => {
+  it("deletes the account and keeps its ledger rows detached; the ledger stays append-only", async () => {
+    const { user, project } = await setupCustomer(20);
+    const build = await job(user.id, project);
+    await svc("select public.reserve_credits($1,$2,$3,5,2)", [user.id, project, build]);
+    await svc("select public.consume_credits($1,3,'evt-del','openrouter','m',300,'provider_reported')", [build]);
+    const before = Number((await db.query<{ n: number }>("select count(*)::int n from public.credit_ledger where user_id=$1", [user.id])).rows[0].n);
+    expect(before).toBeGreaterThan(0);
+    expect(await outcome(db.query("delete from auth.users where id=$1", [user.id]))).toBe("OK");
+    expect((await db.query<{ n: number }>("select count(*)::int n from public.credit_ledger where event_key='evt-del' and user_id is null")).rows[0].n).toBe(1);
+    expect(await outcome(db.query("update public.credit_ledger set amount=0 where event_key='evt-del'"))).toMatch(/APPEND_ONLY/);
+    expect(await outcome(db.query("delete from public.credit_ledger where event_key='evt-del'"))).toMatch(/APPEND_ONLY/);
+  });
+});
+
+describe("other append-only tables sharing the ledger guard", () => {
+  it("provider spend reconciliations still refuse updates and deletes with the append-only error", async () => {
+    const spend = (await db.query<{ id: number }>("insert into public.provider_spend(provider,kind,estimated_paise,event_key) values('openrouter','model',100,'recon-guard') returning id")).rows[0].id;
+    await db.query("insert into public.provider_spend_reconciliations(spend_id,actual_paise,evidence,actor_id) values($1,90,'invoice line 42 reconciled',gen_random_uuid())", [spend]);
+    expect(await outcome(db.query("update public.provider_spend_reconciliations set actual_paise=1 where spend_id=$1", [spend]))).toMatch(/APPEND_ONLY/);
+    expect(await outcome(db.query("delete from public.provider_spend_reconciliations where spend_id=$1", [spend]))).toMatch(/APPEND_ONLY/);
+  });
+});

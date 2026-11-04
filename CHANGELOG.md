@@ -10,6 +10,7 @@ shown in the site footer, the account menu, the admin header and `/version`.
 - Questions about who founded or created NYNZ are answered in the project chat with the approved fact, without a build, file change or credits; app-editing requests still use the normal flow.
 - The homepage builder showcase is now a labelled interactive example (brief, app, desktop/phone, one focused change); the build-stage loop is labelled as an illustration and respects reduced motion.
 - "Made in India with love from Odisha ❤️" on the homepage and next to Projects.
+- Fix: accounts with credit history can be deleted; their ledger rows are kept and detached (migration 20261104101400).
 
 ## 0.3.4 (4 Nov 2026, release candidate)
 
