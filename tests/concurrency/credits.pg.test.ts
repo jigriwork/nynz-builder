@@ -11,6 +11,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SUPABASE_STUB, migrationFiles } from "../db/harness";
 
 const url = process.env.NYNZ_PG_URL;
+if (url) {
+  const target = new URL(url);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) || target.pathname !== "/nynz_concurrency") throw new Error("Concurrency tests require the disposable local nynz_concurrency database");
+}
 const suite = url ? describe : describe.skip;
 let admin: pg.Client;
 
@@ -81,5 +85,75 @@ suite("credit reservations under real concurrency", () => {
     expect(results.filter((r) => r === "OK")).toHaveLength(6);
     const total = (await admin.query("select sum(estimated_paise)::int s from public.provider_spend where status<>'voided'")).rows[0].s;
     expect(total).toBeLessThanOrEqual(5000);
+  }, 60_000);
+
+  it("two simultaneous manual saves with the same base hash have exactly one winner", async () => {
+    const { user, projects } = await customer(100);
+    const project = projects[0];
+    await admin.query("insert into public.project_files(project_id,path,content) values($1,'a.ts','base')", [project]);
+    const hash = (await admin.query("select content_hash from public.project_files where project_id=$1", [project])).rows[0].content_hash;
+    const session = randomUUID();
+    await admin.query("insert into auth.sessions(id,user_id) values($1,$2)", [session, user]);
+    const save = async (content: string) => {
+      const client = new pg.Client({ connectionString: url });
+      await client.connect();
+      try {
+        await client.query("begin");
+        await client.query("set local role authenticated");
+        await client.query("select set_config('request.jwt.claims',$1,true)", [JSON.stringify({ sub: user, role: "authenticated", session_id: session })]);
+        await client.query("select public.save_project_files($1,$2::jsonb)", [project, JSON.stringify([{ path: "a.ts", content, base_hash: hash }])]);
+        await client.query("commit");
+      } catch (error) { await client.query("rollback"); throw error; }
+      finally { await client.end(); }
+    };
+    const results = await Promise.all([outcome(save("tab one")), outcome(save("tab two"))]);
+    expect(results.filter((r) => r === "OK")).toHaveLength(1);
+    expect(results.filter((r) => r === "FILE_CONFLICT")).toHaveLength(1);
+  }, 60_000);
+
+  it("concurrent restores from the same revision cannot mix two checkpoints", async () => {
+    const { user, projects } = await customer(100);
+    const project = projects[0];
+    const session = randomUUID();
+    await admin.query("insert into auth.sessions(id,user_id) values($1,$2)", [session, user]);
+    const call = async (sql: string, params: unknown[]) => {
+      const client = new pg.Client({ connectionString: url });
+      await client.connect();
+      try {
+        await client.query("begin");
+        await client.query("set local role authenticated");
+        await client.query("select set_config('request.jwt.claims',$1,true)", [JSON.stringify({ sub: user, session_id: session, role: "authenticated" })]);
+        const result = await client.query(sql, params);
+        await client.query("commit");
+        return result.rows[0];
+      } catch (error) { await client.query("rollback"); throw error; }
+      finally { await client.end(); }
+    };
+    await admin.query("insert into public.project_files(project_id,path,content) values($1,'a.ts','one'),($1,'b.ts','one')", [project]);
+    const one = (await call("select public.create_checkpoint($1,'one') id", [project])).id;
+    await admin.query("update public.project_files set content='two' where project_id=$1", [project]);
+    const two = (await call("select public.create_checkpoint($1,'two') id", [project])).id;
+    const revision = (await admin.query("select source_revision from public.projects where id=$1", [project])).rows[0].source_revision;
+    const results = await Promise.all([one, two].map((version) => outcome(call("select public.restore_version($1,$2,$3)", [project, version, revision]))));
+    expect(results.filter((r) => r === "OK")).toHaveLength(1);
+    expect(results.filter((r) => r === "REVISION_CONFLICT")).toHaveLength(1);
+    const values = (await admin.query("select content from public.project_files where project_id=$1", [project])).rows.map((row) => row.content);
+    expect(new Set(values).size).toBe(1);
+    expect(values).toHaveLength(2);
+  }, 60_000);
+
+  it("parallel proxy instances charge the same resume window exactly once", async () => {
+    await admin.query("update public.spend_limits set active=false");
+    const { user, projects } = await customer(100);
+    const project = projects[0];
+    const sandbox = `runtime-${project}`;
+    await asService("select public.register_sandbox($1,$2,null)", [sandbox, project]);
+    await admin.query("update public.platform_resources set state='active' where provider_ref=$1", [sandbox]);
+    await admin.query("update public.projects set active_sandbox_id=$1,status='ready' where id=$2", [sandbox, project]);
+    const results = await Promise.all(Array.from({ length: 20 }, () => asService<{ id: string }>("select public.authorize_sandbox_runtime($1,$2,$3,3600,320,4) id", [project, user, sandbox])));
+    expect(new Set(results.map((r) => r.id)).size).toBe(1);
+    const balance = (await admin.query("select public.credit_balance($1) b", [user])).rows[0].b;
+    expect(Number(balance.available)).toBe(96);
+    expect(Number(balance.reserved)).toBe(0);
   }, 60_000);
 });

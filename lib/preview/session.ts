@@ -1,4 +1,5 @@
 import { EXCHANGE_PATH, issuePreviewToken } from "./token";
+import { hostProjectId } from "./token";
 
 export { redactPreviewUrl } from "./token";
 
@@ -11,11 +12,12 @@ export { redactPreviewUrl } from "./token";
  */
 export function getPreviewOrigin(projectId: string) {
   const template = process.env.PREVIEW_ORIGIN || "http://{projectId}.preview.localhost:3001";
-  const origin = new URL(template.replaceAll("{projectId}", projectId)).origin;
-  const parsed = new URL(origin);
+  const parsed = new URL(template.replaceAll("{projectId}", projectId));
   if (parsed.username || parsed.password) throw new Error("Preview origin must not contain credentials");
   if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") throw new Error("Production preview origin must use HTTPS");
-  return origin;
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Preview origin must be an HTTP(S) origin without a path or query");
+  if (process.env.NODE_ENV === "production" && hostProjectId(parsed.host) !== projectId) throw new Error("Production previews require a dedicated project hostname; configure wildcard preview DNS");
+  return parsed.origin;
 }
 
 export function previewOriginIsolated() {

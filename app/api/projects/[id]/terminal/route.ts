@@ -3,7 +3,8 @@ import { z } from "zod";
 import { CommandExitError, Sandbox } from "e2b";
 import { requireProject } from "@/lib/supabase/auth";
 import { createAdmin } from "@/lib/supabase/server";
-import { apiError } from "@/lib/http/errors";
+import { apiError, dbError } from "@/lib/http/errors";
+import { runtimeAdmissionArgs } from "@/preview-host/lib/runtime";
 import { rateLimit } from "@/lib/platform/rate-limit";
 
 export const maxDuration = 60;
@@ -29,6 +30,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const sandboxId = Array.isArray(data) ? data[0]?.sandbox_id : null;
   if (!sandboxId || auth.project.status !== "ready") return apiError("CONFLICT", "Start the preview before opening a terminal");
   try {
+    const admitted = await createAdmin().rpc("authorize_sandbox_runtime", runtimeAdmissionArgs(sandboxId, id, auth.user.id, 60));
+    if (admitted.error) return dbError(admitted.error, "terminal");
     const sandbox = await Sandbox.connect(sandboxId, { apiKey: process.env.E2B_API_KEY, timeoutMs: 60_000 });
     const info = await sandbox.getInfo();
     const boundProject = info.metadata?.projectId;

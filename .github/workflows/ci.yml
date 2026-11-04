@@ -42,9 +42,19 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir preview-host install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
       - name: Unit, database and multi-connection concurrency tests
         run: pnpm test
       - run: pnpm check:brand
       - run: pnpm build
+      - name: Public customer browser journey
+        run: |
+          pnpm exec playwright-core install --with-deps chromium
+          pnpm start --port 3100 > /tmp/nynz-ci-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
+          node --input-type=module -e 'for(let i=0;i<60;i++){try{if((await fetch("http://localhost:3100/")).ok)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,500))}process.exit(1)'
+          export CHROME_PATH="$(node -e 'process.stdout.write(require("playwright-core").chromium.executablePath())')"
+          NYNZ_VERIFY_BASE_URL=http://localhost:3100 pnpm exec tsx scripts/verify-public-pages.ts

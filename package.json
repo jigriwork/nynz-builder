@@ -1,6 +1,6 @@
 {
   "name": "nynz-builder",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm typecheck:preview",
+    "typecheck:preview": "pnpm --dir preview-host exec tsc --noEmit",
     "test": "vitest run",
     "worker": "tsx scripts/worker.ts",
     "preview-gateway": "tsx scripts/preview-gateway.ts",
@@ -23,6 +24,7 @@
     "check:brand": "tsx scripts/check-brand.ts",
     "notices": "tsx scripts/third-party-notices.ts",
     "verify:release": "tsx scripts/verify-release.ts",
+    "verify:workspace": "tsx scripts/verify-workspace.ts",
     "stamp": "tsx scripts/stamp-build.ts",
     "deploy:web": "tsx scripts/stamp-build.ts && vercel --prod --yes",
     "test:concurrency": "bash scripts/test-concurrency.sh"

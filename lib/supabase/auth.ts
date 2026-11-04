@@ -11,7 +11,8 @@ export async function requireUser() {
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return { error: apiError("AUTH_REQUIRED", "Authentication required") } as const;
-  const { data: state } = await supabase.rpc("my_account_state");
+  const { data: state, error: stateError } = await supabase.rpc("my_account_state");
+  if (stateError || !state) return { error: apiError("SERVICE_UNAVAILABLE", "Account access could not be verified. Please try again shortly.") } as const;
   if (state?.status === "suspended") return { error: apiError("ACCOUNT_SUSPENDED", "This account is suspended. Contact support for help.") } as const;
   return { supabase, user } as const;
 }

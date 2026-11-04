@@ -17,6 +17,10 @@ export function normalizeProjectUrl(raw: string) {
   return url.origin;
 }
 
+export function isPlatformBackend(projectUrl: string, platformUrl = process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  return Boolean(platformUrl && new URL(projectUrl).origin === new URL(platformUrl).origin);
+}
+
 export async function validateConnection(projectUrl: string, key: string, fetcher: typeof fetch = fetch) {
   const response = await fetcher(`${projectUrl}/auth/v1/settings`, { headers: { apikey: key }, signal: AbortSignal.timeout(10_000) });
   if (response.status === 401 || response.status === 403) return { ok: false as const, reason: "This key was not accepted by that Supabase project." };

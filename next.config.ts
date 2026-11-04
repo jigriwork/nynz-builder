@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 // Version identity: build-info.json is written by `pnpm stamp` before deploys.
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
-const stamp = existsSync("build-info.json") ? JSON.parse(readFileSync("build-info.json", "utf8")) as { version: string; commit: string; builtAt: string } : null;
+const savedStamp = existsSync("build-info.json") ? JSON.parse(readFileSync("build-info.json", "utf8")) as { version: string; commit: string; builtAt: string } : null;
+const stamp = savedStamp?.version === pkg.version ? savedStamp : null;
 
 const nextConfig: NextConfig = {
   // Keep Turbopack's live development artifacts separate from production

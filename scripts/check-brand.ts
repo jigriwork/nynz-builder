@@ -12,6 +12,8 @@ import { existsSync, readFileSync } from "node:fs";
 const ALLOWED_FILES = new Set(["LICENSE", "docs/UPSTREAM.md", "docs/NYNZ_BRANDING_PROVENANCE_AUDIT.md", "docs/NYNZ_CURRENT_STATE_AUDIT.md", "docs/NYNZ_IMPLEMENTATION_STATUS.md", "docs/RELEASE.md", "THIRD_PARTY_NOTICES.md", "scripts/check-brand.ts", "scripts/third-party-notices.ts", "scripts/verify-public-pages.ts", "scripts/verify-release.ts", "pnpm-lock.yaml"]);
 // Tests and verification scripts name forbidden strings to assert they are absent.
 const ALLOWED_PREFIXES = ["tests/"];
+// The generation validator contains the forbidden strings it rejects.
+ALLOWED_FILES.add("lib/platform/identity.ts");
 const FORBIDDEN = [/open[\s-]?lovable/i, /\blovable\b/i, /mendable(?!\/firecrawl-js)/i, /firecrawl\.svg|firecrawl-logo|FirecrawlLogo|FirecrawlIcon/, /create-open-lovable|OpenLovable/];
 // Operational provider references (class C) are fine in server code, never as customer-visible copy.
 const PROVIDER_NAME = /firecrawl/i;

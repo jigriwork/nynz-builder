@@ -19,7 +19,7 @@ export type ProxyResponse = { status: number; headers: Record<string, string>; b
 export type ProxyDeps = {
   rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
   insertNonce: (jti: string, projectId: string) => Promise<boolean>;
-  connectSandbox: (sandboxId: string) => Promise<{ target: string; trafficToken: string }>;
+  connectSandbox: (sandboxId: string, projectId: string, userId: string) => Promise<{ target: string; trafficToken: string }>;
   fetchUpstream?: typeof fetch;
   appOrigin: string;
   frameAncestors: string;
@@ -58,6 +58,7 @@ export async function handlePreview(request: ProxyRequest, deps: ProxyDeps): Pro
   const keys = previewKeys();
   const host = normalizeHost(request.host || "");
   const secure = !host.startsWith("localhost") && !host.includes(".localhost");
+  if (process.env.NODE_ENV === "production" && !hostProjectId(host)) return text(503, "Isolated preview hosting is being configured. Please try again later.");
   const url = new URL(request.url, `https://${host}`);
   const method = (request.method || "GET").toUpperCase();
   if (method === "OPTIONS") return { status: 204, headers: { "cache-control": "no-store" } };
@@ -95,7 +96,7 @@ export async function handlePreview(request: ProxyRequest, deps: ProxyDeps): Pro
 
   const sandboxId = await authorize(deps, claims.projectId, claims.userId);
   if (!sandboxId) return text(409, "This project does not have a live preview right now.");
-  const sandbox = await deps.connectSandbox(sandboxId);
+  const sandbox = await deps.connectSandbox(sandboxId, claims.projectId, claims.userId);
   const headers = new Headers({ "e2b-traffic-access-token": sandbox.trafficToken });
   for (const name of ["accept", "accept-language", "content-type", "if-none-match", "if-modified-since", "range", "user-agent"]) {
     const value = request.headers[name];
@@ -118,11 +119,12 @@ export async function handlePreview(request: ProxyRequest, deps: ProxyDeps): Pro
 }
 
 /** E2B REST connect: resumes a paused sandbox and returns its private traffic token. */
-export function e2bConnector(apiKey: string, activeSeconds: number) {
+export function e2bConnector(apiKey: string, activeSeconds: number, beforeConnect?: (sandboxId: string, projectId: string, userId: string) => Promise<void>) {
   const cache = new Map<string, { target: string; trafficToken: string; until: number }>();
-  return async (sandboxId: string) => {
+  return async (sandboxId: string, projectId: string, userId: string) => {
     const cached = cache.get(sandboxId);
     if (cached && cached.until > Date.now()) return cached;
+    await beforeConnect?.(sandboxId, projectId, userId);
     const response = await fetch(`https://api.e2b.app/v2/sandboxes/${encodeURIComponent(sandboxId)}/connect`, {
       method: "POST", headers: { "content-type": "application/json", "x-api-key": apiKey },
       body: JSON.stringify({ timeout: activeSeconds }), signal: AbortSignal.timeout(15_000),

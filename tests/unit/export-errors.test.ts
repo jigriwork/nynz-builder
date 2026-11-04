@@ -6,6 +6,12 @@ import { canSendEmail } from "../../lib/platform/email";
 import { safeNext } from "../../lib/http/safe-next";
 
 describe("export archive", () => {
+  it("does not overwrite existing export notes or licence files", async () => {
+    const zip = await JSZip.loadAsync((await buildExportZip({ name: "Project", files: [{ path: "README.md", content: "customer" }, { path: "NYNZ_EXPORT.md", content: "older notes" }, { path: "LICENSE", content: "customer notices" }], assets: [] })).body);
+    expect(await zip.file("NYNZ_EXPORT.md")!.async("string")).toBe("older notes");
+    expect(await zip.file("LICENSE")!.async("string")).toBe("customer notices");
+    expect(zip.file("NYNZ_EXPORT-2.md")).toBeTruthy();
+  });
   it("preserves a project-authored README and excludes secrets and internals", async () => {
     const { body, fileName } = await buildExportZip({ name: "Acme CRM!", date: new Date("2026-11-04"), files: [
       { path: "README.md", content: "# Acme CRM\nOur own docs" }, { path: "src/App.tsx", content: "export default 1" },

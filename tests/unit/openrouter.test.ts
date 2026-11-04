@@ -61,6 +61,8 @@ describe("OpenRouter staged generation", () => {
     const planned = await planApplication({ prompt: "Build a calculator" });
     expect(planned.manifest.plan.steps).toEqual(["Arithmetic", "Keyboard input"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(requestBody.provider.max_price).toMatchObject({ prompt: 2, completion: 10, request: 0 });
     expect(planned.manifest.files.every(file => !("content" in file))).toBe(true);
   });
 

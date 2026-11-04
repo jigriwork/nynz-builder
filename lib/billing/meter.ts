@@ -17,10 +17,12 @@ type Pending = { spendId: number | null; eventKey: string; model: string };
  */
 export class BuildMeter {
   private pending: Pending[] = [];
+  private sandboxSpend: { id: number; seconds: number } | null = null;
   constructor(private readonly db: SupabaseClient, private readonly job: Job, private readonly env: Record<string, string | undefined> = process.env) {}
 
   private async hasReservation() {
-    const { data } = await this.db.from("credit_reservations").select("id,status").eq("build_id", this.job.id).maybeSingle();
+    const { data, error } = await this.db.from("credit_reservations").select("id,status").eq("build_id", this.job.id).maybeSingle();
+    if (error) throw error;
     return Boolean(data);
   }
 
@@ -44,7 +46,9 @@ export class BuildMeter {
   }
 
   async afterModelCall(event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null }) {
-    const call = this.pending.shift();
+    // Failed/aborted requests retain their conservative authorised hold. The
+    // latest request, not an earlier failed attempt, owns this response.
+    const call = this.pending.pop();
     const cost = actualModelCallPaise({ model: event.model, inputTokens: event.prompt_tokens, outputTokens: event.completion_tokens, providerCostUsd: event.costUsd }, this.env);
     const eventKey = event.requestId ? `openrouter:${event.requestId}` : call?.eventKey || `model:${this.job.id}:${randomUUID()}`;
     const base = { owner_id: this.job.requested_by, project_id: this.job.project_id, build_id: this.job.id, provider: "openrouter", model: event.model, provider_request_id: event.requestId };
@@ -53,30 +57,58 @@ export class BuildMeter {
       { ...base, kind: "model_output_tokens", quantity: event.completion_tokens, estimated_cost_minor: cost.paise || null, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
     ]);
     if (usage.error) console.error(`[meter] usage recording failed for build ${this.job.id}`);
-    if (call?.spendId) await this.db.rpc("settle_provider_spend", { p_id: call.spendId, p_actual: cost.paise, p_source: cost.source });
+    if (call?.spendId) {
+      const settled = await this.db.rpc("settle_provider_spend", { p_id: call.spendId, p_actual: cost.paise, p_source: cost.source });
+      if (settled.error) throw settled.error;
+    }
     if (await this.hasReservation()) {
       const { error } = await this.db.rpc("consume_credits", {
         p_build: this.job.id, p_amount: creditsForPaise(cost.paise, this.env), p_event_key: eventKey, p_provider: "openrouter", p_model: event.model,
         p_cost_paise: cost.paise, p_cost_source: cost.source, p_metadata: { input_tokens: event.prompt_tokens, output_tokens: event.completion_tokens },
       });
-      if (error) console.error(`[meter] credit consumption failed for build ${this.job.id}: ${error.message}`);
+      if (error) throw error;
     }
+  }
+
+  /** Reserve both customer allowance and the shared provider budget before allocation. */
+  async beforeSandbox(seconds: number) {
+    const estimate = sandboxSecondsPaise(seconds, this.env);
+    if (await this.hasReservation()) {
+      const held = await this.db.rpc("ensure_reservation_headroom", { p_build: this.job.id, p_needed: creditsForPaise(estimate, this.env) });
+      if (held.error) throw held.error;
+      if (!held.data) throw new BudgetError("INSUFFICIENT_CREDITS", "Not enough credits to start a preview.");
+    }
+    const allowed = await this.db.rpc("authorize_provider_spend", { p_provider: "e2b", p_kind: "sandbox", p_model: null, p_estimate: estimate, p_build: this.job.id, p_user: this.job.requested_by, p_event_key: `e2b:${this.job.id}:${randomUUID()}:allocation` });
+    if (allowed.error) {
+      if (/SPEND_LIMIT/.test(allowed.error.message)) throw new BudgetError("SPEND_LIMIT", "A platform spending limit was reached.");
+      throw allowed.error;
+    }
+    this.sandboxSpend = { id: Number(allowed.data), seconds };
   }
 
   /** Sandbox time is billed by E2B per second; NYNZ records an estimate. */
   async recordSandbox(sandboxId: string, seconds: number, outcome: string) {
     if (seconds <= 0) return;
-    const paise = sandboxSecondsPaise(seconds, this.env);
+    // Keep the full allocated lifetime counted for a preview still running or
+    // whose termination is uncertain. Releasing it at build completion would
+    // let unmetered idle runtime exceed a combined verification cap.
+    const budgetSeconds = Math.max(seconds, this.sandboxSpend?.seconds || 0);
+    const paise = sandboxSecondsPaise(budgetSeconds, this.env);
     const eventKey = `e2b:${sandboxId}:build`;
     await this.db.from("usage_events").insert({ owner_id: this.job.requested_by, project_id: this.job.project_id, build_id: this.job.id, kind: "sandbox_seconds", quantity: seconds, provider: "e2b", estimated_cost_minor: paise, metadata: { outcome, cost_source: "estimate", event_key: eventKey } });
-    await this.db.rpc("record_provider_spend", { p_provider: "e2b", p_kind: "sandbox", p_model: null, p_actual: paise, p_source: "estimate", p_build: this.job.id, p_user: this.job.requested_by, p_event_key: eventKey });
+    const recorded = this.sandboxSpend
+      ? await this.db.rpc("settle_provider_spend", { p_id: this.sandboxSpend.id, p_actual: paise, p_source: "allocated_runtime_estimate" })
+      : await this.db.rpc("record_provider_spend", { p_provider: "e2b", p_kind: "sandbox", p_model: null, p_actual: paise, p_source: "estimate", p_build: this.job.id, p_user: this.job.requested_by, p_event_key: eventKey });
+    if (recorded.error) throw recorded.error;
     if (await this.hasReservation()) {
-      await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "estimate", p_metadata: { seconds, outcome } });
+      const consumed = await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "allocated_runtime_estimate", p_metadata: { seconds, allocated_seconds: budgetSeconds, outcome } });
+      if (consumed.error) throw consumed.error;
     }
   }
 
   /** Releases whatever was reserved but not used. Safe to call repeatedly. */
   async settle(reason: string) {
-    await this.db.rpc("settle_reservation", { p_build: this.job.id, p_reason: reason });
+    const settled = await this.db.rpc("settle_reservation", { p_build: this.job.id, p_reason: reason });
+    if (settled.error) throw settled.error;
   }
 }

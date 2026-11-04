@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { redact } from "./redact";
 
 export type ReconcileDeps = {
   db: SupabaseClient;
@@ -11,7 +12,7 @@ export type ReconcileDeps = {
 
 /** Removes every object under a storage prefix, including nested folders. */
 async function removePrefix(db: SupabaseClient, bucket: string, prefix: string, depth = 0): Promise<number> {
-  if (depth > 8) return 0;
+  if (depth > 8) throw new Error("Storage cleanup depth exceeded");
   let removed = 0;
   for (let page = 0; page < 50; page += 1) {
     const { data: entries, error } = await db.storage.from(bucket).list(prefix, { limit: 100 });
@@ -19,12 +20,16 @@ async function removePrefix(db: SupabaseClient, bucket: string, prefix: string, 
     const files = (entries || []).filter((item) => item.id).map((item) => `${prefix}/${item.name}`);
     const folders = (entries || []).filter((item) => !item.id).map((item) => `${prefix}/${item.name}`);
     for (const folder of folders) removed += await removePrefix(db, bucket, folder, depth + 1);
-    if (!files.length) break;
-    const result = await db.storage.from(bucket).remove(files);
-    if (result.error) throw result.error;
-    removed += files.length;
+    if (files.length) {
+      const result = await db.storage.from(bucket).remove(files);
+      if (result.error) throw result.error;
+      removed += files.length;
+    }
+    // A page containing only folders may have more siblings after those
+    // folders are emptied. Re-list rather than marking a partial cleanup done.
+    if ((entries || []).length < 100) return removed;
   }
-  return removed;
+  throw new Error("Storage cleanup page budget exceeded; retry required");
 }
 
 const isNotFound = (error: unknown) => /not\s*found|404|does not exist/i.test(error instanceof Error ? `${error.name} ${error.message}` : String(error));
@@ -49,7 +54,8 @@ export async function reconcileResources(deps: ReconcileDeps) {
   const idle = await db.rpc("retire_idle_previews", { p_days: deps.idleDays ?? 7 });
   if (idle.error) summary.errors.push(`idle: ${idle.error.message}`); else summary.idle = Number(idle.data || 0);
 
-  const { data: terminating } = await db.from("platform_resources").select("id,kind,provider_ref,attempts").eq("state", "terminating").order("terminate_requested_at").limit(200);
+  const { data: terminating, error: terminatingError } = await db.from("platform_resources").select("id,kind,provider_ref,attempts").eq("state", "terminating").order("terminate_requested_at").limit(200);
+  if (terminatingError) summary.errors.push("cleanup registry unavailable");
   for (const resource of terminating || []) {
     try {
       if (resource.kind === "e2b_sandbox") {
@@ -57,12 +63,15 @@ export async function reconcileResources(deps: ReconcileDeps) {
         summary.killed += 1;
       } else if (resource.kind === "storage_prefix" || resource.kind === "deployment_artifact") {
         const [bucket, ...rest] = String(resource.provider_ref).split("/");
-        summary.storageRemoved += await removePrefix(db, bucket, rest.join("/"));
+        const prefix = rest.join("/");
+        if (!["project-assets", "published-sites"].includes(bucket) || !prefix || prefix.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("Invalid cleanup storage target");
+        summary.storageRemoved += await removePrefix(db, bucket, prefix);
       }
-      await db.from("platform_resources").update({ state: "terminated", terminated_at: new Date(now).toISOString(), last_error: null }).eq("id", resource.id).eq("state", "terminating");
+      const marked = await db.from("platform_resources").update({ state: "terminated", terminated_at: new Date(now).toISOString(), last_error: null }).eq("id", resource.id).eq("state", "terminating");
+      if (marked.error) throw marked.error;
     } catch (error) {
       summary.killFailures += 1;
-      const message = error instanceof Error ? error.message.slice(0, 300) : "cleanup failed";
+      const message = error instanceof Error ? redact(error.message).slice(0, 300) : "cleanup failed";
       await db.from("platform_resources").update({ attempts: Number(resource.attempts || 0) + 1, last_error: message, ...(Number(resource.attempts || 0) >= 9 ? { state: "failed" } : {}) }).eq("id", resource.id);
     }
   }
@@ -73,7 +82,10 @@ export async function reconcileResources(deps: ReconcileDeps) {
       const ids = live.map((item) => item.sandboxId);
       const known = new Set<string>();
       for (let i = 0; i < ids.length; i += 200) {
-        const { data } = await db.from("platform_resources").select("provider_ref").eq("kind", "e2b_sandbox").in("state", ["provisioning", "active", "paused"]).in("provider_ref", ids.slice(i, i + 200));
+        const { data, error } = await db.from("platform_resources").select("provider_ref").eq("kind", "e2b_sandbox").in("state", ["provisioning", "active", "paused"]).in("provider_ref", ids.slice(i, i + 200));
+        // Missing evidence is not evidence of an orphan. Never kill a live
+        // customer preview when the registry lookup failed.
+        if (error || !data) throw new Error("Resource registry unavailable; orphan deletion skipped");
         (data || []).forEach((row) => known.add(row.provider_ref));
       }
       const grace = (deps.orphanGraceMinutes ?? 15) * 60_000;
@@ -88,7 +100,7 @@ export async function reconcileResources(deps: ReconcileDeps) {
       }
     }
   } catch (error) {
-    summary.errors.push(`orphan scan: ${error instanceof Error ? error.message.slice(0, 200) : "failed"}`);
+    summary.errors.push(`orphan scan: ${error instanceof Error ? redact(error.message).slice(0, 200) : "failed"}`);
   }
 
   const credits = await db.rpc("reconcile_credits");

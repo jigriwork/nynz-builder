@@ -8,6 +8,7 @@ type Input = {
   onUsage?: (event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null }) => Promise<void>;
   onProgress?: (event: { current: number; total: number; percent: number; message?: string }) => Promise<void>;
   beforeRequest?: BeforeRequest;
+  signal?: AbortSignal;
 };
 
 /**

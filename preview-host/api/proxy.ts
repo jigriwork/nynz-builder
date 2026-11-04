@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { e2bConnector, handlePreview } from "../lib/core.js";
 import { redactPreviewUrl } from "../lib/token.js";
 import { handleSite } from "../lib/site-host.js";
+import { runtimeAdmissionArgs } from "../lib/runtime.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -18,7 +19,11 @@ const frameAncestors = process.env.PREVIEW_FRAME_ANCESTORS || "https://www.nynz.
 const previewSuffix = (process.env.PREVIEW_HOST_SUFFIX || "preview.nynz.in").toLowerCase();
 const sitesSuffix = (process.env.PUBLISH_SITES_SUFFIX || "").toLowerCase();
 const isPreviewHost = (host: string) => host === previewSuffix || host.endsWith(`.${previewSuffix}`);
-const connectSandbox = e2bConnector(e2bKey, Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600)));
+const activeSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
+const connectSandbox = e2bConnector(e2bKey, activeSeconds, async (sandbox, project, user) => {
+  const admitted = await db.rpc("authorize_sandbox_runtime", runtimeAdmissionArgs(sandbox, project, user, activeSeconds));
+  if (admitted.error) throw new Error("Preview runtime is unavailable or its allowance has been reached");
+});
 
 export const config = { api: { bodyParser: false } };
 

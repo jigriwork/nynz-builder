@@ -37,8 +37,11 @@ export function paisePerCredit(env: Record<string, string | undefined> = process
 export function priceFor(model: string, env: Record<string, string | undefined> = process.env): ModelPrice {
   const bare = model.replace(/^openrouter:/, "");
   let overrides: Record<string, { in: number; out: number }> = {};
-  try { overrides = env.MODEL_PRICES_JSON ? JSON.parse(env.MODEL_PRICES_JSON) : {}; } catch { overrides = {}; }
-  if (overrides[bare]) return { ...overrides[bare], source: "configured" };
+  try { overrides = env.MODEL_PRICES_JSON ? JSON.parse(env.MODEL_PRICES_JSON) : {}; } catch { throw new Error("MODEL_PRICES_JSON must contain valid JSON"); }
+  if (overrides[bare]) {
+    if (![overrides[bare].in, overrides[bare].out].every((rate) => Number.isFinite(rate) && rate >= 0)) throw new Error("Configured model prices must be finite nonnegative rates");
+    return { ...overrides[bare], source: "configured" };
+  }
   return DEFAULT_PRICES[bare] || UNKNOWN;
 }
 
@@ -48,11 +51,16 @@ export function usdToPaise(usd: number, env: Record<string, string | undefined> 
 
 /** Worst-case cost of one model call across every model it may fall back to. */
 export function estimateModelCallPaise(models: string[], inputTokens: number, maxOutputTokens: number, env: Record<string, string | undefined> = process.env) {
-  const worst = Math.max(...models.map((model) => {
-    const price = priceFor(model, env);
-    return inputTokens * price.in + maxOutputTokens * price.out;
-  }));
+  const ceiling = modelPriceCeiling(models, env);
+  const worst = inputTokens * ceiling.prompt / 1_000_000 + maxOutputTokens * ceiling.completion / 1_000_000;
   return usdToPaise(worst, env);
+}
+
+/** Also sent to OpenRouter, so routing cannot silently exceed our price table. */
+export function modelPriceCeiling(models: string[], env: Record<string, string | undefined> = process.env) {
+  if (!models.length) throw new Error("At least one model must be configured");
+  const prices = models.map((model) => priceFor(model, env));
+  return { prompt: Math.max(...prices.map((p) => p.in)) * 1_000_000, completion: Math.max(...prices.map((p) => p.out)) * 1_000_000, request: 0, image: 0 };
 }
 
 /** Actual charge for a completed call: provider-reported cost when present. */
@@ -64,7 +72,8 @@ export function actualModelCallPaise(input: { model: string; inputTokens: number
 
 /** Rough token count for pre-call estimates (deliberately pessimistic). */
 export function estimateTokens(text: string) {
-  return Math.ceil(text.length / 3);
+  // Byte-level upper bound avoids under-reserving for non-Latin text/code.
+  return Buffer.byteLength(text, "utf8");
 }
 
 export function creditsForPaise(paise: number, env: Record<string, string | undefined> = process.env) {
@@ -74,7 +83,9 @@ export function creditsForPaise(paise: number, env: Record<string, string | unde
 /** E2B and Firecrawl have no per-call price in their responses; these are labelled estimates. */
 export function sandboxSecondsPaise(seconds: number, env: Record<string, string | undefined> = process.env) {
   // Default: 2 vCPU + 2 GiB on E2B's published usage pricing (~$0.000028/s); override when measured.
-  return usdToPaise(seconds * Number(env.E2B_COST_USD_PER_SECOND || 0.000028), env);
+  const rate = Number(env.E2B_COST_USD_PER_SECOND || 0.000028);
+  if (!Number.isFinite(rate) || rate <= 0 || !Number.isFinite(seconds) || seconds < 0) throw new Error("Invalid sandbox pricing configuration");
+  return usdToPaise(seconds * rate, env);
 }
 
 export function firecrawlPagePaise(pages: number, env: Record<string, string | undefined> = process.env) {

@@ -4,7 +4,7 @@ import { json, requireProject } from "@/lib/supabase/auth";
 import { createAdmin } from "@/lib/supabase/server";
 import { apiError } from "@/lib/http/errors";
 import { rateLimit } from "@/lib/platform/rate-limit";
-import { checkTables, isPrivilegedKey, normalizeProjectUrl, tablesInSql, validateConnection } from "@/lib/integrations/customer-supabase";
+import { checkTables, isPlatformBackend, isPrivilegedKey, normalizeProjectUrl, tablesInSql, validateConnection } from "@/lib/integrations/customer-supabase";
 import { CUSTOMER_RLS_TEMPLATE } from "@/lib/integrations/backend-templates";
 
 /** Connection status plus the project's own migration files for review. */
@@ -40,6 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   let projectUrl: string;
   try { projectUrl = normalizeProjectUrl(parsed.data.projectUrl); } catch (error) { return apiError("INVALID_INPUT", (error as Error).message); }
+  if (isPlatformBackend(projectUrl)) return apiError("INVALID_INPUT", "Connect your own Supabase project. NYNZ's platform database cannot be used as an application backend.");
   if (isPrivilegedKey(parsed.data.publishableKey)) return apiError("INVALID_INPUT", "Secret and service-role keys are not accepted. Use the publishable (or anon) key with row-level security.");
   const validation = await validateConnection(projectUrl, parsed.data.publishableKey).catch(() => ({ ok: false as const, reason: "The Supabase project could not be reached." }));
   if (!validation.ok) return apiError("INVALID_INPUT", validation.reason);
@@ -55,6 +56,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const auth = await requireProject(id);
   if ("error" in auth) return auth.error;
-  await createAdmin().from("generated_backend_connections").delete().eq("project_id", id);
+  const { error } = await createAdmin().from("generated_backend_connections").delete().eq("project_id", id);
+  if (error) return apiError("INTERNAL", "Could not disconnect the backend", { cause: error, scope: "backend" });
   return new Response(null, { status: 204 });
 }

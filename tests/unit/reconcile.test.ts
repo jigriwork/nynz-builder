@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { reconcileResources } from "../../lib/platform/reconcile";
 
@@ -40,6 +40,30 @@ function fakeDb(tables: Record<string, Row[]>, storage: Record<string, string[]>
 }
 
 describe("resource reconciliation", () => {
+  it("does not kill any orphan when its registry lookup fails", async () => {
+    const { db } = fakeDb({}, {});
+    const from = db.from.bind(db);
+    db.from = ((table: string) => {
+      const q = from(table) as any;
+      q.then = (resolve: (value: unknown) => void) => resolve({ data: null, error: { message: "database unavailable" } });
+      return q;
+    }) as typeof db.from;
+    const kill = vi.fn();
+    const summary = await reconcileResources({ db, killSandbox: kill, listSandboxes: async () => [{ sandboxId: "working-preview", startedAt: new Date(0), metadata: {} }] });
+    expect(kill).not.toHaveBeenCalled();
+    expect(summary.errors).toContain("orphan scan: Resource registry unavailable; orphan deletion skipped");
+  });
+
+  it("refuses a broad storage cleanup target", async () => {
+    const tables = { platform_resources: [{ id: "r1", kind: "storage_prefix", provider_ref: "project-assets/", state: "terminating", attempts: 0 }] };
+    const { db } = fakeDb(tables, {});
+    const remove = vi.spyOn(db.storage, "from");
+    const summary = await reconcileResources({ db, killSandbox: async () => undefined, listSandboxes: async () => [] });
+    expect(remove).not.toHaveBeenCalled();
+    expect(summary.killFailures).toBe(1);
+    expect(tables.platform_resources[0].state).toBe("terminating");
+  });
+
   it("terminates marked resources idempotently, cleans storage and kills orphans", async () => {
     const tables = { platform_resources: [
       { id: "r1", kind: "e2b_sandbox", provider_ref: "sbx-replaced", state: "terminating", attempts: 0 },

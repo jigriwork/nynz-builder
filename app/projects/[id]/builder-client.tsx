@@ -16,6 +16,7 @@ import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { ProjectIntegrations } from "@/components/project-integrations";
+import { ProjectFileSearch } from "@/components/project-file-search";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
@@ -112,6 +113,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [mobilePane, setMobilePane] = useState<"chat" | "workspace">(initialProject.status === "ready" ? "workspace" : "chat");
   const [showReference, setShowReference] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFileSearch, setShowFileSearch] = useState(false);
   const [editingCode, setEditingCode] = useState(false);
   const [terminalCommand, setTerminalCommand] = useState("");
   const [terminalBusy, setTerminalBusy] = useState(false);
@@ -430,7 +432,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <a href="/dashboard" aria-label="New project" className={railIdle}><Plus className="h-4 w-4" /><RailHint>New project</RailHint></a>
         <span className="my-1.5 h-px w-6 bg-white/[.07]" />
         <Link href="/" aria-label="Home" className={railIdle}><Home className="h-4 w-4" /><RailHint>Home</RailHint></Link>
-        <button aria-label="Search project" onClick={() => setTab("code")} className={railIdle}><Search className="h-4 w-4" /><RailHint>Search files</RailHint></button>
+        <button aria-label="Search project" onClick={() => setShowFileSearch(true)} className={railIdle}><Search className="h-4 w-4" /><RailHint>Search files</RailHint></button>
         {([["code", Folder, "Project files"], ["terminal", SquareTerminal, "Sandbox terminal"], ["versions", History, "Build history"], ["logs", Terminal, "Build logs"]] as const).map(([id, Icon, label]) => <button key={id} aria-label={label} onClick={() => setTab(id)} className={`${railButton} ${tab === id ? "bg-white/[.07] text-[#c7ff4a]" : "text-white/40 hover:bg-white/[.06] hover:text-white/80"}`}>{tab === id && <motion.span layoutId="rail-active" className="absolute -left-2.5 h-4 w-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="h-4 w-4" /><RailHint>{label}</RailHint></button>)}
         <button aria-label="Project settings" onClick={() => setShowSettings(true)} className={`mt-auto ${railIdle}`}><Settings className="h-4 w-4" /><RailHint>Project settings</RailHint></button>
         <NynzIcon className="mt-1 h-7 w-7 rounded-full" />
@@ -556,6 +558,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       </div>
     </div>
     <AnimatePresence>{showSettings && <ProjectSettings projectId={project.id} onClose={() => setShowSettings(false)} onNotice={setNotice} />}</AnimatePresence>
+    {showFileSearch && <ProjectFileSearch files={files} onClose={() => setShowFileSearch(false)} onSelect={(path) => { setSelected(path); setTab("code"); setMobilePane("workspace"); }} />}
     {showRename && <ProjectNameDialog project={project} onClose={() => setShowRename(false)} onSaved={updated => { setProject(value => ({ ...value, name: updated.name })); setNotice("Project renamed."); }} />}
   </main>;
 }

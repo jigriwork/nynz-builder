@@ -39,6 +39,9 @@ async function runRequiredCommand(sandbox: Sandbox, command: string, options: { 
 }
 
 type PreviewBuildOptions = {
+  signal?: AbortSignal;
+  /** Authorise the full bounded runtime before allocating a paid sandbox. */
+  beforeCreate?: (seconds: number) => Promise<void>;
   onBuildFailure?: (error: string, files: Array<{ path: string; content: string }>, attempt: number) => Promise<Array<{ path: string; content: string }>>;
   onStage?: (message: string, percent: number) => Promise<void>;
   /** Called as soon as the sandbox exists, before any file is written, so it is registered for cleanup even if the build fails. */
@@ -49,9 +52,29 @@ type PreviewBuildOptions = {
 
 export const SANDBOX_PURPOSE = "nynz-generated-preview";
 
+export function sandboxTimeoutMs(env: Record<string, string | undefined> = process.env) {
+  const value = Number(env.E2B_SANDBOX_TIMEOUT_MS || 600000);
+  if (!Number.isFinite(value) || value < 60_000) throw new Error("E2B_SANDBOX_TIMEOUT_MS must be at least 60000");
+  return Math.min(Math.floor(value), 3_600_000);
+}
+
+// Disable package lifecycle hooks, including when a generated .npmrc tries to
+// opt back in. Explicit build scripts still run inside the isolated sandbox.
+export const INSTALL_COMMAND = "npm install --ignore-scripts --no-audit --no-fund";
+
+function terminateOnAbort(sandbox: Sandbox, signal?: AbortSignal) {
+  const abort = () => { void sandbox.kill().catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  return () => signal?.removeEventListener("abort", abort);
+}
+
 export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }, assets: Array<{ name: string; data: ArrayBuffer }> = [], options: PreviewBuildOptions = {}) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
-  const timeoutMs = Math.min(Number(process.env.E2B_SANDBOX_TIMEOUT_MS || 600000), 3_600_000);
+  const timeoutMs = sandboxTimeoutMs();
+  options.signal?.throwIfAborted();
+  await options.beforeCreate?.(Math.ceil(timeoutMs / 1000));
+  options.signal?.throwIfAborted();
   const sandbox = await Sandbox.create({
     apiKey: process.env.E2B_API_KEY,
     timeoutMs,
@@ -59,7 +82,9 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     network: { allowPublicTraffic: false },
     metadata: { purpose: SANDBOX_PURPOSE, ...(options.owner ? { projectId: options.owner.projectId, buildId: options.owner.buildId } : {}) },
   });
+  const removeAbortListener = terminateOnAbort(sandbox, options.signal);
   try {
+    options.signal?.throwIfAborted();
     await options.onCreated?.(sandbox.sandboxId);
     const files = filesAreSafe(input);
     const merged = new Map(Object.entries(STARTER));
@@ -78,7 +103,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     for (const asset of assets) await sandbox.files.write(`/home/user/app/public/uploads/${asset.name}`, asset.data);
     if (generatedBackend) await sandbox.files.write("/home/user/app/.env.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
     await options.onStage?.("Installing application dependencies", 70);
-    const install = await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
+    const install = await runRequiredCommand(sandbox, INSTALL_COMMAND, { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
     let build: Awaited<ReturnType<typeof runRequiredCommand>> | undefined;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       await options.onStage?.(attempt === 1 ? "Compiling and typechecking the application" : "Rechecking the repaired application", 80);
@@ -86,6 +111,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
         build = await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 120_000 }, "Production build");
         break;
       } catch (error) {
+        options.signal?.throwIfAborted();
         if (!options.onBuildFailure || attempt === 3 || !(error instanceof Error) || !error.message.startsWith("Production build failed")) throw error;
         const repaired = filesAreSafe(await options.onBuildFailure(error.message, [...merged].filter(([path]) => path !== ".nynz-preview.mjs").map(([path, content]) => ({ path, content })), attempt));
         let dependenciesChanged = false;
@@ -95,7 +121,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
           merged.set(file.path, file.content);
           await sandbox.files.write(`/home/user/app/${file.path}`, file.content);
         }
-        if (dependenciesChanged) await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
+        if (dependenciesChanged) await runRequiredCommand(sandbox, INSTALL_COMMAND, { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
       }
     }
     if (!build) throw new Error("Production build did not complete");
@@ -108,6 +134,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     let authenticatedStatus = 0;
     let authenticatedDetail = "";
     for (let attempt = 0; attempt < 12; attempt += 1) {
+      options.signal?.throwIfAborted();
       try {
         const internal = await sandbox.commands.run("node -e \"fetch('http://127.0.0.1:5173/').then(async r=>{if(!r.ok)process.exit(1);console.log((await r.text()).slice(0,40))})\"", { cwd: "/home/user/app", timeoutMs: 10_000 });
         const listening = await sandbox.commands.run("ss -ltn | grep -E '0\\.0\\.0\\.0:5173|\\*:5173'", { timeoutMs: 10_000 });
@@ -122,6 +149,7 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
           return { sandboxId: sandbox.sandboxId, expiresAt: null, logs: `${install.stdout}\n${build.stdout}`.slice(-10_000) };
         }
       } catch {
+        options.signal?.throwIfAborted();
         // The production preview can take a few seconds to begin accepting traffic.
       }
       await new Promise((resolve) => setTimeout(resolve, 750));
@@ -129,8 +157,9 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     throw new Error(`Authenticated E2B preview was not reachable${authenticatedStatus ? ` (HTTP ${authenticatedStatus}${authenticatedDetail ? `: ${authenticatedDetail}` : ""})` : ""}`);
   } catch (error) {
     await sandbox.kill().catch(() => undefined);
+    options.signal?.throwIfAborted();
     throw error;
-  }
+  } finally { removeAbortListener(); }
 }
 
 /** Idempotent: resolves true when the sandbox is gone (including "already gone"). */
@@ -157,9 +186,13 @@ export async function listNynzSandboxes() {
  * returns the files under dist/. Nothing from the customer's app runs on the
  * platform host; the sandbox is always killed afterwards.
  */
-export async function buildArtifactInE2B(input: Array<{ path: string; content: string }>, generatedBackend: { projectUrl: string; publishableKey: string } | undefined, assets: Array<{ name: string; data: ArrayBuffer }>, options: { owner: { projectId: string; buildId: string }; onCreated?: (sandboxId: string) => Promise<void>; maxFiles: number; maxBytes: number }) {
+export async function buildArtifactInE2B(input: Array<{ path: string; content: string }>, generatedBackend: { projectUrl: string; publishableKey: string } | undefined, assets: Array<{ name: string; data: ArrayBuffer }>, options: { owner: { projectId: string; buildId: string }; onCreated?: (sandboxId: string) => Promise<void>; beforeCreate?: (seconds: number) => Promise<void>; signal?: AbortSignal; maxFiles: number; maxBytes: number }) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
+  options.signal?.throwIfAborted();
+  await options.beforeCreate?.(600);
+  options.signal?.throwIfAborted();
   const sandbox = await Sandbox.create({ apiKey: process.env.E2B_API_KEY, timeoutMs: 600_000, network: { allowPublicTraffic: false }, metadata: { purpose: SANDBOX_PURPOSE, projectId: options.owner.projectId, buildId: options.owner.buildId } });
+  const removeAbortListener = terminateOnAbort(sandbox, options.signal);
   try {
     await options.onCreated?.(sandbox.sandboxId);
     const files = filesAreSafe(input);
@@ -174,7 +207,7 @@ export async function buildArtifactInE2B(input: Array<{ path: string; content: s
     for (const [path, content] of merged) await sandbox.files.write(`/home/user/app/${path}`, content);
     for (const asset of assets) await sandbox.files.write(`/home/user/app/public/uploads/${asset.name}`, asset.data);
     if (generatedBackend) await sandbox.files.write("/home/user/app/.env.production.local", `VITE_SUPABASE_URL=${generatedBackend.projectUrl}\nVITE_SUPABASE_PUBLISHABLE_KEY=${generatedBackend.publishableKey}\n`);
-    await runRequiredCommand(sandbox, "npm install --no-audit --no-fund", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
+    await runRequiredCommand(sandbox, INSTALL_COMMAND, { cwd: "/home/user/app", timeoutMs: 180_000 }, "Dependency install");
     await runRequiredCommand(sandbox, "npm run build", { cwd: "/home/user/app", timeoutMs: 180_000 }, "Production build");
     const listing = await runRequiredCommand(sandbox, "cd dist && find . -type f -printf '%s %P\\n'", { cwd: "/home/user/app", timeoutMs: 30_000 }, "Artifact listing");
     const entries = listing.stdout.split("\n").filter(Boolean).map((line) => { const [size, ...rest] = line.split(" "); return { size: Number(size), path: rest.join(" ") }; });
@@ -183,6 +216,7 @@ export async function buildArtifactInE2B(input: Array<{ path: string; content: s
     for (const entry of entries) out.push({ path: entry.path, data: await sandbox.files.read(`/home/user/app/dist/${entry.path}`, { format: "bytes" }) });
     return { sandboxId: sandbox.sandboxId, files: out };
   } finally {
+    removeAbortListener();
     await sandbox.kill().catch(() => undefined);
   }
 }

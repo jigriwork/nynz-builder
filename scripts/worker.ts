@@ -13,6 +13,7 @@ import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
 import { readFileSync } from "node:fs";
+import { watchBuild } from "../lib/platform/build-control";
 
 config({ path: ".env.local", quiet: true });
 
@@ -137,40 +138,45 @@ function assistantReply(message: string, mode: string) {
  * static output, upload it to an immutable per-deployment prefix and activate
  * it atomically. A failed publish leaves the live site unchanged.
  */
-async function processPublish(job: Job, meter: BuildMeter) {
+async function processPublish(job: Job, meter: BuildMeter, signal: AbortSignal) {
   const started = Date.now();
   let sandboxId: string | null = null;
   const { data: deployment, error: deploymentError } = await db.from("deployments").insert({ project_id: job.project_id, owner_id: job.requested_by, build_id: job.id }).select("id").single();
   if (deploymentError || !deployment) throw deploymentError || new Error("Could not create deployment");
   const prefix = `published-sites/${deployment.id}`;
   try {
+    const snapshot = await db.rpc("stage_publish_source", { p_build: job.id, p_lock_owner: lockOwner });
+    if (snapshot.error) throw snapshot.error;
     const [{ data: project }, { data: files }, { data: backend }, assets] = await Promise.all([
       db.from("projects").select("active_version_id,source_revision").eq("id", job.project_id).single(),
-      db.from("project_files").select("path,content").eq("project_id", job.project_id),
+      db.from("build_staged_files").select("path,content").eq("build_id", job.id),
       db.from("generated_backend_connections").select("project_url,publishable_key").eq("project_id", job.project_id).maybeSingle(),
       projectAssets(job.project_id),
     ]);
     if (!files?.length) throw new Error("There are no files to publish");
     await progress(job, "Building a production version of your app", "installing", 40);
     const built = await buildArtifactInE2B(files, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
+      signal, beforeCreate: (seconds) => meter.beforeSandbox(seconds),
       owner: { projectId: job.project_id, buildId: job.id }, maxFiles: MAX_ARTIFACT_FILES, maxBytes: MAX_ARTIFACT_BYTES,
-      onCreated: async (id) => { sandboxId = id; await db.rpc("register_sandbox", { p_sandbox: id, p_project: job.project_id, p_build: job.id, p_purpose: "publish" }); },
+      onCreated: async (id) => { sandboxId = id; const registered = await db.rpc("register_sandbox", { p_sandbox: id, p_project: job.project_id, p_build: job.id, p_purpose: "publish" }); if (registered.error) throw registered.error; },
     });
     const total = validateArtifact(built.files.map((file) => ({ path: file.path, size: file.data.byteLength })));
     await progress(job, "Uploading the validated build", "validating", 80);
-    await db.from("platform_resources").insert({ kind: "deployment_artifact", provider_ref: prefix, project_id: job.project_id, owner_id: job.requested_by, build_id: job.id, purpose: "publish", state: "active" });
+    const resource = await db.from("platform_resources").insert({ kind: "deployment_artifact", provider_ref: prefix, project_id: job.project_id, owner_id: job.requested_by, build_id: job.id, purpose: "publish", state: "active" });
+    if (resource.error) throw resource.error;
     const manifest = [];
     for (const file of built.files) {
+      signal.throwIfAborted();
       const type = contentType(file.path);
       const { error } = await db.storage.from("published-sites").upload(`${deployment.id}/${file.path}`, file.data, { contentType: type, upsert: false });
       if (error) throw error;
       manifest.push({ path: file.path, size: file.data.byteLength, sha256: createHash("sha256").update(file.data).digest("hex"), type });
     }
-    await db.from("deployments").update({ artifact_prefix: prefix, file_count: manifest.length, total_bytes: total, manifest: { files: manifest }, version_id: project?.active_version_id, source_revision: project?.source_revision }).eq("id", deployment.id);
-    const { error: activateError } = await db.rpc("activate_deployment", { p_deployment: deployment.id });
+    const recorded = await db.from("deployments").update({ artifact_prefix: prefix, file_count: manifest.length, total_bytes: total, manifest: { files: manifest }, version_id: project?.active_version_id, source_revision: snapshot.data }).eq("id", deployment.id);
+    if (recorded.error) throw recorded.error;
+    signal.throwIfAborted();
+    const { error: activateError } = await db.rpc("complete_publish", { p_build: job.id, p_lock_owner: lockOwner, p_deployment: deployment.id });
     if (activateError) throw new Error(activateError.message);
-    const { error } = await db.from("build_jobs").update({ status: "succeeded", finished_at: new Date().toISOString(), locked_at: null, progress: [...job.progress, { at: new Date().toISOString(), message: "Published", percent: 100 }] }).eq("id", job.id).eq("locked_by", lockOwner);
-    if (error) throw error;
     return "succeeded";
   } catch (error) {
     await db.from("deployments").update({ status: "failed", error: publicFailure(error).message }).eq("id", deployment.id);
@@ -192,7 +198,18 @@ async function processJob(job: Job) {
   let sandboxStarted = 0;
   let awaitingApproval = false;
   let outcome = "failed";
+  let control: Awaited<ReturnType<typeof watchBuild>> | undefined;
   try {
+    control = await watchBuild(async () => {
+      const [current, account] = await Promise.all([
+        db.from("build_jobs").select("locked_by,status,cancel_requested_at").eq("id", job.id).maybeSingle(),
+        db.from("account_status").select("status").eq("user_id", job.requested_by).maybeSingle(),
+      ]);
+      if (current.error || account.error) throw new Error("Build authorisation unavailable");
+      if (!current.data || current.data.locked_by !== lockOwner) throw new Error("LEASE_LOST");
+      if (current.data.cancel_requested_at || current.data.status === "cancelled" || account.data?.status === "suspended") throw new Error("CANCELLED");
+    });
+    const signal = control.signal;
     const [{ data: project }, { data: files }, { data: imports }, { data: backend }, assets] = await Promise.all([
       db.from("projects").select("*").eq("id", job.project_id).single(),
       db.from("project_files").select("path,content").eq("project_id", job.project_id),
@@ -201,7 +218,7 @@ async function processJob(job: Job) {
       projectAssets(job.project_id),
     ]);
     if (!project) throw new Error("Project no longer exists");
-    if (job.mode === "publish") { outcome = await processPublish(job, meter); return; }
+    if (job.mode === "publish") { outcome = await processPublish(job, meter, signal); return; }
     await progress(job, "Preparing project context", "planning");
     if (await cancelled(job)) { outcome = "cancelled"; return; }
 
@@ -213,7 +230,7 @@ async function processJob(job: Job) {
       const backendContext = backend ? "A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Put every schema change in a new file under supabase/migrations/ (for example supabase/migrations/0001_notes.sql) with row-level security enabled and owner-scoped policies using auth.uid(); the customer reviews and applies it. Never request or embed a service-role key." : "";
       const assetContext = assets.length ? `The user uploaded these project assets. They are available in the generated app at these exact public paths:\n${assets.map((asset) => `- /uploads/${asset.name}`).join("\n")}\nUse the relevant uploaded assets when the request mentions a logo, image, document or brand file.` : "";
       const references = [importedReferences, backendContext, assetContext].filter(Boolean).join("\n\n");
-      const hooks = { onUsage: (event: Parameters<BuildMeter["afterModelCall"]>[0]) => meter.afterModelCall(event), beforeRequest: (event: { models: string[]; estimatedPaise: number }) => meter.beforeModelCall(event) };
+      const hooks = { signal, onUsage: (event: Parameters<BuildMeter["afterModelCall"]>[0]) => meter.afterModelCall(event), beforeRequest: async (event: { models: string[]; estimatedPaise: number }) => { signal.throwIfAborted(); await meter.beforeModelCall(event); } };
 
       if (job.plan?.approval === "required") {
         await progress(job, "Planning the screens, design and functionality for your approval", "planning", 12);
@@ -259,6 +276,7 @@ async function processJob(job: Job) {
     await progress(job, "Preparing a secure preview environment", "installing");
     sandboxStarted = Date.now();
     const sandbox = await runInE2B(working, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
+      signal, beforeCreate: (seconds) => meter.beforeSandbox(seconds),
       owner: { projectId: job.project_id, buildId: job.id },
       onCreated: async (id) => {
         sandboxId = id;
@@ -270,6 +288,7 @@ async function processJob(job: Job) {
       onBuildFailure: job.mode === "restart" ? undefined : async (detail, workingFiles, attempt) => {
         await progress(job, `Repairing a compiler issue · pass ${attempt} of 2`, "generating", 78);
         const repair = await generateApplication({
+          signal,
           prompt: `Fix these production compiler errors. Add any missing helper files. Preserve the product and all working functionality. Make the smallest necessary corrections.\n\n${detail.slice(0, 6000)}`,
           files: workingFiles, mode: "edit",
           onUsage: (event) => meter.afterModelCall(event), beforeRequest: (event) => meter.beforeModelCall(event),
@@ -290,11 +309,13 @@ async function processJob(job: Job) {
       if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: assistantReply(output?.result.message || "", output ? job.mode : "edit"), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
     }
   } catch (error) {
+    if (control?.signal.aborted) error = control.signal.reason;
     console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);
     if (/LEASE_LOST/.test(safeError(error))) { outcome = "lease_lost"; }
     else if (/CANCELLED/.test(safeError(error))) { outcome = "cancelled"; await finish(job, "cancelled", "CANCELLED", "Cancelled. Your previous working version is unchanged."); }
     else { const failure = publicFailure(error); await finish(job, "failed", failure.code, failure.message); }
   } finally {
+    control?.stop();
     if (sandboxId) {
       await meter.recordSandbox(sandboxId, Math.ceil((Date.now() - sandboxStarted) / 1000), outcome).catch((error) => console.error(`[NYNZ worker] sandbox metering failed: ${safeError(error)}`));
       // A sandbox that did not become the project's preview is never left running.
