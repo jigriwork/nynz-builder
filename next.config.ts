@@ -1,10 +1,8 @@
 import type { NextConfig } from "next";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
-// Version identity: build-info.json is written by `pnpm stamp` before deploys.
+// Only the release number is public. The build stamp stays private.
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
-const savedStamp = existsSync("build-info.json") ? JSON.parse(readFileSync("build-info.json", "utf8")) as { version: string; commit: string; builtAt: string } : null;
-const stamp = savedStamp?.version === pkg.version ? savedStamp : null;
 
 const nextConfig: NextConfig = {
   // Keep Turbopack's live development artifacts separate from production
@@ -12,9 +10,7 @@ const nextConfig: NextConfig = {
   distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   devIndicators: false,
   env: {
-    NEXT_PUBLIC_NYNZ_VERSION: stamp?.version || pkg.version,
-    NEXT_PUBLIC_NYNZ_COMMIT: stamp?.commit || (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "unknown",
-    NEXT_PUBLIC_NYNZ_BUILT_AT: stamp?.builtAt || "",
+    NEXT_PUBLIC_NYNZ_VERSION: pkg.version,
   },
   images: {
     remotePatterns: [

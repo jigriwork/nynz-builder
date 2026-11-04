@@ -36,7 +36,7 @@ export function AccountMenu({ account }: { account: AccountSummary }) {
         {account.pendingInvitations > 0 && <Link role="menuitem" href="/account/invitations" className={item}><UserPlus className="h-3.5 w-3.5" /> Staff invitation ({account.pendingInvitations})</Link>}
         {account.canOpenAdmin && <Link role="menuitem" href="/admin" className={item}><ShieldHalf className="h-3.5 w-3.5" /> Admin console</Link>}
       </div>
-      <div className="border-t border-white/[.06] pt-1"><button role="menuitem" onClick={signOut} className={item}><LogOut className="h-3.5 w-3.5" /> Sign out</button><a href="/version" className="block px-3 pb-1 pt-2 font-mono text-[10px] text-white/40">NYNZ {VERSION_LABEL}</a></div>
+      <div className="border-t border-white/[.06] pt-1"><button role="menuitem" onClick={signOut} className={item}><LogOut className="h-3.5 w-3.5" /> Sign out</button><p className="px-3 pb-1 pt-2 font-mono text-[10px] text-white/40">NYNZ {VERSION_LABEL}</p></div>
     </div>}
   </div>;
 }

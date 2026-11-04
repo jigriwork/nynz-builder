@@ -1,4 +1,4 @@
-# Release 0.3.4: deployment and rollback
+# Release 0.3.5: deployment and rollback
 
 Release preparation is on feat/nynz-platform. The coordinated production
 release is authorised. Pushing this branch auto-deploys the Render worker;
@@ -22,7 +22,8 @@ complete certificate provisioning and hold build admission during rollout.
    project-scoped credential where supported, with its expiry recorded and
    rotation scheduled. Never copy the expiring CLI OAuth login into production.
    Web admission registers the owner-checked project address and probes HTTPS
-   before reserving credits; an unavailable API or pending certificate refuses
+   and explicitly attaches its alias to the current production preview deployment
+   before probing HTTPS and reserving credits; an unavailable API or pending certificate refuses
    the request without queueing paid work. Preview-session renewal also checks
    registration. The worker removes deleted-project domains through the
    durable resource cleanup queue. Vercel certificate/API limits apply.
@@ -65,9 +66,10 @@ The first adds runtime admission, stricter worker readiness, a platform-backend
 guard, and transactional publishing source/completion functions. The second
 ensures every successful restore advances its revision, including no-op restores.
 
-Both have been tested using the actual migrations in disposable databases and
-the existing-data upgrade fixture. They have not been applied to production by
-this increment. The runtime RPC was absent in a read-only production probe.
+The two original migrations and the supplementary correction were applied to
+production on 4 November 2026 after checking history and saving a validated
+database archive. Production has 17 applied migration versions. Do not replay
+these migrations. Disposable-database and existing-data upgrade tests passed.
 
 Use an authorised Supabase database connection and review the CLI migration
 plan before applying pending files. Apply in a quiet/controlled release window;
@@ -85,7 +87,7 @@ After release approval:
    version and commit are accurate.
 4. Install preview-host dependencies and deploy preview-host/ as its separate
    Vercel project. It has its own tsconfig and is checked by pnpm typecheck.
-5. Verify the worker reports v0.3.4, the expected commit, OpenRouter readiness,
+5. Verify the worker reports v0.3.5, the expected commit, OpenRouter readiness,
    sandbox readiness and a valid per-project preview origin.
 6. Reopen existing project previews through NYNZ to receive fresh one-time
    exchange links on their isolated project hosts. Source and versions remain.
@@ -164,7 +166,9 @@ An aborted HTTP request may still incur provider charges. Keep its unknown-cost
 hold rather than assuming it was free. Do not present a ledger estimate as a
 settled invoice or exact profitability.
 
-No paid verification was performed during preparation of this candidate.
+Paid verification must use the same combined window across preflight retries;
+never reset the cap or grant another owner allowance merely to make a run pass.
+The owner is excluded from automatic customer welcome-credit grants.
 
 ## Payments
 

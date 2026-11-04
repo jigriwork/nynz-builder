@@ -115,8 +115,8 @@ async function main() {
   check("exchange link redirects to a clean preview URL", !preview.url().includes("t=") && opened?.status() === 200, preview.url());
   const body = await preview.locator("body").innerText();
   check("preview renders the generated app", /tip/i.test(body), body.slice(0, 80).replace(/\s+/g, " "));
-  const logo = await context.request.get(new URL(assetPath,preview.url()).toString());
-  check("uploaded image actually serves in the preview",logo.status()===200 && (logo.headers()["content-type"]||"").includes("image/png"));
+  const logo = await preview.evaluate(async path=>{const r=await fetch(path);return{status:r.status,type:r.headers.get("content-type")||""};},assetPath);
+  check("uploaded image actually serves in the preview",logo.status===200 && logo.type.includes("image/png"));
   const button = preview.getByRole("button", { name: /15/ }).first();
   if (await button.isVisible().catch(() => false)) { await button.click(); check("preview responds to interaction", true); } else check("preview responds to interaction", false, "no 15% button");
   const reused = await (await context.newPage()).goto(session.body.url);
@@ -131,7 +131,7 @@ async function main() {
   extraProjects.push(second.body.project.id);
   const otherOrigin=`https://${second.body.project.id}.preview.nynz.in`;
   let otherReady=false; const tlsDeadline=Date.now()+180_000;
-  while(Date.now()<tlsDeadline){try{const r=await fetch(otherOrigin,{redirect:"manual",signal:AbortSignal.timeout(10_000)});otherReady=r.status===401;if(otherReady)break;}catch{}await sleep(5000);}
+  while(Date.now()<tlsDeadline){await api(page,`/api/projects/${second.body.project.id}/preview-session`,"POST");try{const r=await fetch(otherOrigin,{redirect:"manual",signal:AbortSignal.timeout(10_000)});otherReady=r.status===401;if(otherReady)break;}catch{}await sleep(5000);}
   check("second project has independent HTTPS and rejects anonymous access",otherReady);
   if(!otherReady)throw new Error("Second preview certificate did not become ready");
   const fresh=await api(page,`/api/projects/${projectId}/preview-session`,"POST");
@@ -178,9 +178,8 @@ async function main() {
   const names = Object.keys(zip.files);
   check("export contains source, uploaded asset and readme, no env files", zipResponse.status === 200 && names.includes("src/App.tsx") && names.includes("public/uploads/" + upload.body.asset.storageName) && (names.includes("README.md") || names.includes("NYNZ_EXPORT.md")) && !names.some((n) => /\.env/.test(n)), `${names.length} entries`);
 
-  const builds = [queued.body.build.id, edit.body.build.id, restart.body.build.id];
-  const { data: ledger } = await service.from("credit_ledger").select("entry_type,amount,build_id,cost_paise,cost_source").in("build_id", builds);
-  const { data: reservations } = await service.from("credit_reservations").select("status,amount,consumed").in("build_id", builds);
+  const { data: ledger } = await service.from("credit_ledger").select("entry_type,amount,build_id,cost_paise,cost_source").eq("user_id",OWNER_ID).gte("created_at",started);
+  const { data: reservations } = await service.from("credit_reservations").select("status,amount,consumed").eq("user_id",OWNER_ID).gte("created_at",started);
   const after = (await service.rpc("credit_balance", { p_user: OWNER_ID })).data;
   const consumed = -(ledger || []).filter((l) => l.entry_type === "consume").reduce((s, l) => s + Number(l.amount), 0);
   check("credits record provider-reported model cost and provisional runtime estimates separately", consumed > 0 && (ledger || []).some((l) => l.cost_source === "provider_reported") && (ledger || []).some((l) => l.cost_source === "allocated_runtime_estimate"), `${consumed} credits`);

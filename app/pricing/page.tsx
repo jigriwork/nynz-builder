@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdmin } from "@/lib/supabase/server";
-import { grossWithTax } from "@/lib/billing/razorpay";
+import { grossWithTax, razorpayConfig } from "@/lib/billing/razorpay";
 import { NynzBrand } from "@/components/nynz-brand";
+import { InformationLinks } from "@/components/information-links";
 
 export const revalidate = 300;
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 export default async function PricingPage() {
+  const paymentsAvailable=Boolean(razorpayConfig());
   let plans: Array<{ code: string; name: string; description: string | null; price_minor: number; tax_rate_bps: number; features: string[] }> = [];
   try {
     const { data } = await createAdmin().from("plans").select("code,name,description,price_minor,tax_rate_bps,features").is("retired_at", null).eq("public", true).order("price_minor");
@@ -24,6 +26,7 @@ export default async function PricingPage() {
     <section className="mx-auto max-w-[1100px] px-5 pb-20 pt-10">
       <h1 className="text-4xl font-medium tracking-[-.05em] md:text-6xl">Simple monthly plans</h1>
       <p className="mt-4 max-w-2xl text-[15px] leading-7 text-white/60">Every plan builds React, TypeScript and Vite web apps with private previews and full source export. Monthly credits pay for the AI and cloud resources each build uses, measured per model. Generation is never unlimited, and prices exclude GST.</p>
+      {!paymentsAvailable&&<p className="mt-5 rounded-xl border border-white/[.1] bg-white/[.03] px-4 py-3 text-sm leading-6 text-white/65">Paid checkout is not available yet. Paid plans below are shown for reference; no purchase can be made. <Link href="/refund-policy" className="text-[#c7ff4a] hover:underline">Read the billing policy</Link>.</p>}
       <div className="mt-10 grid gap-4 md:grid-cols-3">
         {plans.length ? plans.map((plan) => <article key={plan.code} className={`rounded-2xl border p-6 ${plan.code === "pro" ? "border-[#c7ff4a]/40 bg-[#c7ff4a]/[.04]" : "border-white/[.1] bg-white/[.02]"}`}>
           <h2 className="text-lg font-medium">{plan.name}</h2>
@@ -31,10 +34,11 @@ export default async function PricingPage() {
           {plan.price_minor > 0 && <p className="mt-1 text-[11px] text-white/45">{rupees(grossWithTax(plan.price_minor, plan.tax_rate_bps))} charged including {plan.tax_rate_bps / 100}% GST</p>}
           <p className="mt-3 text-[13px] text-white/60">{plan.description}</p>
           <ul className="mt-4 space-y-1.5 text-[13px] text-white/80">{plan.features.map((feature) => <li key={feature}>· {feature}</li>)}</ul>
-          <Link href={plan.price_minor ? "/billing" : "/login"} className="mt-6 inline-flex h-10 items-center rounded-xl bg-[#c7ff4a] px-4 text-[13px] font-semibold text-[#071019]">{plan.price_minor ? `Choose ${plan.name}` : "Start free"}</Link>
+          {plan.price_minor&&!paymentsAvailable?<span className="mt-6 inline-flex h-10 items-center rounded-xl border border-white/[.1] px-4 text-[13px] text-white/45">Not available yet</span>:<Link href={plan.price_minor ? "/billing" : "/login"} className="mt-6 inline-flex h-10 items-center rounded-xl bg-[#c7ff4a] px-4 text-[13px] font-semibold text-[#071019]">{plan.price_minor ? `Choose ${plan.name}` : "Start free"}</Link>}
         </article>) : <p className="text-white/60">Plans are being updated. Please check back shortly.</p>}
       </div>
       <p className="mt-8 text-[12px] leading-5 text-white/45">NYNZ does not currently host published apps or provision backends for you; you can connect your own Supabase project and export your source at any time.</p>
     </section>
+    <footer className="mx-auto max-w-[1100px] border-t border-white/[.08] px-5 py-8"><InformationLinks/></footer>
   </main>;
 }

@@ -18,6 +18,11 @@ export async function entitlementsFor(admin: SupabaseClient, userId: string) {
 export async function ensureTrialCredits(admin: SupabaseClient, userId: string) {
   const amount = Number(process.env.TRIAL_CREDITS ?? 25);
   if (!Number.isInteger(amount) || amount <= 0) return;
+  // Owners use an explicit, audited testing allowance; a first build must not
+  // silently add customer trial credits outside that allowance.
+  const { data: staff, error } = await admin.from("staff_members").select("role").eq("user_id",userId).maybeSingle();
+  if(error)throw error;
+  if(staff?.role==="owner")return;
   await admin.rpc("grant_credits", {
     p_user: userId, p_source: "promotional", p_amount: amount, p_expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
     p_reason: "Welcome trial credits", p_actor: null, p_idempotency: `trial:${userId}`,

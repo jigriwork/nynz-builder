@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { VersionTag } from "@/components/version-tag";
+import { InformationLinks } from "@/components/information-links";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, Layers3, Lock, Paperclip, Play, ShieldCheck, Smartphone, Sparkles, Zap } from "lucide-react";
@@ -198,7 +199,7 @@ export default function HomePage() {
       </Reveal>
     </section>
 
-    <footer className="px-5 pb-10 md:px-8"><div className="mx-auto flex max-w-[1240px] flex-col gap-5 border-t border-white/[.08] pt-8 sm:flex-row sm:items-center sm:justify-between"><NynzBrand className="h-6" /><p className="text-xs text-white/45">Real source. Isolated previews. Your project. <VersionTag className="ml-2" /></p><Link href="/login" className="group inline-flex items-center gap-2 text-xs text-[#c7ff4a]">Start building <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></Link></div></footer>
+    <footer className="px-5 pb-10 md:px-8"><div className="mx-auto flex max-w-[1240px] flex-col gap-5 border-t border-white/[.08] pt-8 sm:flex-row sm:items-center sm:justify-between"><NynzBrand className="h-6" /><p className="text-xs text-white/45">Real source. Isolated previews. Your project. <VersionTag className="ml-2" /></p><Link href="/login" className="group inline-flex items-center gap-2 text-xs text-[#c7ff4a]">Start building <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></Link></div><InformationLinks className="mx-auto mt-7 max-w-[1240px]"/></footer>
   </main>;
 }
 

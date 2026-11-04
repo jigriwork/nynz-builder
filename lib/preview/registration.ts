@@ -30,6 +30,19 @@ export async function ensurePreviewRegistered(projectId: string, env: Env = proc
   if (!response.ok) throw new Error(`Preview registration unavailable (${response.status})`);
   const domain = await response.json() as { name?: string; verified?: boolean; projectId?: string };
   if (domain.name !== host || !domain.verified || domain.projectId !== env.PREVIEW_VERCEL_PROJECT_ID) throw new Error("Preview domain is not verified on its hosting project");
+  // Adding a Project Domain and issuing its certificate does not necessarily
+  // attach it to the already-live deployment. Explicitly bind the alias too.
+  const projectUrl = new URL(`https://api.vercel.com/v9/projects/${encodeURIComponent(env.PREVIEW_VERCEL_PROJECT_ID)}`);
+  if (env.PREVIEW_VERCEL_TEAM_ID) projectUrl.searchParams.set("teamId",env.PREVIEW_VERCEL_TEAM_ID);
+  const projectResponse=await request(projectUrl,{headers,signal:AbortSignal.timeout(10_000),cache:"no-store"});
+  if(!projectResponse.ok)throw new Error("Preview deployment lookup unavailable");
+  const project=await projectResponse.json() as { targets?: { production?: { id?: string } } };
+  const deployment=project.targets?.production?.id;
+  if(!deployment?.startsWith("dpl_"))throw new Error("No production preview deployment");
+  const aliasUrl=new URL(`https://api.vercel.com/v2/deployments/${encodeURIComponent(deployment)}/aliases`);
+  if(env.PREVIEW_VERCEL_TEAM_ID)aliasUrl.searchParams.set("teamId",env.PREVIEW_VERCEL_TEAM_ID);
+  const alias=await request(aliasUrl,{method:"POST",headers,body:JSON.stringify({alias:host}),signal:AbortSignal.timeout(10_000)});
+  if(!alias.ok)throw new Error(`Preview route attachment unavailable (${alias.status})`);
   // A verified domain can still be awaiting its certificate. TLS validation is
   // strict; fail before reserving credits or queueing work until HTTPS works.
   const probe = await request(origin, { redirect: "manual", signal: AbortSignal.timeout(10_000), cache: "no-store" });
