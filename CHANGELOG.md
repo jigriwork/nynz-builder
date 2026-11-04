@@ -3,6 +3,10 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.17
+
+- Browser-tab icon is a fully opaque black square with the lime N. Safari painted a coloured backing behind the transparent rounded corners, which showed as a lime edge.
+
 ## 0.3.16
 
 - Pricing, About, Sign in and policy pages show the share image when their links are shared, and titles no longer repeat NYNZ ("About NYNZ").

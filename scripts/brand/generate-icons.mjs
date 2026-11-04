@@ -38,8 +38,9 @@ const out = await page.evaluate(async (src) => {
     return cur.toDataURL("image/png");
   }
   return {
-    f16: make(16, { pad: .1, radius: .24 }), f32: make(32, { pad: .1, radius: .24 }),
-    f48: make(48, { pad: .13, radius: .24 }), f64: make(64, { pad: .13, radius: .24 }),
+    f16: make(16, { pad: .1, radius: 0 }), f32: make(32, { pad: .1, radius: 0 }),
+    f48: make(48, { pad: .13, radius: 0 }), f64: make(64, { pad: .13, radius: 0 }),
+    tab512: make(512, { pad: .13, radius: 0 }),
     i512: make(512, { pad: .17, radius: .24 }), i192: make(192, { pad: .17, radius: .24 }),
     apple: make(180, { pad: .2, radius: 0 }),
     maskable: make(512, { pad: .26, radius: 0 }),
@@ -53,7 +54,9 @@ const header = Buffer.alloc(6 + 16 * entries.length); header.writeUInt16LE(0, 0)
 let offset = header.length;
 entries.forEach(([n, data], i) => { const o = 6 + 16 * i; header.writeUInt8(n, o); header.writeUInt8(n, o + 1); header.writeUInt16LE(1, o + 4); header.writeUInt16LE(32, o + 6); header.writeUInt32LE(data.length, o + 8); header.writeUInt32LE(offset, o + 12); offset += data.length; });
 writeFileSync("app/favicon.ico", Buffer.concat([header, ...entries.map(([, d]) => d)]));
-writeFileSync("app/icon.png", png("i512"));
+// Browser-tab icons are fully opaque squares: Safari paints its own coloured
+// backing behind transparent corners, which showed as a lime edge.
+writeFileSync("app/icon.png", png("tab512"));
 writeFileSync("app/apple-icon.png", png("apple"));
 writeFileSync("public/brand/app-icon-192.png", png("i192"));
 writeFileSync("public/brand/app-icon-512.png", png("i512"));
