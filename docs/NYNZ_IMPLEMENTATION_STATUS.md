@@ -1,4 +1,41 @@
-# NYNZ release 0.3.4 — implementation status
+# NYNZ implementation status
+
+## Current release: 0.3.6 (live)
+
+Reconciled 4 November 2026 against recorded production evidence. Web 0.3.6 was
+built from commit `5196ba3`; database fix `5dd8004` (migration
+20261104101400). The preview host is still the 0.3.5 deployment, and the worker
+reports 0.3.6. Since the 0.3.5 baseline (`cb7b7f9`), no preview-host, worker,
+preview, sandbox or billing code changed; 0.3.6 changed the homepage,
+dashboard, builder submit path and chat route (`/api/projects/[id]/builds`),
+plus one additive migration.
+
+| Item | Status | Evidence (release, date) |
+|---|---|---|
+| Owner/admin console, desktop and phone | Remains working from 0.3.5 | 0.3.5 owner-session report, 4 Nov 2026. Production audit history shows the owner session (sign-in 11:56 UTC) saving the ₹50 cap, the owner allowance and the full team workflow (invite, role changes, suspend, reactivate, remove, revoke) at 11:57–11:59 UTC. 0.3.6 did not change admin pages; dashboard changes re-checked on production at desktop and phone width with a disposable account. |
+| Team management with fixtures | Remains working from 0.3.5 | Same audit records (4 Nov 2026, 11:57–11:59 UTC). No team code changed in 0.3.6. |
+| ₹50 combined cap and owner allowance | Remains in force | Cap "Release verification ₹50 (all providers)" active from 4 Nov 11:56 to 7 Nov 11:57 UTC; 50 owner-testing credits granted. |
+| Automatic per-project preview HTTPS | Remains working from 0.3.5 | Re-observed 4 Nov 2026 on 0.3.6: all 7 active project hosts (`<projectId>.preview.nynz.in`) present individual valid certificates (each certificate names only its own host, valid to 2 Feb 2027) and return 401 without a session. |
+| Cross-project preview isolation | Remains working from 0.3.5 (not re-run) | Passed in the 0.3.5 report (4 Nov 2026). Preview host and preview session code unchanged since then. Re-running needs a signed-in owner or fixture session per project. |
+| Real create/edit/reopen/failure/restore/export journey (42 checks) | Remains working from 0.3.5 (not re-run) | 0.3.5 report, 4 Nov 2026. Production records match: 30 credits consumed in 10 entries from the 50-credit allowance with all holds released; sandboxes terminated as "replaced", "build failed" and "project deleted"; 4 verification projects, storage folders and preview domains removed. The individual check log was not committed and the build rows were deleted with the projects. The 0.3.6 chat-route change was re-checked live: a normal app edit still returns 202 and queues a build. |
+| Resource cleanup | Remains working | 0.3.5 journey resources all terminated; reconciliation runs every 5 minutes. |
+
+No regression was found.
+
+### Spending and open holds
+
+- Provider-reported OpenRouter spend in the ₹50 window: ₹6.44 (5 calls, 0.3.5 journey).
+- Open estimate holds, not confirmed spend: five E2B runtime holds from the 0.3.5 journey (₹18.39 total) and one OpenRouter hold of ₹2.39 from the 0.3.6 chat check (13:28 UTC; the request was aborted on cancellation). None has a provider request ID, and no OpenRouter management key or E2B invoice is available here. They stay counted against spending caps until the owner reconciles them with provider evidence (admin action provider_spend.reconcile). They are not released or reported as confirmed spending.
+
+### Still unavailable
+
+Payments, publishing and GitHub remain off until their external configuration
+exists. Real invitation and password-reset email delivery to a real recipient
+has not been tested.
+
+---
+
+# Historical: release 0.3.4 candidate notes (superseded by the table above)
 
 Date: 4 November 2026 (Asia/Kolkata).
 Branch: `feat/nynz-platform`.
@@ -161,10 +198,10 @@ CI now installs/typechecks the preview host, runs the real database/concurrency 
 
 ## External setup and release blockers
 
-1. Configure a supported wildcard host/DNS setup for *.preview.nynz.in and PREVIEW_ORIGIN=https://{projectId}.preview.nynz.in on web/worker. Verify two project hosts independently. Do not deploy the stricter origin enforcement with shared production settings.
-2. Set/check the same dedicated preview signing secret on the web and preview host through secure configuration. It is missing locally; no secret value belongs in Git/chat.
-3. Apply the two pending additive migrations and coordinate web, worker and preview-host deployment after approval; see RELEASE.md. A push auto-deploys Render.
-4. Run the real owner's console/team/MFA journeys using their own session; do not reset their password for verification.
+1. Done in 0.3.5: configure a supported wildcard host/DNS setup for *.preview.nynz.in and PREVIEW_ORIGIN=https://{projectId}.preview.nynz.in on web/worker. Verify two project hosts independently. Do not deploy the stricter origin enforcement with shared production settings.
+2. Done in 0.3.5: set/check the same dedicated preview signing secret on the web and preview host through secure configuration. It is missing locally; no secret value belongs in Git/chat.
+3. Done in 0.3.5: apply the two pending additive migrations and coordinate web, worker and preview-host deployment after approval; see RELEASE.md. A push auto-deploys Render.
+4. Done in 0.3.5 (MFA enrolment not exercised): run the real owner's console/team/MFA journeys using their own session; do not reset their password for verification.
 5. Supply Razorpay test keys and register the signed webhook; complete test renewals/failures/refunds before considering live billing.
 6. Configure publishing DNS/site suffix and custom-domain hosting credentials.
 7. Register/configure the GitHub App.
