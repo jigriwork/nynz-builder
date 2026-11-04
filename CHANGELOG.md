@@ -3,6 +3,16 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.9
+
+- Fix: the "Watch it happen" section and other homepage grids no longer spill off phone screens; added a strict phone-fit check (scripts/perf/phone-fit.ts).
+- "India" in the Made in India line is shown in the national flag colours.
+- Dashboard project cards are drawn from each app's own title, heading and colours (no live sandbox per card, no credits used, no preview errors).
+- Friendly, specific explanations when a build or preview stops (spending pause, credits, failed checks), with the right action; branded preview error page.
+- Homepage demo rebuilt: ask for three real changes and watch the working app update (v1 to v4), then jump back to any version.
+- Replaced the generic sparkle icons with the NYNZ mark and meaningful icons.
+- Operations: the ₹50 testing spend cap was ended on the owner's instruction because it blocked all previews; audited.
+
 ## 0.3.8
 
 - The prompt box no longer draws a second sharp focus ring across its label; the whole composer edge lights up instead (keyboard focus stays clearly visible).

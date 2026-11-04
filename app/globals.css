@@ -223,3 +223,21 @@ body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-t
   .nynz-lift:hover { transform: translateY(-2px); }
   .nynz-lift:active { transform: translateY(0) scale(.97); }
 }
+
+/* Indian national flag colours: saffron, white, India green. */
+.nynz-tricolour {
+  background: linear-gradient(90deg, #ff9933 0 34%, #ffffff 34% 66%, #138808 66% 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nynz-ping { animation: nynz-ping 2s cubic-bezier(0, 0, .2, 1) infinite; }
+  @keyframes nynz-ping { 0% { transform: scale(1); opacity: .7; } 75%, 100% { transform: scale(2.4); opacity: 0; } }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Brief lime glow marking what the latest change added. */
+  .nynz-highlight { position: relative; }
+  .nynz-highlight::after { content: ""; position: absolute; inset: -3px; border: 2px solid #c7ff4a; border-radius: 12px; pointer-events: none; opacity: 0; animation: nynz-highlight 1.4s ease-out 2; }
+  @keyframes nynz-highlight { 0% { opacity: .9; transform: scale(.97); } 100% { opacity: 0; transform: scale(1.06); } }
+}

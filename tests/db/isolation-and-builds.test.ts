@@ -212,3 +212,17 @@ describe("REL-01/02 staged builds and transactional history", () => {
     expect(sandbox).toBe("terminating");
   });
 });
+
+describe("dashboard project cards", () => {
+  it("summarise only the caller's own apps from their source", async () => {
+    const id = await newProject(alice, "Cafe");
+    await asService(db, (tx) => tx.query(`insert into public.project_files(project_id,path,content) values
+      ($1,'index.html','<html><head><title>Brew Notes</title></head></html>'),
+      ($1,'src/index.css','body { background-color: #FAF6F0; color: #3B2A1A; } .btn { background: #C2410C; } .tag { color: #C2410C; }'),
+      ($1,'src/App.tsx','export default function App(){ return <main><h1 className="t">  Fresh coffee,\n daily  </h1></main> }')`, [id]));
+    const cards = await asUser(db, alice, async (tx) => (await tx.query<any>("select * from public.my_project_cards() where project_id=$1", [id])).rows);
+    expect(cards[0]).toMatchObject({ title: "Brew Notes", heading: "Fresh coffee, daily", background: "#faf6f0" });
+    expect(cards[0].colors[0]).toBe("#c2410c");
+    expect(await asUser(db, bob, async (tx) => (await tx.query("select * from public.my_project_cards() where project_id=$1", [id])).rows.length)).toBe(0);
+  });
+});

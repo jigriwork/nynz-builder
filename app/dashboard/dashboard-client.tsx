@@ -4,14 +4,15 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, ArrowUpRight, Box, Coins, FilePlus2, LoaderCircle, LogOut, Pencil, Search, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Box, Coins, FilePlus2, LoaderCircle, LogOut, Pencil, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { NynzBrand } from "@/components/nynz-brand";
+import { NynzBrand, NynzIcon } from "@/components/nynz-brand";
 import { ProjectArt, ease } from "@/components/nynz-motion";
 import { formatDate } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { PromptGuide } from "@/components/prompt-guide";
 import { MadeInOdisha } from "@/components/made-in-odisha";
+import { AppPoster, type ProjectCard } from "@/components/app-poster";
 import { AccountMenu, type AccountSummary } from "@/components/account-menu";
 import { usePresence } from "@/hooks/use-presence";
 
@@ -31,7 +32,7 @@ function projectName(prompt: string) {
   return named || (inferred ? inferred.charAt(0).toUpperCase() + inferred.slice(1, 72) : "New NYNZ app");
 }
 
-export default function DashboardClient({ initialProjects, account }: { initialProjects: Project[]; account: AccountSummary }) {
+export default function DashboardClient({ initialProjects, account, cards = {} }: { initialProjects: Project[]; account: AccountSummary; cards?: Record<string, ProjectCard> }) {
   usePresence();
   const [projects, setProjects] = useState(initialProjects);
   // The composer keeps its own text; the dashboard (and its layout-animated
@@ -119,7 +120,7 @@ export default function DashboardClient({ initialProjects, account }: { initialP
 
     <div className="relative mx-auto max-w-[1320px] px-5 pb-20 pt-14 md:px-8 md:pt-20">
       <section className="mx-auto max-w-[880px] text-center">
-        <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="inline-flex items-center gap-2 rounded-full border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3 py-1.5 text-[11px] font-medium text-[#c7ff4a]"><Sparkles className="h-3 w-3" /> Your workspace</motion.p>
+        <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5, ease }} className="inline-flex items-center gap-2 rounded-full border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3 py-1.5 text-[11px] font-medium text-[#c7ff4a]"><NynzIcon className="h-4 w-4" /> Your workspace</motion.p>
         <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .05, ease }} className="mt-5 text-5xl font-medium tracking-[-.065em] md:text-7xl">What will you <span className="nynz-text-shine">build</span> today?</motion.h1>
         <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .12, ease }} className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/55">Describe an app and NYNZ will plan it, write it and run it live in a few minutes.</motion.p>
 
@@ -154,7 +155,7 @@ export default function DashboardClient({ initialProjects, account }: { initialP
             return <motion.article layout key={project.id} initial={{ opacity: 0, y: 20, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: .96 }} transition={{ duration: .45, delay: Math.min(index * .05, .3), ease }} className="group relative overflow-hidden rounded-[22px] border border-white/[.08] bg-[#0c131d] p-2 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-1 hover:border-white/[.16] hover:shadow-[0_30px_80px_rgba(0,0,0,.45)]">
               <a href={`/projects/${project.id}`} className="block">
                 <div className="relative aspect-[16/10] overflow-hidden rounded-[16px] bg-[#131d29]">
-                  {project.status === "ready" ? <ProjectThumbnail project={project} /> : <ProjectArt seed={project.id} building={isBuilding} />}
+                  {!isBuilding && cards[project.id] && (cards[project.id].heading || cards[project.id].title) ? <AppPoster card={cards[project.id]} name={project.name} /> : <ProjectArt seed={project.id} building={isBuilding} />}
                   <span className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-white/[.1] bg-[#070b12]/70 px-2.5 py-1 text-[10px] backdrop-blur-md"><span className="relative flex h-1.5 w-1.5">{(isBuilding || project.status === "ready") && <span className={`absolute inset-0 animate-ping rounded-full ${style.dot} opacity-60`} />}<span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} /></span><span className={style.text}>{style.label}</span></span>
                   <span className="absolute bottom-3 right-3 z-10 grid h-9 w-9 translate-y-2 place-items-center rounded-full bg-[#c7ff4a] text-[#071019] opacity-0 shadow-[0_8px_24px_rgba(199,255,74,.35)] transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight className="h-4 w-4" /></span>
                 </div>
@@ -170,20 +171,4 @@ export default function DashboardClient({ initialProjects, account }: { initialP
     </div>
     {renaming && <ProjectNameDialog project={renaming} onClose={() => setRenaming(null)} onSaved={updated => setProjects(value => value.map(project => project.id === updated.id ? { ...project, name: updated.name, updated_at: updated.updated_at } : project))} />}
   </main>;
-}
-
-function ProjectThumbnail({ project }: { project: Project }) {
-  const [src, setSrc] = useState("");
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" }).then(async (response) => {
-      if (!response.ok) throw new Error("Preview unavailable");
-      const body = await response.json();
-      if (active) setSrc(body.url);
-    }).catch(() => { if (active) setFailed(true); });
-    return () => { active = false; };
-  }, [project.id]);
-  if (failed) return <ProjectArt seed={project.id} />;
-  return <><div className="absolute inset-x-0 top-0 z-10 flex h-7 items-center gap-1.5 bg-[#ede9df] px-3"><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/25" /><i className="h-1.5 w-1.5 rounded-full bg-[#0b121b]/15" />{!src && <LoaderCircle className="ml-auto h-3 w-3 animate-spin text-[#0b121b]/35" />}</div>{src ? <iframe title={`${project.name} preview`} src={src} loading="lazy" className="pointer-events-none h-full w-full pt-7" sandbox="allow-scripts allow-forms allow-same-origin" referrerPolicy="no-referrer" /> : <div className="h-full pt-7"><ProjectArt seed={project.id} /></div>}</>;
 }

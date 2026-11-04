@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { e2bConnector, handlePreview } from "../lib/core.js";
 import { redactPreviewUrl } from "../lib/token.js";
 import { handleSite } from "../lib/site-host.js";
+import { codeForStatus, previewErrorCode, previewErrorPage } from "../lib/error-page.js";
 import { runtimeAdmissionArgs } from "../lib/runtime.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -22,7 +23,8 @@ const isPreviewHost = (host: string) => host === previewSuffix || host.endsWith(
 const activeSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
 const connectSandbox = e2bConnector(e2bKey, activeSeconds, async (sandbox, project, user) => {
   const admitted = await db.rpc("authorize_sandbox_runtime", runtimeAdmissionArgs(sandbox, project, user, activeSeconds));
-  if (admitted.error) throw new Error("Preview runtime is unavailable or its allowance has been reached");
+  // Keep the database's reason (SPEND_LIMIT, INSUFFICIENT_CREDITS) so the page can explain it.
+  if (admitted.error) throw new Error(`Preview runtime is unavailable or its allowance has been reached: ${String(admitted.error.message || "").split(/\s/)[0]}`);
 });
 
 export const config = { api: { bodyParser: false } };
@@ -61,10 +63,24 @@ export default async function handler(request: VercelRequest, response: VercelRe
       insertNonce: async (jti, projectId) => !(await db.from("preview_exchange_nonces").insert({ jti, project_id: projectId })).error,
       connectSandbox, appOrigin, frameAncestors,
     });
+    const wantsPage = (headers.accept || "").includes("text/html");
+    if (wantsPage && result.status >= 400 && String(result.headers["content-type"] || "").startsWith("text/plain")) {
+      response.status(result.status).setHeader("content-type", "text/html; charset=utf-8").setHeader("cache-control", "no-store")
+        .setHeader("content-security-policy", `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
+        .send(previewErrorPage(codeForStatus(result.status), appOrigin));
+      return;
+    }
     for (const [key, value] of Object.entries(result.headers)) response.setHeader(key, String(value));
     response.status(result.status).send(typeof result.body === "string" ? result.body : result.body ? Buffer.from(result.body) : "");
   } catch (error) {
     console.error(`[preview-host] ${redactPreviewUrl(error instanceof Error ? error.message : "Request failed")}`);
+    const accept = String(request.headers.accept || "");
+    if (accept.includes("text/html")) {
+      response.status(503).setHeader("content-type", "text/html; charset=utf-8").setHeader("cache-control", "no-store")
+        .setHeader("content-security-policy", `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
+        .send(previewErrorPage(previewErrorCode(error), appOrigin));
+      return;
+    }
     response.status(502).setHeader("cache-control", "no-store").send("Preview temporarily unavailable");
   }
 }

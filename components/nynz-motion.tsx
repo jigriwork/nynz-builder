@@ -8,7 +8,7 @@ export const ease = [0.2, 0.7, 0.2, 1] as const;
 
 export function Reveal({ children, delay = 0, y = 22, className }: { children: ReactNode; delay?: number; y?: number; className?: string }) {
   const reduce = useReducedMotion();
-  return <motion.div className={className} initial={reduce ? false : { opacity: 0, y }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: .7, delay, ease }}>{children}</motion.div>;
+  return <motion.div className={`min-w-0 ${className || ""}`} initial={reduce ? false : { opacity: 0, y }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: .7, delay, ease }}>{children}</motion.div>;
 }
 
 export const buildStages = [
@@ -76,10 +76,10 @@ export function ProjectArt({ seed, building = false }: { seed: string; building?
   const [a, b, base] = palettes[h % palettes.length];
   const layout = h % 3;
   return <div className="absolute inset-0 overflow-hidden" style={{ background: base }}>
-    <div className="nynz-float absolute -left-1/4 -top-1/3 h-[120%] w-[80%] rounded-full opacity-40 blur-3xl" style={{ background: a }} />
-    <div className="nynz-float-slow absolute -bottom-1/2 -right-1/4 h-[110%] w-[70%] rounded-full opacity-30 blur-3xl" style={{ background: b }} />
+    <div className="absolute -left-1/4 -top-1/3 h-[120%] w-[80%] rounded-full opacity-40 blur-3xl" style={{ background: a }} />
+    <div className="absolute -bottom-1/2 -right-1/4 h-[110%] w-[70%] rounded-full opacity-30 blur-3xl" style={{ background: b }} />
     <div className="absolute inset-0 nynz-dots opacity-60" />
-    <div className="absolute inset-x-[9%] bottom-0 top-[16%] rounded-t-lg border border-white/[.12] bg-[#0b121b]/60 p-3 backdrop-blur-sm transition-transform duration-500 group-hover:-translate-y-1.5">
+    <div className="absolute inset-x-[9%] bottom-0 top-[16%] rounded-t-lg border border-white/[.12] bg-[#0b121b]/70 p-3 transition-transform duration-500 group-hover:-translate-y-1.5">
       <div className="flex items-center gap-2"><span className="h-2 w-10 rounded-full bg-white/25" /><span className="ml-auto h-2 w-6 rounded-full" style={{ background: a, opacity: .8 }} /></div>
       {layout === 0 && <div className="mt-3 grid grid-cols-3 gap-1.5">{[0, 1, 2].map((i) => <span key={i} className="h-7 rounded" style={{ background: i === 1 ? a : "rgba(255,255,255,.08)", opacity: i === 1 ? .55 : 1 }} />)}</div>}
       {layout === 1 && <div className="mt-3 grid grid-cols-[1fr_2fr] gap-1.5"><span className="h-16 rounded bg-white/[.07]" /><span className="h-16 rounded" style={{ background: `linear-gradient(135deg, ${a}55, ${b}33)` }} /></div>}

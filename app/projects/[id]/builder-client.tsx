@@ -9,7 +9,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
   FileImage, FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, Paperclip, Pencil,
-  Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Sparkles, Square, SquareTerminal, Terminal, Users, X,
+  Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Square, MessageSquareText, MessageSquare, ListChecks, Layers3, Workflow, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
 import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
@@ -17,13 +17,15 @@ import { formatDateTime } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { ProjectIntegrations } from "@/components/project-integrations";
 import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
+import { BuildIssueCard } from "@/components/build-issue-card";
+import { describeIssue } from "@/lib/platform/build-issues";
 import { ProjectFileSearch } from "@/components/project-file-search";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
+type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -47,9 +49,9 @@ const railIdle = `${railButton} text-white/40 hover:bg-white/[.06] hover:text-wh
 function buildActivity(status?: string, progress?: string, phase = 0) {
   if (status === "queued") return { title: "Waiting", detail: "Your request is queued and ready for the builder.", icon: LoaderCircle };
   if (status === "planning") return [
-    { title: "Thinking", detail: "Understanding your request and the product you need.", icon: Sparkles },
-    { title: "Planning", detail: "Mapping the screens, states, and primary workflow.", icon: Sparkles },
-    { title: "Structuring", detail: "Choosing the components and application architecture.", icon: Sparkles },
+    { title: "Thinking", detail: "Understanding your request and the product you need.", icon: MessageSquareText },
+    { title: "Planning", detail: "Mapping the screens, states, and primary workflow.", icon: ListChecks },
+    { title: "Structuring", detail: "Choosing the components and application architecture.", icon: Layers3 },
   ][phase % 3];
   if (status === "generating") {
     if (/repair/i.test(progress || "")) return { title: "Repairing", detail: "Correcting the generated code while preserving the product design.", icon: Code2 };
@@ -57,7 +59,7 @@ function buildActivity(status?: string, progress?: string, phase = 0) {
     const activities = [
       { title: "Designing", detail: "Shaping the interface, hierarchy, and responsive layout.", icon: Palette },
       { title: "Writing", detail: "Creating components and application logic.", icon: Code2 },
-      { title: "Connecting", detail: "Wiring interactions, states, and navigation together.", icon: Sparkles },
+      { title: "Connecting", detail: "Wiring interactions, states, and navigation together.", icon: Workflow },
     ];
     const activity = activities[phase % activities.length];
     return { ...activity, detail: `${activity.detail}${batch ? ` File batch ${batch}.` : ""}` };
@@ -446,7 +448,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <nav aria-label="Mobile builder view" className="flex h-11 shrink-0 items-center gap-1 border-b border-white/[.07] bg-[#090e16] px-3 lg:hidden">
-        {([ ["chat", "Chat", Sparkles], ["workspace", tab === "preview" ? "Preview" : "Workspace", Monitor] ] as const).map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setMobilePane(id)} className={`relative flex h-8 flex-1 items-center justify-center gap-2 rounded-lg text-[11px] transition ${mobilePane === id ? "bg-white/[.08] text-white" : "text-white/45"}`}>{mobilePane === id && <motion.span layoutId="mobile-builder-pane" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative">{label}</span>{id === "chat" && running && <span className="relative h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" />}</button>)}
+        {([ ["chat", "Chat", MessageSquare], ["workspace", tab === "preview" ? "Preview" : "Workspace", Monitor] ] as const).map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setMobilePane(id)} className={`relative flex h-8 flex-1 items-center justify-center gap-2 rounded-lg text-[11px] transition ${mobilePane === id ? "bg-white/[.08] text-white" : "text-white/45"}`}>{mobilePane === id && <motion.span layoutId="mobile-builder-pane" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#c7ff4a]" />}<Icon className="relative h-3.5 w-3.5" /><span className="relative">{label}</span>{id === "chat" && running && <span className="relative h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" />}</button>)}
         {running && <span className="ml-2 w-9 text-right font-mono text-[10px] tabular-nums text-[#c7ff4a]">{progressPercent ?? buildPercent(running.status)}%</span>}
       </nav>
       <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden grid-cols-1 grid-rows-1 lg:grid-cols-[52px_400px_minmax(0,1fr)]">
@@ -463,7 +465,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
       <aside className={`relative min-h-0 min-w-0 flex-col overflow-hidden bg-[#0b1019] lg:flex lg:border-r ${mobilePane === "chat" ? "flex" : "hidden"}`}>
         <div className="flex h-11 shrink-0 items-center border-b border-white/[.06] px-4">
-          <Sparkles className="mr-2 h-3.5 w-3.5 text-[#c7ff4a]" />
+          <NynzIcon className="mr-2 h-4 w-4" />
           <span className="text-[12px] font-medium">Build with NYNZ</span>
           <span className="ml-auto text-[10px] text-white/40">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </div>
@@ -508,7 +510,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 
-            {project.last_error && !running && <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-2xl border border-red-400/20 bg-red-400/[.04] p-4"><div className="flex items-center gap-2 text-[11px] font-medium text-red-300"><AlertCircle className="h-3.5 w-3.5" /> Build needs attention</div><p className="mt-2 line-clamp-3 break-all font-mono text-[10px] leading-4 text-white/50">{project.last_error}</p><div className="mt-3 flex gap-2"><button onClick={() => setTab("logs")} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] text-white/55 transition hover:bg-white/[.06] hover:text-white"><Terminal className="h-3 w-3" /> View logs</button><button onClick={retryFailedBuild} className="inline-flex items-center gap-1.5 rounded-lg bg-white/[.06] px-2.5 py-1.5 text-[10px] text-white/75 transition hover:bg-white/[.1]"><RotateCcw className="h-3 w-3" /> Retry original request</button></div></motion.section>}
+            {project.last_error && !running && <BuildIssueCard code={builds.find((item) => item.status === "failed" || item.status === "cancelled")?.error_code} hasPreview={Boolean(project.has_preview)} onRetry={retryFailedBuild} onLogs={() => setTab("logs")} />}
           </div>
         </div>
 
@@ -551,7 +553,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
                   {previewSrc ? <div className={`flex h-full flex-col overflow-hidden border border-white/[.08] bg-white shadow-[0_24px_70px_rgba(0,0,0,.45)] ${device === "mobile" ? "rounded-[28px] border-[6px] border-[#1a2230]" : "rounded-xl"}`}>
                     {!running && project.preview_revision != null && project.source_revision != null && project.preview_revision !== project.source_revision && <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-300/30 bg-[#2a2210] px-3 py-1.5 text-[11px] text-amber-100"><span>The preview is showing an earlier version of your files.</span><button onClick={restart} className="rounded-md border border-amber-200/30 px-2 py-0.5 font-medium hover:bg-amber-200/10">Restart preview</button></div>}
                     <iframe key={previewSrc} src={previewSrc} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" referrerPolicy="no-referrer" className="nynz-reveal h-full w-full bg-white" />
-                  </div> : <PreviewPlaceholder running={Boolean(running)} status={running?.status} progress={lastProgress} error={project.last_error} />}
+                  </div> : <PreviewPlaceholder running={Boolean(running)} status={running?.status} progress={lastProgress} error={project.last_error ? describeIssue(builds.find((item) => item.status === "failed" || item.status === "cancelled")?.error_code).title : null} />}
                 </motion.div>
               </div>}
 
@@ -566,7 +568,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               {tab === "logs" && <div className="nynz-scrollbar h-full overflow-auto bg-[#070a10] p-4 font-mono text-[11px] leading-6">
                 {logLines.length === 0 && !latest?.error_message ? <EmptyPanel icon={Terminal} title="Quiet for now" text="Build events stream here live while NYNZ plans, writes, installs and validates your app." /> : <>
                   {logLines.map((event, index) => <motion.div key={index} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .25, delay: Math.min(index * .03, .4) }} className="flex gap-3 rounded px-2 hover:bg-white/[.03]"><span className="shrink-0 text-white/30">{event.at ? event.at.slice(11, 19) : "--:--:--"}</span><span className="text-[#c7ff4a]/70">›</span><span className="text-white/75">{event.message}</span></motion.div>)}
-                  {latest?.error_message && <div className="mt-2 flex gap-3 rounded border border-red-400/20 bg-red-400/[.05] px-2 py-1 text-red-300"><span className="shrink-0">ERROR</span><span className="whitespace-pre-wrap">{latest.error_message}</span></div>}
+                  {latest?.error_message && <div className="mt-2 rounded border border-white/10 bg-white/[.03] px-2 py-1.5 text-white/75"><span className="block font-sans text-[11px] font-medium text-white/85">{describeIssue(latest.error_code).title}</span><span className="block whitespace-pre-wrap text-white/50">{latest.error_message}</span></div>}
                   {running && <div className="flex gap-3 px-2 text-white/40"><span className="inline-block h-3.5 w-2 translate-y-1 animate-pulse bg-[#c7ff4a]/70" /></div>}
                 </>}
               </div>}
@@ -663,8 +665,8 @@ function PreviewPlaceholder({ running, status, progress, error }: { running: boo
         </div>
       </motion.div>
       <div className="mt-8 text-center">
-        <h2 className="text-[15px] font-medium">{running ? "Assembling your app" : error ? "The last build didn’t finish" : "Your app will appear here"}</h2>
-        <AnimatePresence mode="wait"><motion.p key={progress || String(running)} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mx-auto mt-2 max-w-sm text-[12px] leading-5 text-white/50">{running ? progress || `Currently ${status}…` : error ? "Check the chat for details, or ask NYNZ to fix it." : "Describe it in the chat. NYNZ plans it, writes the code and runs it live, right here."}</motion.p></AnimatePresence>
+        <h2 className="text-[15px] font-medium">{running ? "Assembling your app" : error ? error : "Your app will appear here"}</h2>
+        <AnimatePresence mode="wait"><motion.p key={progress || String(running)} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mx-auto mt-2 max-w-sm text-[12px] leading-5 text-white/50">{running ? progress || `Currently ${status}…` : error ? "The chat explains what happened and what to do next." : "Describe it in the chat. NYNZ plans it, writes the code and runs it live, right here."}</motion.p></AnimatePresence>
       </div>
     </div>
   </div>;

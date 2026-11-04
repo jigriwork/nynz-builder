@@ -5,7 +5,7 @@ import { VersionTag } from "@/components/version-tag";
 import { InformationLinks } from "@/components/information-links";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
-import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, Layers3, Lock, Paperclip, Play, ShieldCheck, Smartphone, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, Layers3, Lock, Paperclip, Play, ShieldCheck, Smartphone, MessageSquareText, Zap } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
 import { PromptGuide } from "@/components/prompt-guide";
 import { MadeInOdisha } from "@/components/made-in-odisha";
@@ -133,7 +133,7 @@ export default function HomePage() {
         <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto mt-11 max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)]" style={{ animation: "none" }}>
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
-              <span className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-[#c7ff4a]" /> New application</span>
+              <span className="flex items-center gap-2"><span aria-hidden className="relative flex h-2 w-2"><span className="nynz-ping absolute inset-0 rounded-full bg-[#c7ff4a]/60" /><span className="relative h-2 w-2 rounded-full bg-[#c7ff4a]" /></span> New application</span>
               <span className="hidden sm:inline">Compiled, editable React source</span>
             </div>
             <textarea ref={composerRef} defaultValue="" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); if (error) setError(""); }} rows={4} maxLength={30_000} aria-label="Application description" className="min-h-[140px] w-full resize-none bg-transparent px-5 pb-5 pt-4 text-[18px] leading-7 text-[#f4f1e8] outline-none placeholder:text-white/35 md:text-[21px]" />
@@ -171,7 +171,7 @@ export default function HomePage() {
     <section className="px-5 py-24 md:px-8 md:py-32">
       <div className="mx-auto max-w-[1240px]">
         <Reveal><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">Everything you need</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">Built for shipping, not just demos.</h2></Reveal>
-        <div className="mt-12 grid gap-3 md:grid-cols-3">{features.map(({ icon: Icon, title, text, wide }, index) => <Reveal key={title} delay={index * .06} className={wide ? "md:col-span-2" : ""}>
+        <div className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-3">{features.map(({ icon: Icon, title, text, wide }, index) => <Reveal key={title} delay={index * .06} className={wide ? "md:col-span-2" : ""}>
           <article className="nynz-edge group relative h-full min-h-[210px] overflow-hidden rounded-[22px] border border-white/[.08] bg-[#0b121b] p-7 transition duration-300 hover:-translate-y-1 hover:bg-[#0d1520]">
             <div aria-hidden className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#c7ff4a]/[.0] blur-3xl transition duration-500 group-hover:bg-[#c7ff4a]/[.08]" />
             <span className="grid h-11 w-11 place-items-center rounded-xl border border-white/[.08] bg-white/[.04] text-[#c7ff4a] transition duration-300 group-hover:scale-110 group-hover:bg-[#c7ff4a] group-hover:text-[#071019]"><Icon className="h-5 w-5" /></span>
@@ -182,10 +182,10 @@ export default function HomePage() {
       </div>
     </section>
 
-    <section id="how" className="bg-[#f0ede4] px-5 py-24 text-[#0b121b] md:px-8 md:py-32"><div className="mx-auto max-w-[1240px]"><div className="grid gap-12 lg:grid-cols-[.8fr_1.2fr]"><Reveal><p className="text-[11px] font-semibold uppercase tracking-[.22em] text-[#597800]">From brief to browser</p><h2 className="mt-4 max-w-lg text-5xl font-medium leading-[.98] tracking-[-.065em] md:text-7xl">A build process you can trust.</h2><p className="mt-6 max-w-sm text-base leading-7 text-[#0b121b]/60">No black box. Every stage is visible, every file is yours, and every version can be restored.</p></Reveal><div className="grid gap-px overflow-hidden rounded-[22px] border border-[#0b121b]/10 bg-[#0b121b]/10 sm:grid-cols-2">{[[Sparkles,"01","Describe","Start with a plain-language brief, text attachment or public website reference."],[Layers3,"02","Plan","See the intended structure and build stages before the result is complete."],[Play,"03","Preview","Open and interact with the working application in a secure live preview."],[Code2,"04","Own","Inspect files, request focused edits, save versions and export the source."]].map(([Icon,n,title,text], index) => { const ItemIcon = Icon as typeof Sparkles; return <Reveal key={String(n)} delay={index * .08}><article className="group h-full min-h-[250px] bg-[#f7f4ec] p-6 transition-colors duration-300 hover:bg-white md:p-8"><div className="flex items-center justify-between"><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#0b121b] text-[#c7ff4a] transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110"><ItemIcon className="h-4 w-4" /></span><span className="font-mono text-[11px] text-[#0b121b]/40">{String(n)}</span></div><h3 className="mt-16 text-2xl font-medium tracking-[-.04em]">{String(title)}</h3><p className="mt-3 text-sm leading-6 text-[#0b121b]/60">{String(text)}</p></article></Reveal>; })}</div></div></div></section>
+    <section id="how" className="bg-[#f0ede4] px-5 py-24 text-[#0b121b] md:px-8 md:py-32"><div className="mx-auto max-w-[1240px]"><div className="grid grid-cols-1 gap-12 lg:grid-cols-[.8fr_1.2fr]"><Reveal><p className="text-[11px] font-semibold uppercase tracking-[.22em] text-[#597800]">From brief to browser</p><h2 className="mt-4 max-w-lg text-5xl font-medium leading-[.98] tracking-[-.065em] md:text-7xl">A build process you can trust.</h2><p className="mt-6 max-w-sm text-base leading-7 text-[#0b121b]/60">No black box. Every stage is visible, every file is yours, and every version can be restored.</p></Reveal><div className="grid gap-px overflow-hidden rounded-[22px] border border-[#0b121b]/10 bg-[#0b121b]/10 sm:grid-cols-2">{[[MessageSquareText,"01","Describe","Start with a plain-language brief, text attachment or public website reference."],[Layers3,"02","Plan","See the intended structure and build stages before the result is complete."],[Play,"03","Preview","Open and interact with the working application in a secure live preview."],[Code2,"04","Own","Inspect files, request focused edits, save versions and export the source."]].map(([Icon,n,title,text], index) => { const ItemIcon = Icon as typeof MessageSquareText; return <Reveal key={String(n)} delay={index * .08}><article className="group h-full min-h-[250px] bg-[#f7f4ec] p-6 transition-colors duration-300 hover:bg-white md:p-8"><div className="flex items-center justify-between"><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#0b121b] text-[#c7ff4a] transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110"><ItemIcon className="h-4 w-4" /></span><span className="font-mono text-[11px] text-[#0b121b]/40">{String(n)}</span></div><h3 className="mt-16 text-2xl font-medium tracking-[-.04em]">{String(title)}</h3><p className="mt-3 text-sm leading-6 text-[#0b121b]/60">{String(text)}</p></article></Reveal>; })}</div></div></div></section>
 
     <section id="faq" className="px-5 py-24 md:px-8 md:py-32">
-      <div className="mx-auto grid max-w-[1100px] gap-12 lg:grid-cols-[.8fr_1.2fr]">
+      <div className="mx-auto grid max-w-[1100px] grid-cols-1 gap-12 lg:grid-cols-[.8fr_1.2fr]">
         <Reveal><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">FAQ</p><h2 className="mt-3 text-4xl font-medium tracking-[-.055em] md:text-5xl">Questions, answered.</h2></Reveal>
         <div className="divide-y divide-white/[.08] border-y border-white/[.08]">{faqs.map(([question, answer], index) => <Reveal key={question} delay={index * .05}><Faq question={question} answer={answer} /></Reveal>)}</div>
       </div>
@@ -217,7 +217,7 @@ function BuilderShowcase() {
   return <section id="product" className="relative px-5 py-24 md:px-8 md:py-32">
     <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/3 h-[500px] w-[1000px] -translate-x-1/2 rounded-full bg-[#294662]/20 blur-[160px]" />
     <div className="relative mx-auto max-w-[1240px]">
-      <Reveal className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">The builder</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">See the work. Shape the result.</h2></div><p className="max-w-sm text-sm leading-6 text-white/55">A preview-first workspace with the conversation, build state and source always within reach. Try the example below: switch days, book a class, and compare the app before and after one change.</p></Reveal>
+      <Reveal className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">The builder</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">See the work. Shape the result.</h2></div><p className="max-w-sm text-sm leading-6 text-white/55">A preview-first workspace with the conversation, build state and source always within reach. Try the example below: ask for three real changes and watch the working app update, then jump back to any version.</p></Reveal>
       <div ref={ref} style={{ perspective: 1400 }}>
         <motion.div style={reduce ? undefined : { rotateX, scale, opacity, transformOrigin: "center top" }} className="overflow-hidden rounded-[20px] border border-white/[.12] bg-[#0d0e11] shadow-[0_60px_160px_rgba(0,0,0,.6),0_0_0_1px_rgba(199,255,74,.04)]">
           <div className="flex h-10 items-center gap-1.5 border-b border-white/[.08] bg-[#0a0f17] px-4"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]/80" /><span className="mx-auto flex items-center gap-2 rounded-md bg-white/[.04] px-4 py-1 text-[10px] text-white/45"><Lock className="h-2.5 w-2.5" /> Interactive example</span></div>
@@ -235,21 +235,34 @@ const DEMO_DAYS: Array<{ day: string; date: string; classes: DemoClass[] }> = [
   { day: "Wed", date: "12", classes: [{ id: "w1", time: "07:00", name: "Sunrise Vinyasa", teacher: "Sana", level: "All levels", spots: 1, capacity: 14 }, { id: "w2", time: "17:30", name: "Core & Balance", teacher: "Kabir", level: "Intermediate", spots: 5, capacity: 12 }, { id: "w3", time: "20:00", name: "Restorative", teacher: "Meera", level: "Gentle", spots: 2, capacity: 10 }] },
 ];
 const DEMO_BRIEF = "Build a class booking app for a small yoga studio called Stillwater. Members browse a weekly timetable, see spots left, and book or cancel a class. Calm, airy design with soft greens.";
-const DEMO_CHANGE = "When a class is full, let members join a waitlist and show their place in line.";
+const DEMO_STEPS = [
+  { label: "v1", name: "Built", ask: null, reply: "Your Stillwater booking app is ready: a weekly timetable with live spots and one-tap booking. Try booking a class." },
+  { label: "v2", name: "Waitlist", ask: "Add a waitlist when a class is full", reply: "Done. Full classes now show Join waitlist with your place in line. 2 files changed." },
+  { label: "v3", name: "My bookings", ask: "Show my bookings with a cancel button", reply: "Added a My bookings panel that updates as you book, with Cancel on each class. 3 files changed." },
+  { label: "v4", name: "Evening theme", ask: "Switch to a calm evening theme", reply: "Switched to a dark evening palette across every screen. 1 file changed." },
+] as const;
 
 /**
- * Interactive example of a NYNZ-style build: a static, self-contained app with
- * fictional data. It makes no network requests, shows no real account, preview
- * URL or token, and is labelled as an example rather than a live generation.
+ * Interactive example of building with NYNZ: each chat request visibly changes
+ * a working app (v1 to v4), and earlier versions can be reopened. Static,
+ * fictional and self-contained: no network requests, accounts or tokens.
  */
 function BuilderMock() {
+  const [version, setVersion] = useState(0);
   const [dayIndex, setDayIndex] = useState(0);
-  const [booked, setBooked] = useState<Record<string, boolean>>({});
+  const [booked, setBooked] = useState<Record<string, boolean>>({ m3: true });
   const [waitlist, setWaitlist] = useState<Record<string, number>>({});
   const [device, setDevice] = useState<"desktop" | "phone">("desktop");
-  const [changed, setChanged] = useState(true);
+  const hasWaitlist = version >= 1, hasBookings = version >= 2, evening = version >= 3;
+  const isNew = (step: number) => version === step;
   const day = DEMO_DAYS[dayIndex];
-  const bookedCount = Object.values(booked).filter(Boolean).length;
+  const allClasses = DEMO_DAYS.flatMap((d) => d.classes.map((c) => ({ ...c, day: d.day })));
+  const mine = allClasses.filter((c) => booked[c.id]);
+  const theme = evening
+    ? { page: "#0f141c", panel: "#161e2a", head: "#0b1018", ink: "#e8eef2", sub: "rgba(232,238,242,.55)", line: "rgba(255,255,255,.07)", accent: "#9fd8a7", accentInk: "#0b1410", chip: "#1f2a38" }
+    : { page: "#f4f7f2", panel: "#ffffff", head: "#1f3d2f", ink: "#16241c", sub: "rgba(22,36,28,.55)", line: "rgba(0,0,0,.06)", accent: "#1f3d2f", accentInk: "#ffffff", chip: "#dcefe2" };
+  const next = DEMO_STEPS[version + 1];
+  const newTag = <span className="nynz-pop-in ml-1.5 rounded-full bg-[#c7ff4a] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#071019]">New</span>;
   return <div className="bg-[#080c13] text-left">
     <div className="flex flex-wrap items-center gap-2 border-b border-white/[.07] px-3 py-2.5 sm:px-4">
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#c7ff4a]/15 text-[#c7ff4a]"><Box className="h-3.5 w-3.5" /></span>
@@ -257,39 +270,44 @@ function BuilderMock() {
       <span className="rounded-full border border-[#c7ff4a]/30 bg-[#c7ff4a]/10 px-2.5 py-1 text-[10px] font-medium text-[#c7ff4a]">Interactive example</span>
       <div role="group" aria-label="Preview size" className="ml-auto flex rounded-lg border border-white/[.08] p-0.5 text-[11px]">{(["desktop", "phone"] as const).map((d) => <button key={d} type="button" onClick={() => setDevice(d)} aria-pressed={device === d} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 ${device === d ? "bg-white/[.1] text-white" : "text-white/50 hover:text-white"}`}>{d === "desktop" ? <Globe2 className="h-3 w-3" /> : <Smartphone className="h-3 w-3" />}{d === "desktop" ? "Desktop" : "Phone"}</button>)}</div>
     </div>
-    <div className="grid md:grid-cols-[300px_1fr]">
-      <aside className="flex flex-col gap-3 border-b border-white/[.07] bg-[#0a0f17] p-4 md:border-b-0 md:border-r">
-        <p className="text-[10px] font-medium uppercase tracking-[.16em] text-white/45">Original brief</p>
+    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr]">
+      <aside className="flex flex-col gap-2.5 border-b border-white/[.07] bg-[#0a0f17] p-4 md:border-b-0 md:border-r">
+        <div role="group" aria-label="Versions" className="flex flex-wrap gap-1.5">{DEMO_STEPS.map((step, index) => <button key={step.label} type="button" disabled={index > version} onClick={() => setVersion(index)} aria-pressed={index === version} title={index > version ? "Ask for this change first" : `Open ${step.label}`} className={`rounded-full border px-2.5 py-1 text-[10px] transition ${index === version ? "border-[#c7ff4a]/50 bg-[#c7ff4a]/15 text-[#c7ff4a]" : index < version ? "border-white/15 text-white/70 hover:bg-white/[.06]" : "border-white/[.06] text-white/25"}`}>{step.label} · {step.name}</button>)}</div>
         <p className="rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">{DEMO_BRIEF}</p>
-        <p className="mt-1 text-[10px] font-medium uppercase tracking-[.16em] text-white/45">One focused change</p>
-        <p className="rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">{DEMO_CHANGE}</p>
-        <div role="group" aria-label="Show the app before or after the change" className="flex rounded-xl border border-white/[.08] p-0.5 text-[11px]">
-          <button type="button" onClick={() => setChanged(false)} aria-pressed={!changed} className={`flex-1 rounded-lg px-2 py-1.5 ${!changed ? "bg-white/[.1] text-white" : "text-white/50"}`}>Before</button>
-          <button type="button" onClick={() => setChanged(true)} aria-pressed={changed} className={`flex-1 rounded-lg px-2 py-1.5 ${changed ? "bg-[#c7ff4a] text-[#071019]" : "text-white/50"}`}>After the change</button>
-        </div>
-        <p className="text-[11px] leading-5 text-white/50">{changed ? "Full classes now offer a waitlist with your place in line." : "Full classes simply show “Full”."} Try booking a class on the right.</p>
+        {DEMO_STEPS.slice(1, version + 1).map((step) => <p key={step.label} className="nynz-pop-in ml-6 rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2 text-[12px] leading-5 text-white/85">{step.ask}</p>)}
+        <p key={version} className="nynz-pop-in rounded-2xl rounded-tl-md border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3.5 py-2.5 text-[12px] leading-5 text-white/80"><span className="mr-1.5 font-semibold text-[#c7ff4a]">NYNZ</span>{DEMO_STEPS[version].reply}</p>
+        {next ? <button type="button" onClick={() => setVersion(version + 1)} className="nynz-lift group mt-1 flex items-center gap-2 rounded-xl border border-[#c7ff4a]/30 bg-[#c7ff4a]/[.08] px-3 py-2.5 text-left text-[12px] text-white hover:bg-[#c7ff4a]/[.14]"><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase tracking-[.14em] text-[#c7ff4a]/80">Tap to ask NYNZ</span>{next.ask}</span><span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] transition-transform group-hover:translate-x-0.5"><ArrowRight className="h-3.5 w-3.5" /></span></button>
+          : <button type="button" onClick={() => setVersion(0)} className="mt-1 rounded-xl border border-white/10 px-3 py-2 text-[12px] text-white/70 hover:bg-white/[.05]">Start again from v1</button>}
       </aside>
       <div className="min-w-0 bg-[#0d1117] p-3 sm:p-5">
-        <div className={`mx-auto overflow-hidden border border-black/10 bg-[#f4f7f2] text-[#16241c] shadow-[0_20px_60px_rgba(0,0,0,.35)] transition-[max-width] duration-300 ${device === "phone" ? "max-w-[340px] rounded-[26px]" : "max-w-none rounded-xl"}`}>
-          <div className="flex items-center justify-between gap-3 bg-[#1f3d2f] px-4 py-3 text-white">
-            <div><p className="text-[10px] uppercase tracking-[.2em] text-[#bfe3c9]">Stillwater</p><p className="text-[15px] font-semibold">This week&apos;s classes</p></div>
-            <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px]" aria-live="polite"><span key={bookedCount} className="nynz-bump">{bookedCount}</span> booked</span>
+        <div className={`mx-auto overflow-hidden border shadow-[0_20px_60px_rgba(0,0,0,.35)] transition-[max-width,background-color,color] duration-500 ${device === "phone" ? "max-w-[340px] rounded-[26px]" : "max-w-none rounded-xl"}`} style={{ background: theme.page, color: theme.ink, borderColor: theme.line }}>
+          <div className={`flex items-center justify-between gap-3 px-4 py-3 transition-colors duration-500 ${isNew(3) ? "nynz-pop-in" : ""}`} style={{ background: theme.head, color: "#fff" }}>
+            <div><p className="text-[10px] uppercase tracking-[.2em]" style={{ color: evening ? theme.accent : "#bfe3c9" }}>Stillwater{isNew(3) && newTag}</p><p className="text-[15px] font-semibold">{evening ? "Evening classes" : "This week's classes"}</p></div>
+            <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px]" aria-live="polite"><span key={mine.length} className="nynz-bump">{mine.length}</span> booked</span>
           </div>
-          <div role="tablist" aria-label="Day" className="flex gap-1.5 border-b border-black/[.06] bg-white px-3 py-2.5">{DEMO_DAYS.map((d, index) => <button key={d.day} role="tab" type="button" aria-selected={index === dayIndex} onClick={() => setDayIndex(index)} className={`flex min-w-[52px] flex-col items-center rounded-xl px-3 py-1.5 text-[11px] ${index === dayIndex ? "bg-[#1f3d2f] text-white" : "text-[#16241c]/70 hover:bg-black/[.04]"}`}><span>{d.day}</span><span className="text-[15px] font-semibold">{d.date}</span></button>)}</div>
-          <ul key={dayIndex} className="divide-y divide-black/[.06]">{day.classes.map((c, rowIndex) => {
-            const isBooked = Boolean(booked[c.id]);
-            const left = c.spots - (isBooked ? 1 : 0);
-            const full = c.spots === 0;
-            const place = waitlist[c.id];
-            return <li key={c.id} style={{ animationDelay: `${rowIndex * 60}ms` }} className={`nynz-pop-in flex items-center gap-3 px-4 py-3 ${device === "phone" ? "flex-wrap" : ""}`}>
-              <span className="w-12 shrink-0 font-mono text-[12px] text-[#16241c]/60">{c.time}</span>
-              <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold">{c.name}</span><span className="block text-[11px] text-[#16241c]/55">{c.teacher} · {c.level}</span></span>
-              <span className={`text-[11px] ${full ? "text-[#b4532a]" : "text-[#16241c]/60"}`}>{full ? (changed && place ? `Waitlist #${place}` : "Full") : `${left} of ${c.capacity} left`}</span>
-              {full ? (changed ? <button type="button" onClick={() => setWaitlist((w) => ({ ...w, [c.id]: w[c.id] ? 0 : 3 }))} className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${place ? "bg-[#fbe6dc] text-[#b4532a]" : "border border-[#b4532a]/40 text-[#b4532a]"}`}>{place ? "Leave waitlist" : "Join waitlist"}</button> : <span className="rounded-lg bg-black/[.05] px-3 py-1.5 text-[12px] text-[#16241c]/45">Full</span>)
-                : <button type="button" onClick={() => setBooked((b) => ({ ...b, [c.id]: !b[c.id] }))} className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${isBooked ? "bg-[#dcefe2] text-[#1f3d2f]" : "bg-[#1f3d2f] text-white"}`}>{isBooked ? "Booked · Cancel" : "Book"}</button>}
-            </li>;
-          })}</ul>
-          <p className="px-4 pb-3 pt-1 text-[10px] text-[#16241c]/45">Fictional studio and demonstration data.</p>
+          <div className={`grid ${hasBookings && device === "desktop" ? "md:grid-cols-[1fr_200px]" : ""}`}>
+            <div>
+              <div role="tablist" aria-label="Day" className="flex gap-1.5 px-3 py-2.5" style={{ background: theme.panel, borderBottom: `1px solid ${theme.line}` }}>{DEMO_DAYS.map((d, index) => <button key={d.day} role="tab" type="button" aria-selected={index === dayIndex} onClick={() => setDayIndex(index)} className="flex min-w-[52px] flex-col items-center rounded-xl px-3 py-1.5 text-[11px] transition-colors" style={index === dayIndex ? { background: theme.accent, color: theme.accentInk } : { color: theme.sub }}><span>{d.day}</span><span className="text-[15px] font-semibold">{d.date}</span></button>)}</div>
+              <ul key={dayIndex}>{day.classes.map((c, rowIndex) => {
+                const isBooked = Boolean(booked[c.id]);
+                const full = c.spots === 0;
+                const place = waitlist[c.id];
+                return <li key={c.id} style={{ animationDelay: `${rowIndex * 60}ms`, borderBottom: `1px solid ${theme.line}` }} className={`nynz-pop-in flex items-center gap-3 px-4 py-3 ${device === "phone" ? "flex-wrap" : ""}`}>
+                  <span className="w-12 shrink-0 font-mono text-[12px]" style={{ color: theme.sub }}>{c.time}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold">{c.name}</span><span className="block text-[11px]" style={{ color: theme.sub }}>{c.teacher} · {c.level}</span></span>
+                  <span className="text-[11px]" style={{ color: full ? "#d0703f" : theme.sub }}>{full ? (hasWaitlist && place ? `Waitlist #${place}` : "Full") : `${c.spots - (isBooked ? 1 : 0)} of ${c.capacity} left`}</span>
+                  {full ? (hasWaitlist ? <span className={`relative ${isNew(1) ? "nynz-highlight" : ""}`}><button type="button" onClick={() => setWaitlist((w) => ({ ...w, [c.id]: w[c.id] ? 0 : 3 }))} className="rounded-lg border px-3 py-1.5 text-[12px] font-medium" style={place ? { background: "#d0703f22", color: "#d0703f", borderColor: "transparent" } : { color: "#d0703f", borderColor: "#d0703f66" }}>{place ? "Leave waitlist" : "Join waitlist"}</button>{isNew(1) && newTag}</span> : <span className="rounded-lg px-3 py-1.5 text-[12px]" style={{ background: theme.line, color: theme.sub }}>Full</span>)
+                    : <button type="button" onClick={() => setBooked((b) => ({ ...b, [c.id]: !b[c.id] }))} className="rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors" style={isBooked ? { background: theme.chip, color: evening ? theme.ink : theme.accent } : { background: theme.accent, color: theme.accentInk }}>{isBooked ? "Booked ✓" : "Book"}</button>}
+                </li>;
+              })}</ul>
+            </div>
+            {hasBookings && <aside className={`p-4 ${isNew(2) ? "nynz-pop-in nynz-highlight" : ""}`} style={{ background: theme.panel, borderLeft: device === "desktop" ? `1px solid ${theme.line}` : undefined, borderTop: device === "phone" ? `1px solid ${theme.line}` : undefined }}>
+              <p className="text-[12px] font-semibold">My bookings{isNew(2) && newTag}</p>
+              {mine.length ? <ul className="mt-2 space-y-2">{mine.map((c) => <li key={c.id} className="nynz-pop-in flex items-center gap-2 rounded-lg p-2 text-[11px]" style={{ background: theme.page }}><span className="min-w-0 flex-1"><span className="block truncate font-medium">{c.name}</span><span style={{ color: theme.sub }}>{c.day} · {c.time}</span></span><button type="button" onClick={() => setBooked((b) => ({ ...b, [c.id]: false }))} className="rounded-md px-2 py-1 text-[10px]" style={{ color: "#d0703f" }}>Cancel</button></li>)}</ul>
+                : <p className="mt-2 text-[11px]" style={{ color: theme.sub }}>No bookings yet. Book a class to see it here.</p>}
+            </aside>}
+          </div>
+          <p className="px-4 pb-3 pt-2 text-[10px]" style={{ color: theme.sub }}>Fictional studio and demonstration data.</p>
         </div>
       </div>
     </div>
@@ -318,7 +336,7 @@ function LiveBuild() {
   const stage = Math.min(step, buildStages.length - 1);
   const live = step >= buildStages.length - 1;
   return <section className="border-y border-white/[.06] bg-[#080d15] px-5 py-24 md:px-8 md:py-32">
-    <div ref={ref} className="mx-auto grid max-w-[1240px] items-center gap-14 lg:grid-cols-[.9fr_1.1fr]">
+    <div ref={ref} className="mx-auto grid max-w-[1240px] grid-cols-1 items-center gap-14 lg:grid-cols-[.9fr_1.1fr]">
       <Reveal>
         <p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">Watch it happen <span className="ml-2 rounded-full border border-white/15 px-2 py-0.5 text-[9px] tracking-[.14em] text-white/55">Illustration</span></p>
         <h2 className="mt-3 text-4xl font-medium tracking-[-.055em] md:text-6xl">From sentence to live app in one flow.</h2>

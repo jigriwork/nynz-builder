@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Lightbulb, Wand2, X } from "lucide-react";
+import { Lightbulb, PenLine, X } from "lucide-react";
 import { STARTERS, draftToPrompt, type StarterDraft } from "@/lib/prompt-starters";
 
 const TIPS: Array<[string, string]> = [
@@ -38,7 +38,7 @@ export function PromptGuide({ getValue, onChange }: { getValue: () => string; on
   return <div className="mx-auto mt-4 max-w-[900px] text-left">
     <div className="flex flex-wrap items-center justify-center gap-2">
       <button type="button" onClick={() => toggle("tips")} aria-expanded={panel === "tips"} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[.09] bg-white/[.025] px-3 text-[12px] text-white/65 transition hover:border-[#c7ff4a]/30 hover:text-white"><Lightbulb className="h-3.5 w-3.5 text-[#c7ff4a]" /> How to write a good prompt</button>
-      <button type="button" onClick={() => toggle("helper")} aria-expanded={panel === "helper"} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[.09] bg-white/[.025] px-3 text-[12px] text-white/65 transition hover:border-[#c7ff4a]/30 hover:text-white"><Wand2 className="h-3.5 w-3.5 text-[#c7ff4a]" /> Help me write my prompt</button>
+      <button type="button" onClick={() => toggle("helper")} aria-expanded={panel === "helper"} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[.09] bg-white/[.025] px-3 text-[12px] text-white/65 transition hover:border-[#c7ff4a]/30 hover:text-white"><PenLine className="h-3.5 w-3.5 text-[#c7ff4a]" /> Help me write my prompt</button>
     </div>
     {panel === "tips" && <div className="nynz-pop-in relative mt-3 rounded-2xl border border-white/[.09] bg-[#0b121b] p-4">
       <button type="button" onClick={() => setPanel("none")} aria-label="Close tips" className="absolute right-3 top-3 text-white/45 hover:text-white"><X className="h-4 w-4" /></button>
