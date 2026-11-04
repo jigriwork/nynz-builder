@@ -16,8 +16,8 @@ import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 
-type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; active_sandbox_id?: string | null; sandbox_expires_at: string | null; last_error: string | null };
-type FileRow = { path: string; content: string; updated_at?: string };
+type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
+type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
 type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number } | null; error_message: string | null; created_at: string; cancel_requested_at: string | null };
@@ -118,6 +118,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetBusy, setAssetBusy] = useState(false);
+  // Unsaved manual edits, keyed by path, with the hash the edit started from.
+  const [dirty, setDirty] = useState<Record<string, { content: string; baseHash: string | null }>>({});
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [previewSrc, setPreviewSrc] = useState(initialProject.id === "design-fixture" ? initialProject.preview_url : null);
   const [mounted, setMounted] = useState(false);
   const resumedDraft = useRef(false);
@@ -163,11 +167,16 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (projectResponse.ok) {
       const body = await projectResponse.json();
       setProject(body.project);
-      if (body.usage) { setUsageCredits(body.usage.credits); setUsageCostPaise(body.usage.modelCostPaise); }
+      if (body.usage) { setUsageCredits(body.usage.creditsUsed); setUsageCostPaise(body.usage.modelCostPaise); }
     }
     if (filesResponse.ok) {
-      const next = (await filesResponse.json()).files;
+      const body = await filesResponse.json();
+      // Polling must never overwrite text the user is still editing.
+      const pending = dirtyRef.current;
+      const next: FileRow[] = body.files.map((file: FileRow) => pending[file.path] ? { ...file, content: pending[file.path].content } : file);
+      for (const [path, edit] of Object.entries(pending)) if (!next.some((file) => file.path === path)) next.push({ path, content: edit.content, content_hash: null });
       setFiles(next); setSelected((value) => value || next[0]?.path || "");
+      setProject((value) => ({ ...value, source_revision: body.sourceRevision, preview_revision: body.previewRevision }));
     }
     if (buildsResponse.ok) setBuilds((await buildsResponse.json()).builds);
     if (versionsResponse.ok) setVersions((await versionsResponse.json()).versions);
@@ -180,9 +189,17 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     return () => clearInterval(timer);
   }, [running, pendingPlan, refresh, project.id]);
 
+  // When a build finishes, fetch once more so project status, preview and
+  // files reflect the final committed state (no stale "Queued" label).
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !runningId && project.id !== "design-fixture") { const timer = setTimeout(refresh, 800); wasRunning.current = false; return () => clearTimeout(timer); }
+    wasRunning.current = Boolean(runningId);
+  }, [runningId, refresh, project.id]);
+
   useEffect(() => {
     if (project.id === "design-fixture") { setPreviewSrc(project.preview_url); return; }
-    if (!project.preview_url || !project.active_sandbox_id || project.status === "archived") { setPreviewSrc(null); return; }
+    if (!project.preview_url || !project.has_preview || project.status === "archived") { setPreviewSrc(null); return; }
     let current = true;
     fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" })
       .then(async (response) => {
@@ -192,7 +209,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       })
       .catch((error) => { if (current) setNotice(error instanceof Error ? error.message : "Could not authorize preview"); });
     return () => { current = false; };
-  }, [project.active_sandbox_id, project.id, project.preview_url, project.status]);
+  }, [project.has_preview, project.active_version_id, project.id, project.preview_url, project.status]);
 
   useEffect(() => {
     // Polling replaces job objects even when nothing changed. Only follow new
@@ -266,6 +283,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     const failedBuild = builds.find((item) => item.status === "failed");
     if (!failedBuild?.prompt || !failedBuild.mode || running) return;
     setNotice("Retrying the original request.");
+    if (failedBuild.mode === "restart") { await restart(); return; }
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: failedBuild.prompt, mode: failedBuild.mode, idempotencyKey: crypto.randomUUID() }) });
     const body = await response.json();
     if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
@@ -280,11 +298,23 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     requestAnimationFrame(() => { composer.current?.focus(); composer.current?.setSelectionRange(text.length, text.length); });
   }
 
-  async function saveFile(content: string) {
-    if (!current) return;
-    const response = await fetch(`/api/projects/${project.id}/files`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ files: [{ path: current.path, content }] }) });
-    if (response.ok) setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content } : file));
-    else setNotice((await response.json()).error);
+  function editFile(path: string, content: string) {
+    const base = files.find((file) => file.path === path);
+    setDirty((value) => ({ ...value, [path]: { content, baseHash: value[path]?.baseHash ?? base?.content_hash ?? null } }));
+    setFiles((value) => value.map((file) => file.path === path ? { ...file, content } : file));
+  }
+
+  async function saveFile(path: string) {
+    const edit = dirtyRef.current[path];
+    if (!edit) return;
+    const response = await fetch(`/api/projects/${project.id}/files`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ files: [{ path, content: edit.content, baseHash: edit.baseHash }] }) });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const hash = body.files?.find((file: { path: string }) => file.path === path)?.content_hash ?? null;
+      setDirty((value) => { if (value[path]?.content !== edit.content) return { ...value, [path]: { ...value[path], baseHash: hash } }; const { [path]: _saved, ...rest } = value; return rest; });
+      setFiles((value) => value.map((file) => file.path === path ? { ...file, content_hash: hash } : file));
+      setProject((value) => ({ ...value, source_revision: body.sourceRevision }));
+    } else setNotice(body.code === "CONFLICT" ? `${body.error} Your unsaved text is still in the editor; copy it before refreshing.` : body.error || "Could not save this file");
   }
 
   async function importUrl() {
@@ -325,8 +355,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   async function restore(id: string) {
     if (!confirm("Restore this version? Current files will be replaced.")) return;
-    const response = await fetch(`/api/projects/${project.id}/versions/${id}/restore`, { method: "POST" });
-    if (response.ok) { setNotice("Version restored. Restart the preview to run it."); refresh(); } else setNotice((await response.json()).error);
+    if (Object.keys(dirtyRef.current).length) { setNotice("Save or discard your unsaved edits before restoring a version."); return; }
+    const response = await fetch(`/api/projects/${project.id}/versions/${id}/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision: project.source_revision }) });
+    if (response.ok) { setNotice("Version restored. A checkpoint of the previous files was saved. Restart the preview to run it."); refresh(); } else setNotice((await response.json()).error);
   }
 
   async function cancel() {
@@ -383,7 +414,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         <button onClick={saveVersion} title="Save checkpoint" aria-label="Save checkpoint" className="hidden h-8 items-center gap-2 rounded-lg px-2.5 text-[11px] text-white/55 transition hover:bg-white/[.06] hover:text-white sm:flex"><Save className="h-3.5 w-3.5" /><span className="hidden 2xl:inline">Checkpoint</span></button>
         <a href={`/api/projects/${project.id}/export`} className="group flex h-8 items-center gap-2 rounded-lg bg-[#c7ff4a] px-3.5 text-[11px] font-semibold text-[#071019] shadow-[0_0_24px_rgba(199,255,74,.18)] transition hover:bg-[#d5ff72] hover:shadow-[0_0_32px_rgba(199,255,74,.32)]"><Download className="h-3.5 w-3.5 transition-transform group-hover:translate-y-px" /><span className="hidden sm:inline">Export</span></a>
       </div>
-      <AnimatePresence>{showUsage && <motion.div initial={{ opacity: 0, y: -6, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: .98 }} className="absolute right-3 top-12 z-50 w-64 rounded-xl border border-white/[.1] bg-[#111924]/95 p-3.5 shadow-[0_20px_60px_rgba(0,0,0,.5)] backdrop-blur-xl"><div className="flex items-center gap-2 text-[11px] font-medium text-white/80"><Coins className="h-3.5 w-3.5 text-[#c7ff4a]" /> Model usage</div><div className="mt-3 grid grid-cols-2 gap-2"><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Provider cost</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">₹{(usageCostPaise / 100).toFixed(2)}</p></div><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Credits used</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">{usageCredits.toLocaleString()}</p></div></div><p className="mt-2.5 text-[9px] leading-4 text-white/35">Usage updates while NYNZ builds. One credit represents 1,000 model tokens.</p></motion.div>}</AnimatePresence>
+      <AnimatePresence>{showUsage && <motion.div initial={{ opacity: 0, y: -6, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: .98 }} className="absolute right-3 top-12 z-50 w-64 rounded-xl border border-white/[.1] bg-[#111924]/95 p-3.5 shadow-[0_20px_60px_rgba(0,0,0,.5)] backdrop-blur-xl"><div className="flex items-center gap-2 text-[11px] font-medium text-white/80"><Coins className="h-3.5 w-3.5 text-[#c7ff4a]" /> Model usage</div><div className="mt-3 grid grid-cols-2 gap-2"><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Provider cost</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">₹{(usageCostPaise / 100).toFixed(2)}</p></div><div className="rounded-lg bg-white/[.04] p-2.5"><p className="text-[9px] uppercase tracking-[.12em] text-white/35">Credits used</p><p className="mt-1 text-[15px] font-medium tabular-nums text-white">{usageCredits.toLocaleString()}</p></div></div><p className="mt-2.5 text-[9px] leading-4 text-white/35">Usage for this project updates while NYNZ builds. Credits are charged from measured provider cost, weighted by model. <a href="/billing" className="underline">See your balance</a>.</p></motion.div>}</AnimatePresence>
       {running && <span className="absolute inset-x-0 bottom-0 h-px overflow-hidden"><span className="nynz-scan absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></span>}
     </header>
 
@@ -492,6 +523,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               {tab === "preview" && <div className="nynz-dots h-full bg-[#0c121c] p-2.5 sm:p-4">
                 <motion.div layout transition={{ type: "spring", stiffness: 260, damping: 30 }} className={`mx-auto h-full ${device === "mobile" ? "max-w-[400px]" : "max-w-none"}`}>
                   {previewSrc ? <div className={`flex h-full flex-col overflow-hidden border border-white/[.08] bg-white shadow-[0_24px_70px_rgba(0,0,0,.45)] ${device === "mobile" ? "rounded-[28px] border-[6px] border-[#1a2230]" : "rounded-xl"}`}>
+                    {!running && project.preview_revision != null && project.source_revision != null && project.preview_revision !== project.source_revision && <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-300/30 bg-[#2a2210] px-3 py-1.5 text-[11px] text-amber-100"><span>The preview is showing an earlier version of your files.</span><button onClick={restart} className="rounded-md border border-amber-200/30 px-2 py-0.5 font-medium hover:bg-amber-200/10">Restart preview</button></div>}
                     <iframe key={previewSrc} src={previewSrc} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" referrerPolicy="no-referrer" className="h-full w-full bg-white" />
                   </div> : <PreviewPlaceholder running={Boolean(running)} status={running?.status} progress={lastProgress} error={project.last_error} />}
                 </motion.div>
@@ -500,7 +532,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               {tab === "code" && <div className="flex h-full min-h-0 flex-col sm:grid sm:grid-cols-[240px_minmax(0,1fr)]">
                 <div className="nynz-scrollbar flex h-10 shrink-0 gap-1 overflow-x-auto border-b border-white/[.06] bg-[#0a0f17] px-2 py-1.5 sm:hidden">{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 font-mono text-[9px] ${selected === file.path ? "bg-white/[.09] text-white" : "text-white/45"}`}>{fileIcon(file.path)}<span className="max-w-[130px] truncate">{file.path.split("/").pop()}</span></button>)}{files.length === 0 && <span className="px-2 text-[10px] leading-7 text-white/40">Files appear here while NYNZ writes.</span>}</div>
                 <aside className="nynz-scrollbar hidden min-h-0 overflow-y-auto border-r border-white/[.06] bg-[#0a0f17] py-2 sm:block"><div className="flex h-8 items-center px-3 text-[10px] font-medium uppercase tracking-[.13em] text-white/40">Explorer <span className="ml-auto rounded bg-white/[.06] px-1.5 font-mono text-white/50">{files.length}</span></div>{files.map((file) => <button key={file.path} onClick={() => setSelected(file.path)} className={`relative flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] transition ${selected === file.path ? "bg-white/[.06] text-white/90" : "text-white/50 hover:bg-white/[.03] hover:text-white/80"}`}>{selected === file.path && <motion.span layoutId="file-active" className="absolute inset-y-0 left-0 w-0.5 bg-[#c7ff4a]" />}{fileIcon(file.path)}<span className="truncate">{file.path}</span></button>)}{files.length === 0 && <p className="px-3 py-4 text-[11px] leading-5 text-white/40">Files appear here as NYNZ writes them.</p>}</aside>
-                <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}<span className="min-w-0 truncate">{current.path}</span><button onClick={() => setEditingCode((value) => !value)} className="ml-auto flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-white/[.08] px-2 font-sans text-[9px] text-white/55 transition hover:bg-white/[.06] hover:text-white">{editingCode ? <><Eye className="h-3 w-3" /> Preview</> : <><Pencil className="h-3 w-3" /> Edit</>}</button></div>{editingCode ? <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => setFiles((value) => value.map((file) => file.path === current.path ? { ...file, content: event.target.value } : file))} onBlur={(event) => saveFile(event.target.value)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div> : <div className="nynz-scrollbar min-h-0 flex-1 overflow-auto"><SyntaxHighlighter language={syntaxLanguage} style={vscDarkPlus} showLineNumbers wrapLongLines={false} customStyle={{ margin: 0, minHeight: "100%", background: "#080c13", padding: "16px 18px", fontSize: "12px", lineHeight: "1.7" }} lineNumberStyle={{ minWidth: "2.8em", paddingRight: "1.2em", color: "rgba(255,255,255,.18)" }}>{current.content}</SyntaxHighlighter></div>}</div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#080c13]">{current ? <div className="flex h-full min-h-0 flex-col overflow-hidden"><div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[.06] px-3 font-mono text-[10px] text-white/55">{fileIcon(current.path)}<span className="min-w-0 truncate">{current.path}</span><button onClick={() => setEditingCode((value) => !value)} className="ml-auto flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-white/[.08] px-2 font-sans text-[9px] text-white/55 transition hover:bg-white/[.06] hover:text-white">{editingCode ? <><Eye className="h-3 w-3" /> Preview</> : <><Pencil className="h-3 w-3" /> Edit</>}</button></div>{editingCode ? <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden"><div ref={gutter} aria-hidden onWheel={(event) => { const editor = codeEditor.current; if (!editor) return; editor.scrollTop += event.deltaY; editor.scrollLeft += event.deltaX; }} className="w-12 shrink-0 select-none overflow-hidden border-r border-white/[.04] py-4 pr-3 text-right font-mono text-[11px] leading-5 text-white/20">{Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}</div><textarea ref={codeEditor} value={current.content} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; }} onChange={(event) => editFile(current.path, event.target.value)} onBlur={() => saveFile(current.path)} spellCheck={false} wrap="off" className="nynz-scrollbar h-full min-h-0 min-w-0 w-full flex-1 touch-pan-x touch-pan-y resize-none overflow-auto overscroll-contain whitespace-pre bg-transparent p-4 pl-4 font-mono text-[12px] leading-5 text-[#d8decf] outline-none [scrollbar-gutter:stable]" /></div> : <div className="nynz-scrollbar min-h-0 flex-1 overflow-auto"><SyntaxHighlighter language={syntaxLanguage} style={vscDarkPlus} showLineNumbers wrapLongLines={false} customStyle={{ margin: 0, minHeight: "100%", background: "#080c13", padding: "16px 18px", fontSize: "12px", lineHeight: "1.7" }} lineNumberStyle={{ minWidth: "2.8em", paddingRight: "1.2em", color: "rgba(255,255,255,.18)" }}>{current.content}</SyntaxHighlighter></div>}</div> : <EmptyPanel icon={Code2} title="No files yet" text="Once the first build runs, every generated file is editable here." />}</div>
               </div>}
 
               {tab === "terminal" && <div className="flex h-full min-h-0 flex-col bg-[#06090e] font-mono text-[11px]"><div className="flex h-9 shrink-0 items-center border-b border-white/[.06] px-4 text-white/40"><span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" />Sandbox terminal <span className="ml-auto">/home/user/app</span></div><div className="nynz-scrollbar min-h-0 flex-1 overflow-y-auto p-4 leading-5"><p className="text-white/35">Commands run only inside this project&apos;s isolated preview sandbox.</p>{terminalLines.map((line, index) => <div key={`${line.command}-${index}`} className="mt-4"><p><span className="text-[#c7ff4a]">nynz@app</span><span className="text-white/35">:</span><span className="text-sky-300">~/app</span><span className="text-white/55">$</span> <span className="text-white/85">{line.command}</span></p>{line.output && <pre className={`mt-1 whitespace-pre-wrap break-words ${line.exitCode === 0 ? "text-white/65" : "text-red-300"}`}>{line.output}</pre>}</div>)}{terminalBusy && <p className="mt-4 animate-pulse text-white/40">Running command...</p>}</div><form onSubmit={runTerminal} className="flex shrink-0 items-center gap-2 border-t border-white/[.06] p-3"><span className="text-[#c7ff4a]">$</span><input value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} placeholder="npm run build" aria-label="Terminal command" className="h-9 min-w-0 flex-1 rounded-lg border border-white/[.07] bg-white/[.025] px-3 text-white outline-none focus:border-[#c7ff4a]/30" /><button disabled={!terminalCommand.trim() || terminalBusy} className="grid h-9 w-9 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] disabled:opacity-30" aria-label="Run command"><Play className="h-3.5 w-3.5 fill-current" /></button></form></div>}

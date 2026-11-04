@@ -2,13 +2,11 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireProject } from "@/lib/supabase/auth";
+import { checkUpload } from "@/lib/platform/uploads";
+import { rateLimit } from "@/lib/platform/rate-limit";
 
 const bucket = "project-assets";
-const allowedTypes = new Set([
-  "image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml",
-  "font/woff", "font/woff2", "font/ttf", "application/pdf",
-  "text/plain", "text/csv", "application/json",
-]);
+const MAX_PROJECT_BYTES = 50 * 1024 * 1024;
 
 function safeName(name: string) {
   const cleaned = name.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(-100);
@@ -38,12 +36,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Choose a file to upload" }, { status: 400 });
-  if (!allowedTypes.has(file.type)) return NextResponse.json({ error: "Use an image, font, PDF, text, CSV or JSON file" }, { status: 400 });
   if (file.size < 1 || file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "Files must be smaller than 10 MB" }, { status: 400 });
+  const limited = await rateLimit(`upload:${auth.user.id}`, 60, 3600);
+  if (limited) return limited;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const problem = checkUpload(file.type, bytes);
+  if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   const { data: existing } = await auth.supabase.storage.from(bucket).list(id, { limit: 21 });
-  if ((existing || []).filter((item) => item.id).length >= 20) return NextResponse.json({ error: "This project already has 20 uploaded assets" }, { status: 400 });
+  const stored = (existing || []).filter((item) => item.id);
+  if (stored.length >= 20) return NextResponse.json({ error: "This project already has 20 uploaded assets" }, { status: 400 });
+  const used = stored.reduce((sum, item) => sum + Number((item.metadata as { size?: number } | null)?.size || 0), 0);
+  if (used + file.size > MAX_PROJECT_BYTES) return NextResponse.json({ error: "This project has reached its 50 MB upload limit" }, { status: 400 });
   const storageName = `${randomUUID()}-${safeName(file.name)}`;
-  const { error } = await auth.supabase.storage.from(bucket).upload(`${id}/${storageName}`, file, { contentType: file.type, upsert: false });
+  const { error } = await auth.supabase.storage.from(bucket).upload(`${id}/${storageName}`, bytes, { contentType: file.type, upsert: false });
   if (error) return NextResponse.json({ error: "Could not upload this file" }, { status: 400 });
   const { data: signed } = await auth.supabase.storage.from(bucket).createSignedUrl(`${id}/${storageName}`, 3_600);
   return NextResponse.json({ asset: { ...publicAsset(storageName), previewUrl: signed?.signedUrl || null } }, { status: 201 });

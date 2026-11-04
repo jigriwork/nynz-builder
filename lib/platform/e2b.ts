@@ -41,7 +41,13 @@ async function runRequiredCommand(sandbox: Sandbox, command: string, options: { 
 type PreviewBuildOptions = {
   onBuildFailure?: (error: string, files: Array<{ path: string; content: string }>, attempt: number) => Promise<Array<{ path: string; content: string }>>;
   onStage?: (message: string, percent: number) => Promise<void>;
+  /** Called as soon as the sandbox exists, before any file is written, so it is registered for cleanup even if the build fails. */
+  onCreated?: (sandboxId: string) => Promise<void>;
+  /** Bound into sandbox metadata; the terminal and reconciler verify it. */
+  owner?: { projectId: string; buildId: string };
 };
+
+export const SANDBOX_PURPOSE = "nynz-generated-preview";
 
 export async function runInE2B(input: Array<{ path: string; content: string }>, generatedBackend?: { projectUrl: string; publishableKey: string }, assets: Array<{ name: string; data: ArrayBuffer }> = [], options: PreviewBuildOptions = {}) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
@@ -51,9 +57,10 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
     timeoutMs,
     lifecycle: { onTimeout: { action: "pause", mode: "full" }, autoResume: true },
     network: { allowPublicTraffic: false },
-    metadata: { purpose: "nynz-generated-preview" },
+    metadata: { purpose: SANDBOX_PURPOSE, ...(options.owner ? { projectId: options.owner.projectId, buildId: options.owner.buildId } : {}) },
   });
   try {
+    await options.onCreated?.(sandbox.sandboxId);
     const files = filesAreSafe(input);
     const merged = new Map(Object.entries(STARTER));
     files.forEach((file) => merged.set(file.path, file.content));
@@ -126,7 +133,20 @@ export async function runInE2B(input: Array<{ path: string; content: string }>, 
   }
 }
 
+/** Idempotent: resolves true when the sandbox is gone (including "already gone"). */
 export async function stopE2B(sandboxId: string) {
   if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
-  return Sandbox.kill(sandboxId, { apiKey: process.env.E2B_API_KEY });
+  await Sandbox.kill(sandboxId, { apiKey: process.env.E2B_API_KEY });
+  return true;
+}
+
+/** Lists every NYNZ-created sandbox (running or paused) for orphan reconciliation. */
+export async function listNynzSandboxes() {
+  if (!process.env.E2B_API_KEY) throw new Error("E2B_API_KEY is not configured");
+  const paginator = Sandbox.list({ apiKey: process.env.E2B_API_KEY, query: { metadata: { purpose: SANDBOX_PURPOSE } } });
+  const out: Array<{ sandboxId: string; startedAt: Date; metadata: Record<string, string> }> = [];
+  while (paginator.hasNext && out.length < 5_000) {
+    for (const item of await paginator.nextItems()) out.push({ sandboxId: item.sandboxId, startedAt: new Date(item.startedAt), metadata: item.metadata || {} });
+  }
+  return out;
 }
