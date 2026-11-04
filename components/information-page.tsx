@@ -1,3 +1,4 @@
+import { pageMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -7,7 +8,7 @@ import { informationDocuments, contactAddresses } from "@/lib/public-information
 
 export function informationMetadata(slug:string):Metadata{
   const doc=informationDocuments[slug];if(!doc)notFound();
-  return {title:doc.title,description:doc.description,alternates:{canonical:`/${slug}`},openGraph:{title:`${doc.title} · NYNZ`,description:doc.description,url:`/${slug}`},twitter:{title:`${doc.title} · NYNZ`,description:doc.description}};
+  return pageMetadata({title:doc.title,description:doc.description,path:`/${slug}`});
 }
 export function InformationPage({slug}:{slug:string}){
   const doc=informationDocuments[slug];if(!doc)notFound();

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { createAdmin } from "@/lib/supabase/server";
 import { grossWithTax, razorpayConfig } from "@/lib/billing/razorpay";
@@ -6,11 +7,11 @@ import { NynzBrand } from "@/components/nynz-brand";
 import { InformationLinks } from "@/components/information-links";
 
 export const revalidate = 300;
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: "Pricing",
-  description: "NYNZ plans for building React web applications from a brief. Monthly credits cover measured AI and cloud usage. Prices exclude GST.",
-  alternates: { canonical: "/pricing" },
-};
+  description: "NYNZ plans: Starter ₹999 and Pro ₹1,499 a month (excluding GST). Monthly credits cover the AI and cloud time your builds use.",
+  path: "/pricing",
+});
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
