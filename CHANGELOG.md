@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.18
+
+- Fix the admin Credits page crashing on retained ledger entries for deleted accounts. Show "Deleted account" without a broken user link and preserve all credit history.
+- Add a server-rendering regression check for deleted-account and empty ledger states.
+
 ## 0.3.17
 
 - Browser-tab icon is a fully opaque black square with the lime N. Safari painted a coloured backing behind the transparent rounded corners, which showed as a lime edge.
