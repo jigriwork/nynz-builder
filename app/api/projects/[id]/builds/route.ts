@@ -5,6 +5,7 @@ import { createAdmin } from "@/lib/supabase/server";
 import { apiError } from "@/lib/http/errors";
 import { rateLimit } from "@/lib/platform/rate-limit";
 import { RESERVE, admitPaidWork } from "@/lib/billing/entitlements";
+import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
 
 const ACTIVE = ["queued", "planning", "generating", "installing", "running", "validating"];
 
@@ -25,6 +26,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!parsed.success) return apiError("INVALID_INPUT", "Invalid build request");
   const limited = await rateLimit(`build:${auth.user.id}`, Number(process.env.BUILD_RATE_PER_HOUR || 30), 3600);
   if (limited) return limited;
+  // Questions about NYNZ itself are answered in the conversation without a
+  // build, plan approval, sandbox, file change or credit reservation.
+  const platform = classifyPlatformQuestion(parsed.data.prompt);
+  if (platform) {
+    const { data: conversation } = await auth.supabase.from("conversations").select("id").eq("project_id", id).order("created_at").limit(1).maybeSingle();
+    if (conversation) {
+      const { error } = await auth.supabase.from("messages").insert([
+        { conversation_id: conversation.id, role: "user", content: parsed.data.prompt, metadata: { kind: "platform_question" } },
+        { conversation_id: conversation.id, role: "assistant", content: platform.reply, metadata: { kind: "platform_answer", topic: platform.kind } },
+      ]);
+      if (error) return apiError("INTERNAL", "Could not save the conversation", { cause: error, scope: "builds" });
+    }
+    return json({ informational: true, kind: platform.kind, message: platform.reply });
+  }
   const admin = createAdmin();
   const { data: existing } = await admin.from("build_jobs").select("*").eq("requested_by", auth.user.id).eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle();
   if (existing) return json({ build: existing }, { status: existing.project_id === id ? 202 : 409 });

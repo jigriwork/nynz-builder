@@ -16,6 +16,7 @@ import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { ProjectIntegrations } from "@/components/project-integrations";
+import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
 import { ProjectFileSearch } from "@/components/project-file-search";
 
 type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
@@ -253,6 +254,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: fullPrompt, mode: "create", idempotencyKey: `homepage-${draft.createdAt}-${project.id}` }) });
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || "Could not queue build");
+        if (body.informational) { setMessages((value) => [...value, { id: crypto.randomUUID(), role: "assistant", content: body.message, created_at: new Date().toISOString() }]); setNotice(""); return; }
         setBuilds((value) => [body.build, ...value]);
       } catch (error) { setNotice(error instanceof Error ? error.message : "Could not resume homepage brief"); }
     })();
@@ -260,8 +262,20 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   async function build(event?: FormEvent) {
     event?.preventDefault();
-    if (!prompt.trim() || running) return;
-    const text = prompt; setPrompt("");
+    if (!prompt.trim()) return;
+    const text = prompt;
+    // Questions about NYNZ itself are answered in chat even during a build or plan review.
+    const platformQuestion = classifyPlatformQuestion(text);
+    if (running && !platformQuestion) return;
+    setPrompt("");
+    if (platformQuestion) {
+      setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
+      const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok && body.informational) setMessages((value) => [...value, { id: crypto.randomUUID(), role: "assistant", content: body.message, created_at: new Date().toISOString() }]);
+      else setNotice(body.error || "Could not answer right now");
+      return;
+    }
     if (pendingPlan) {
       await reviewPlan({ action: "revise", changes: text }).catch(() => setPrompt(text));
       return;

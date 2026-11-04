@@ -7,14 +7,12 @@ import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, Layers3, Lock, Paperclip, Play, ShieldCheck, Smartphone, Sparkles, Zap } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
+import { PromptGuide } from "@/components/prompt-guide";
+import { MadeInOdisha } from "@/components/made-in-odisha";
+import { STARTERS } from "@/lib/prompt-starters";
 import { BuildPipeline, Reveal, buildStages, ease } from "@/components/nynz-motion";
 
-const examples = [
-  { label: "Operations", prompt: "Build a calm operations dashboard for a multi-location design studio" },
-  { label: "Commerce", prompt: "Create a visual inventory and order tracker for a ceramics brand" },
-  { label: "Community", prompt: "Make a member portal for a neighbourhood sports club" },
-  { label: "Product", prompt: "Build a focused launch tracker with owners, dates and status views" },
-];
+const typedExamples = STARTERS.slice(0, 4).map((starter) => starter.title);
 const marquee = ["Client portals", "Analytics dashboards", "Booking flows", "Internal CRMs", "Storefronts", "Habit trackers", "Admin panels", "Landing pages", "Event RSVPs", "Inventory tools", "Recipe boxes", "Team wikis"];
 const features = [
   { icon: Play, title: "Live preview", text: "Every build runs as a real application in its own isolated workspace, not a static mock-up.", wide: true },
@@ -60,7 +58,7 @@ export default function HomePage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const reduce = useReducedMotion();
-  const placeholder = useTypedPlaceholder(examples.map((example) => example.prompt), !reduce && !focused && !prompt);
+  const placeholder = useTypedPlaceholder(typedExamples, !reduce && !focused && !prompt);
 
   async function attach(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -85,11 +83,6 @@ export default function HomePage() {
     window.location.assign("/dashboard");
   }
 
-  function pickExample(text: string) {
-    setPrompt(text); setError("");
-    composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    composerRef.current?.focus();
-  }
 
   const words = ["Your", "idea."];
   return <main className="nynz-dark min-h-screen overflow-x-hidden bg-[#070b12] text-[#f4f1e8] selection:bg-[#c7ff4a] selection:text-[#071019]">
@@ -146,14 +139,14 @@ export default function HomePage() {
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-3 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </motion.form>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .8 }} className="mx-auto mt-6 max-w-[900px]">
-          <p className="mb-3 text-[10px] font-medium uppercase tracking-[.2em] text-white/35">Or start from an example</p>
-          <div className="flex flex-wrap justify-center gap-2">{examples.map((example) => <button key={example.label} type="button" onClick={() => pickExample(example.prompt)} className="group inline-flex max-w-full items-center gap-2 rounded-full border border-white/[.08] bg-white/[.025] py-1.5 pl-1.5 pr-3.5 text-left transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05]"><span className="rounded-full bg-white/[.07] px-2 py-0.5 text-[10px] uppercase tracking-[.12em] text-white/55 transition group-hover:bg-[#c7ff4a] group-hover:text-[#071019]">{example.label}</span><span className="truncate text-[12px] text-white/60 group-hover:text-white">{example.prompt.replace(/^(Build|Create|Make) (a|an) /, "")}</span></button>)}</div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .8 }}>
+          <PromptGuide value={prompt} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
         </motion.div>
 
         <motion.ul initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: 1 }} className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-[12px] text-white/50">
           {[[Code2, "Real, editable source"], [ShieldCheck, "Isolated sandbox previews"], [Lock, "Export anytime, no lock-in"]].map(([Icon, label]) => { const ItemIcon = Icon as typeof Code2; return <li key={String(label)} className="flex items-center gap-2"><ItemIcon className="h-3.5 w-3.5 text-[#c7ff4a]/80" />{String(label)}</li>; })}
         </motion.ul>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: 1.1 }} className="mt-6 flex justify-center"><MadeInOdisha /></motion.div>
       </section>
     </div>
 
@@ -209,13 +202,14 @@ function BuilderShowcase() {
   const rotateX = useTransform(scrollYProgress, [0, 1], [18, 0]);
   const scale = useTransform(scrollYProgress, [0, 1], [.9, 1]);
   const opacity = useTransform(scrollYProgress, [0, .5], [.3, 1]);
+  const reduce = useReducedMotion();
   return <section id="product" className="relative px-5 py-24 md:px-8 md:py-32">
     <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/3 h-[500px] w-[1000px] -translate-x-1/2 rounded-full bg-[#294662]/20 blur-[160px]" />
     <div className="relative mx-auto max-w-[1240px]">
-      <Reveal className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">The builder</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">See the work. Shape the result.</h2></div><p className="max-w-sm text-sm leading-6 text-white/55">A preview-first workspace with the conversation, build state and source always within reach.</p></Reveal>
+      <Reveal className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">The builder</p><h2 className="mt-3 max-w-2xl text-4xl font-medium tracking-[-.055em] md:text-6xl">See the work. Shape the result.</h2></div><p className="max-w-sm text-sm leading-6 text-white/55">A preview-first workspace with the conversation, build state and source always within reach. Try the example below: switch days, book a class, and compare the app before and after one change.</p></Reveal>
       <div ref={ref} style={{ perspective: 1400 }}>
-        <motion.div style={{ rotateX, scale, opacity, transformOrigin: "center top" }} className="overflow-hidden rounded-[20px] border border-white/[.12] bg-[#0d0e11] shadow-[0_60px_160px_rgba(0,0,0,.6),0_0_0_1px_rgba(199,255,74,.04)]">
-          <div className="flex h-10 items-center gap-1.5 border-b border-white/[.08] bg-[#0a0f17] px-4"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]/80" /><span className="mx-auto flex items-center gap-2 rounded-md bg-white/[.04] px-4 py-1 text-[10px] text-white/45"><Lock className="h-2.5 w-2.5" /> nynz.in/projects/fieldnote</span></div>
+        <motion.div style={reduce ? undefined : { rotateX, scale, opacity, transformOrigin: "center top" }} className="overflow-hidden rounded-[20px] border border-white/[.12] bg-[#0d0e11] shadow-[0_60px_160px_rgba(0,0,0,.6),0_0_0_1px_rgba(199,255,74,.04)]">
+          <div className="flex h-10 items-center gap-1.5 border-b border-white/[.08] bg-[#0a0f17] px-4"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]/80" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]/80" /><span className="mx-auto flex items-center gap-2 rounded-md bg-white/[.04] px-4 py-1 text-[10px] text-white/45"><Lock className="h-2.5 w-2.5" /> Interactive example</span></div>
           <BuilderMock />
         </motion.div>
       </div>
@@ -223,57 +217,68 @@ function BuilderShowcase() {
   </section>;
 }
 
-const mockPlan = ["Set the visual system", "Build inventory overview", "Add low-stock alerts", "Validate the production build"];
-const mockItems = [["Speckled mugs", 42, 80], ["Celadon glaze", 4, 12], ["Stoneware bowls", 26, 55], ["Kiln shelves", 2, 9], ["Bisque plates", 31, 64]] as const;
+type DemoClass = { id: string; time: string; name: string; teacher: string; level: string; spots: number; capacity: number };
+const DEMO_DAYS: Array<{ day: string; date: string; classes: DemoClass[] }> = [
+  { day: "Mon", date: "10", classes: [{ id: "m1", time: "07:00", name: "Sunrise Vinyasa", teacher: "Meera", level: "All levels", spots: 3, capacity: 14 }, { id: "m2", time: "12:30", name: "Lunchtime Stretch", teacher: "Arjun", level: "Gentle", spots: 0, capacity: 10 }, { id: "m3", time: "18:30", name: "Power Flow", teacher: "Sana", level: "Intermediate", spots: 6, capacity: 16 }] },
+  { day: "Tue", date: "11", classes: [{ id: "t1", time: "08:00", name: "Hatha Basics", teacher: "Arjun", level: "Beginner", spots: 8, capacity: 12 }, { id: "t2", time: "19:00", name: "Yin & Breath", teacher: "Meera", level: "Gentle", spots: 0, capacity: 12 }] },
+  { day: "Wed", date: "12", classes: [{ id: "w1", time: "07:00", name: "Sunrise Vinyasa", teacher: "Sana", level: "All levels", spots: 1, capacity: 14 }, { id: "w2", time: "17:30", name: "Core & Balance", teacher: "Kabir", level: "Intermediate", spots: 5, capacity: 12 }, { id: "w3", time: "20:00", name: "Restorative", teacher: "Meera", level: "Gentle", spots: 2, capacity: 10 }] },
+];
+const DEMO_BRIEF = "Build a class booking app for a small yoga studio called Stillwater. Members browse a weekly timetable, see spots left, and book or cancel a class. Calm, airy design with soft greens.";
+const DEMO_CHANGE = "When a class is full, let members join a waitlist and show their place in line.";
 
-/** Scripted, self-contained replica of the builder used on the homepage (no live routes). */
+/**
+ * Interactive example of a NYNZ-style build: a static, self-contained app with
+ * fictional data. It makes no network requests, shows no real account, preview
+ * URL or token, and is labelled as an example rather than a live generation.
+ */
 function BuilderMock() {
-  const [step, setStep] = useState(0);
-  const [visible, setVisible] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const last = buildStages.length - 1;
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: .25 });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    if (!visible) return;
-    const timer = setTimeout(() => setStep((value) => (value + 1) % (last + 3)), step >= last ? 3200 : 1200);
-    return () => clearTimeout(timer);
-  }, [step, visible, last]);
-  const stage = Math.min(step, last);
-  const live = stage === last;
-  const status = live ? "succeeded" : buildStages[stage].id;
-  return <div ref={ref} className="bg-[#080c13] text-left">
-    <div className="flex h-12 items-center gap-3 border-b border-white/[.07] px-3 sm:px-4">
+  const [dayIndex, setDayIndex] = useState(0);
+  const [booked, setBooked] = useState<Record<string, boolean>>({});
+  const [waitlist, setWaitlist] = useState<Record<string, number>>({});
+  const [device, setDevice] = useState<"desktop" | "phone">("desktop");
+  const [changed, setChanged] = useState(true);
+  const day = DEMO_DAYS[dayIndex];
+  const bookedCount = Object.values(booked).filter(Boolean).length;
+  return <div className="bg-[#080c13] text-left">
+    <div className="flex flex-wrap items-center gap-2 border-b border-white/[.07] px-3 py-2.5 sm:px-4">
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#c7ff4a]/15 text-[#c7ff4a]"><Box className="h-3.5 w-3.5" /></span>
-      <span className="min-w-0 truncate text-[13px] font-medium">Fieldnote inventory</span>
-      <div className="ml-auto hidden sm:block"><BuildPipeline status={status} compact /></div>
-      <span className={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] sm:ml-0 ${live ? "border-[#c7ff4a]/30 bg-[#c7ff4a]/10 text-[#c7ff4a]" : "border-white/[.1] text-white/60"}`}><i className={`h-1.5 w-1.5 rounded-full ${live ? "bg-[#c7ff4a]" : "animate-pulse bg-[#f5c451]"}`} />{live ? "Live" : buildStages[stage].label}</span>
+      <span className="min-w-0 truncate text-[13px] font-medium">Stillwater booking</span>
+      <span className="rounded-full border border-[#c7ff4a]/30 bg-[#c7ff4a]/10 px-2.5 py-1 text-[10px] font-medium text-[#c7ff4a]">Interactive example</span>
+      <div role="group" aria-label="Preview size" className="ml-auto flex rounded-lg border border-white/[.08] p-0.5 text-[11px]">{(["desktop", "phone"] as const).map((d) => <button key={d} type="button" onClick={() => setDevice(d)} aria-pressed={device === d} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 ${device === d ? "bg-white/[.1] text-white" : "text-white/50 hover:text-white"}`}>{d === "desktop" ? <Globe2 className="h-3 w-3" /> : <Smartphone className="h-3 w-3" />}{d === "desktop" ? "Desktop" : "Phone"}</button>)}</div>
     </div>
-    <div className="grid md:h-[540px] md:grid-cols-[320px_1fr]">
-      <aside className="hidden flex-col border-r border-white/[.07] bg-[#0a0f17] p-4 md:flex">
-        <div className="ml-auto max-w-[90%] rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">Build a calm inventory dashboard for a ceramics studio, with low-stock alerts and a quick add flow.</div>
-        <AnimatePresence>{step >= 1 && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .4, ease }} className="mt-4 rounded-2xl border border-white/[.07] bg-white/[.025] p-3.5">
-          <p className="flex items-center gap-2 text-[11px] font-medium text-[#c7ff4a]"><Sparkles className="h-3.5 w-3.5" /> Plan</p>
-          <p className="mt-2 text-[12px] leading-5 text-white/60">A focused stock dashboard with quick item entry.</p>
-          <ul className="mt-3 space-y-2">{mockPlan.map((item, index) => { const done = live || stage > index + 1; const now = !live && stage === index + 1; return <li key={item} className="flex items-center gap-2.5 text-[11.5px]"><span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-colors duration-500 ${done ? "border-[#c7ff4a]/40 bg-[#c7ff4a]/15 text-[#c7ff4a]" : now ? "border-[#c7ff4a]/60" : "border-white/[.12]"}`}>{done ? <Check className="h-2.5 w-2.5" /> : now ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#c7ff4a]" /> : null}</span><span className={done ? "text-white/70" : now ? "text-white" : "text-white/35"}>{item}</span></li>; })}</ul>
-        </motion.div>}</AnimatePresence>
-        <AnimatePresence>{live && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .4, ease }} className="mt-3 rounded-2xl border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] px-3.5 py-2.5 text-[12px] leading-5 text-white/80">Your app is live. Try adding an item, or ask me for a reorder button.</motion.div>}</AnimatePresence>
-        <div className="mt-auto flex items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.03] px-3 py-2.5 text-[11.5px] text-white/35">Ask for a change…<span className="ml-auto grid h-6 w-6 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019]"><ArrowRight className="h-3 w-3" /></span></div>
+    <div className="grid md:grid-cols-[300px_1fr]">
+      <aside className="flex flex-col gap-3 border-b border-white/[.07] bg-[#0a0f17] p-4 md:border-b-0 md:border-r">
+        <p className="text-[10px] font-medium uppercase tracking-[.16em] text-white/45">Original brief</p>
+        <p className="rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">{DEMO_BRIEF}</p>
+        <p className="mt-1 text-[10px] font-medium uppercase tracking-[.16em] text-white/45">One focused change</p>
+        <p className="rounded-2xl rounded-tr-md bg-white/[.07] px-3.5 py-2.5 text-[12px] leading-5 text-white/85">{DEMO_CHANGE}</p>
+        <div role="group" aria-label="Show the app before or after the change" className="flex rounded-xl border border-white/[.08] p-0.5 text-[11px]">
+          <button type="button" onClick={() => setChanged(false)} aria-pressed={!changed} className={`flex-1 rounded-lg px-2 py-1.5 ${!changed ? "bg-white/[.1] text-white" : "text-white/50"}`}>Before</button>
+          <button type="button" onClick={() => setChanged(true)} aria-pressed={changed} className={`flex-1 rounded-lg px-2 py-1.5 ${changed ? "bg-[#c7ff4a] text-[#071019]" : "text-white/50"}`}>After the change</button>
+        </div>
+        <p className="text-[11px] leading-5 text-white/50">{changed ? "Full classes now offer a waitlist with your place in line." : "Full classes simply show “Full”."} Try booking a class on the right.</p>
       </aside>
-      <div className="flex min-w-0 flex-col">
-        <div className="flex h-10 items-center gap-1 border-b border-white/[.07] px-3 text-[11px]">{[["Preview", Play], ["Code", Code2], ["History", History]].map(([label, Icon], index) => { const I = Icon as typeof Play; return <span key={label as string} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 ${index === 0 ? "bg-white/[.07] text-white" : "text-white/40"}`}><I className="h-3 w-3" />{label as string}</span>; })}<span className="ml-auto hidden items-center gap-1 text-white/35 sm:flex"><Globe2 className="h-3.5 w-3.5" /><Smartphone className="h-3.5 w-3.5" /></span></div>
-        <div className="relative flex-1 overflow-hidden bg-[#0d1117] p-3 sm:p-5">
-          <div className="h-full rounded-xl border border-white/[.07] bg-[#f6f3ec] p-4 text-[#1c1f24] sm:p-5">
-            <div className="flex items-center justify-between"><div><p className="text-[10px] font-medium uppercase tracking-[.16em] text-[#8a7f6e]">Fieldnote</p><p className="mt-1 text-lg font-semibold tracking-[-.03em] sm:text-xl">Studio stock</p></div><span className={`rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors duration-500 ${live ? "bg-[#1c1f24] text-white" : "bg-black/[.06] text-transparent"}`}>+ Add item</span></div>
-            <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">{[["Items", "248"], ["Low stock", "6"], ["Orders", "14"]].map(([label, value], index) => <div key={label} className="rounded-lg border border-black/[.06] bg-white p-2.5 sm:p-3"><p className="text-[10px] text-[#8a7f6e]">{label}</p>{live ? <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * .08, duration: .4, ease }} className={`mt-1 text-base font-semibold sm:text-xl ${index === 1 ? "text-[#c2410c]" : ""}`}>{value}</motion.p> : <span className="mt-2 block h-4 w-10 animate-pulse rounded bg-black/[.07]" />}</div>)}</div>
-            <div className="mt-4 overflow-hidden rounded-lg border border-black/[.06] bg-white">{mockItems.map(([name, qty, max], index) => { const low = qty < 5; return <div key={name} className="flex items-center gap-3 border-b border-black/[.05] px-3 py-2.5 last:border-0">{live ? <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .15 + index * .07, duration: .4, ease }} className="flex min-w-0 flex-1 items-center gap-3"><span className="min-w-0 flex-1 truncate text-[12px] font-medium">{name}</span>{low && <span className="rounded-full bg-[#fee2d5] px-2 py-0.5 text-[9.5px] font-medium text-[#c2410c]">Low</span>}<span className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-black/[.06] sm:block"><span className={`block h-full rounded-full ${low ? "bg-[#ea580c]" : "bg-[#1c1f24]"}`} style={{ width: `${(qty / max) * 100}%` }} /></span><span className="w-7 text-right text-[12px] tabular-nums text-[#5b5348]">{qty}</span></motion.div> : <span className="h-3 flex-1 animate-pulse rounded bg-black/[.06]" style={{ maxWidth: `${60 + index * 7}%` }} />}</div>; })}</div>
+      <div className="min-w-0 bg-[#0d1117] p-3 sm:p-5">
+        <div className={`mx-auto overflow-hidden border border-black/10 bg-[#f4f7f2] text-[#16241c] shadow-[0_20px_60px_rgba(0,0,0,.35)] transition-[max-width] duration-300 ${device === "phone" ? "max-w-[340px] rounded-[26px]" : "max-w-none rounded-xl"}`}>
+          <div className="flex items-center justify-between gap-3 bg-[#1f3d2f] px-4 py-3 text-white">
+            <div><p className="text-[10px] uppercase tracking-[.2em] text-[#bfe3c9]">Stillwater</p><p className="text-[15px] font-semibold">This week&apos;s classes</p></div>
+            <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px]" aria-live="polite">{bookedCount} booked</span>
           </div>
-          {!live && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 overflow-hidden"><span className="nynz-scan block h-full w-1/3 bg-gradient-to-r from-transparent via-[#c7ff4a] to-transparent" /></div>}
+          <div role="tablist" aria-label="Day" className="flex gap-1.5 border-b border-black/[.06] bg-white px-3 py-2.5">{DEMO_DAYS.map((d, index) => <button key={d.day} role="tab" type="button" aria-selected={index === dayIndex} onClick={() => setDayIndex(index)} className={`flex min-w-[52px] flex-col items-center rounded-xl px-3 py-1.5 text-[11px] ${index === dayIndex ? "bg-[#1f3d2f] text-white" : "text-[#16241c]/70 hover:bg-black/[.04]"}`}><span>{d.day}</span><span className="text-[15px] font-semibold">{d.date}</span></button>)}</div>
+          <ul className="divide-y divide-black/[.06]">{day.classes.map((c) => {
+            const isBooked = Boolean(booked[c.id]);
+            const left = c.spots - (isBooked ? 1 : 0);
+            const full = c.spots === 0;
+            const place = waitlist[c.id];
+            return <li key={c.id} className={`flex items-center gap-3 px-4 py-3 ${device === "phone" ? "flex-wrap" : ""}`}>
+              <span className="w-12 shrink-0 font-mono text-[12px] text-[#16241c]/60">{c.time}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold">{c.name}</span><span className="block text-[11px] text-[#16241c]/55">{c.teacher} · {c.level}</span></span>
+              <span className={`text-[11px] ${full ? "text-[#b4532a]" : "text-[#16241c]/60"}`}>{full ? (changed && place ? `Waitlist #${place}` : "Full") : `${left} of ${c.capacity} left`}</span>
+              {full ? (changed ? <button type="button" onClick={() => setWaitlist((w) => ({ ...w, [c.id]: w[c.id] ? 0 : 3 }))} className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${place ? "bg-[#fbe6dc] text-[#b4532a]" : "border border-[#b4532a]/40 text-[#b4532a]"}`}>{place ? "Leave waitlist" : "Join waitlist"}</button> : <span className="rounded-lg bg-black/[.05] px-3 py-1.5 text-[12px] text-[#16241c]/45">Full</span>)
+                : <button type="button" onClick={() => setBooked((b) => ({ ...b, [c.id]: !b[c.id] }))} className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${isBooked ? "bg-[#dcefe2] text-[#1f3d2f]" : "bg-[#1f3d2f] text-white"}`}>{isBooked ? "Booked · Cancel" : "Book"}</button>}
+            </li>;
+          })}</ul>
+          <p className="px-4 pb-3 pt-1 text-[10px] text-[#16241c]/45">Fictional studio and demonstration data.</p>
         </div>
       </div>
     </div>
@@ -282,6 +287,7 @@ function BuilderMock() {
 
 /** Self-running demo that loops through the real build stages. */
 function LiveBuild() {
+  const reduce = useReducedMotion();
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -293,16 +299,17 @@ function LiveBuild() {
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
+    if (reduce) { setStep(buildStages.length - 1); return; }
     if (!visible) return;
     const timer = setTimeout(() => setStep((value) => (value + 1) % (buildStages.length + 2)), step >= buildStages.length - 1 ? 2600 : 1300);
     return () => clearTimeout(timer);
-  }, [step, visible]);
+  }, [step, visible, reduce]);
   const stage = Math.min(step, buildStages.length - 1);
   const live = step >= buildStages.length - 1;
   return <section className="border-y border-white/[.06] bg-[#080d15] px-5 py-24 md:px-8 md:py-32">
     <div ref={ref} className="mx-auto grid max-w-[1240px] items-center gap-14 lg:grid-cols-[.9fr_1.1fr]">
       <Reveal>
-        <p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">Watch it happen</p>
+        <p className="text-[11px] font-medium uppercase tracking-[.22em] text-[#c7ff4a]">Watch it happen <span className="ml-2 rounded-full border border-white/15 px-2 py-0.5 text-[9px] tracking-[.14em] text-white/55">Illustration</span></p>
         <h2 className="mt-3 text-4xl font-medium tracking-[-.055em] md:text-6xl">From sentence to live app in one flow.</h2>
         <p className="mt-6 max-w-md text-base leading-7 text-white/55">NYNZ plans the structure, writes every file, installs dependencies, runs a production build and serves the result. You see each step as it happens.</p>
         <div className="mt-8 grid max-w-md grid-cols-3 gap-3">{[["6 stages", "Visible as they run"], ["100%", "Source you own"], ["1 click", "Export or restore"]].map(([value, label]) => <div key={label} className="rounded-2xl border border-white/[.08] bg-white/[.02] p-4"><p className="text-xl font-medium tracking-[-.03em] text-[#c7ff4a]">{value}</p><p className="mt-1 text-[11px] leading-4 text-white/50">{label}</p></div>)}</div>
