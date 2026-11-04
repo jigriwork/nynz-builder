@@ -98,7 +98,7 @@ export default function HomePage() {
           <a href="#product" className="transition hover:text-[#f4f1e8]">Product</a>
           <a href="#how" className="transition hover:text-[#f4f1e8]">How it works</a>
           <a href="#faq" className="transition hover:text-[#f4f1e8]">FAQ</a>
-          <span className="flex items-center gap-2 text-[12px] text-white/45"><span className="relative flex h-1.5 w-1.5"><span className="absolute inset-0 animate-ping rounded-full bg-[#c7ff4a]/60" /><i className="h-1.5 w-1.5 rounded-full bg-[#c7ff4a]" /></span> Systems operational</span>
+          <Link href="/pricing" className="transition hover:text-[#f4f1e8]">Pricing</Link>
         </nav>
         <div className="flex items-center gap-2">
           <Link href="/login" className="hidden rounded-full px-4 py-2 text-[13px] text-white/65 transition hover:text-white sm:inline-flex">Sign in</Link>
@@ -128,7 +128,7 @@ export default function HomePage() {
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
               <span className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-[#c7ff4a]" /> New application</span>
-              <span className="hidden sm:inline">Production-ready source</span>
+              <span className="hidden sm:inline">Compiled, editable React source</span>
             </div>
             <textarea ref={composerRef} value={prompt} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(event) => { setPrompt(event.target.value); setError(""); }} rows={4} maxLength={30_000} placeholder={focused ? "Describe the app you want to build…" : placeholder} aria-label="Application description" className="min-h-[140px] w-full resize-none bg-transparent px-5 pb-5 pt-4 text-[18px] leading-7 text-[#f4f1e8] outline-none placeholder:text-white/35 md:text-[21px]" />
             <div className="mx-2 flex flex-col gap-2 border-t border-white/[.07] p-2.5 md:flex-row md:items-center">

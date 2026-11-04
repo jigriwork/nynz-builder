@@ -65,6 +65,8 @@ Use supplied assets at their exact /uploads paths. Use graceful image fallbacks.
 Prefer focused components and data modules. Keep every file below 16,000 characters.
 Match architecture to the actual brief. A calculator or other single-purpose utility should normally use 7–10 files; do not split trivial UI into many tiny files. Reserve larger manifests for genuinely multi-screen products.
 Never use semantic Tailwind utilities such as bg-background, text-foreground or border-border inside @apply unless the Tailwind theme defines them. Prefer ordinary CSS for global defaults.
+Give the product its own name, a specific <title> and meta description in index.html, a favicon, and a package.json name derived from the product (never a generic starter name).
+Use reserved example domains (example.com) and fictional people for sample data. Do not use real brands, people or logos unless the user supplied or requested them. Never add "made with", "powered by" or platform badges, including for NYNZ.
 Use no secrets. Include every imported package in package.json. The result must pass npm run build.`;
 
 function models(role: "plan" | "create" | "edit") {

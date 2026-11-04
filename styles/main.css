@@ -1,5 +1,5 @@
-/* Fire Design System - Must be imported first for color definitions */
-@import "./fire.css";
+/* Base styles must be imported first for color definitions */
+@import "./base.css";
 @import "./components/index.css";
 @import "./inside-border-fix.css";
 

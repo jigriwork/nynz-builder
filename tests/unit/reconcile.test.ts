@@ -54,7 +54,7 @@ describe("resource reconciliation", () => {
     const summary = await reconcileResources({
       db, now: () => now,
       killSandbox: async (id) => { if (id === "sbx-gone") throw new Error("SandboxNotFoundError: sandbox not found"); killed.push(id); },
-      listSandboxes: async () => [
+      listSandboxes: async (): Promise<Array<{ sandboxId: string; startedAt: Date; metadata: Record<string, string> }>> => [
         { sandboxId: "sbx-live", startedAt: new Date(now - 3600_000), metadata: {} },
         { sandboxId: "sbx-orphan", startedAt: new Date(now - 3600_000), metadata: { projectId: "p9" } },
         { sandboxId: "sbx-new", startedAt: new Date(now - 60_000), metadata: {} },
