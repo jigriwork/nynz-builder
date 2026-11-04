@@ -13,5 +13,6 @@ export async function loadStaff(capability = "admin.access") {
   const access = await getStaffAccess(supabase);
   if (!access.is_staff || !access.session_valid || !access.capabilities.includes("admin.access")) notFound();
   if (!access.capabilities.includes(capability)) notFound();
+  if (!access.mfa_satisfied) redirect("/account/security?notice=mfa_required");
   return { supabase, user, access, email: user.email || "", can: (cap: string) => access.capabilities.includes(cap) };
 }

@@ -65,7 +65,7 @@ export function modelPriceCeiling(models: string[], env: Record<string, string |
 
 /** Actual charge for a completed call: provider-reported cost when present. */
 export function actualModelCallPaise(input: { model: string; inputTokens: number; outputTokens: number; providerCostUsd?: number | null }, env: Record<string, string | undefined> = process.env) {
-  if (input.providerCostUsd && input.providerCostUsd > 0) return { paise: usdToPaise(input.providerCostUsd, env), source: "provider_reported" as const };
+  if (input.providerCostUsd != null && Number.isFinite(input.providerCostUsd) && input.providerCostUsd >= 0) return { paise: usdToPaise(input.providerCostUsd, env), source: "provider_reported" as const };
   const price = priceFor(input.model, env);
   return { paise: usdToPaise(input.inputTokens * price.in + input.outputTokens * price.out, env), source: "estimated_from_price_table" as const, priceSource: price.source };
 }

@@ -18,7 +18,7 @@ import {
 
 type SourceFile = { path: string; content: string };
 type Usage = { prompt_tokens: number; completion_tokens: number; costUsd: number };
-type OnUsage = (event: Usage & { model: string; requestId: string | null }) => Promise<void>;
+type OnUsage = (event: Usage & { model: string; requestId: string | null; providerCostReported?: boolean }) => Promise<void>;
 /** Called before every paid request with a worst-case estimate; throw to stop. */
 export type BeforeRequest = (event: { role: "plan" | "create" | "edit"; models: string[]; estimatedPaise: number; maxTokens: number }) => Promise<void>;
 type OnProgress = (event: { current: number; total: number; percent: number; message?: string }) => Promise<void>;
@@ -110,7 +110,7 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
     const usage: Usage = { prompt_tokens: Number(raw.usage?.prompt_tokens || 0), completion_tokens: Number(raw.usage?.completion_tokens || 0), costUsd: Number(raw.usage?.cost || 0) };
     const model = String(raw.model || models(input.role)[0]);
     const requestId = typeof raw.id === "string" ? raw.id : response.headers.get("x-request-id");
-    await input.onUsage?.({ ...usage, model, requestId });
+    await input.onUsage?.({ ...usage, model, requestId, providerCostReported: typeof raw.usage?.cost === "number" && Number.isFinite(raw.usage.cost) && raw.usage.cost >= 0 });
     if (choice?.finish_reason === "length") throw new Error("OpenRouter response reached its output limit");
     if (!choice?.message?.content) throw new Error("OpenRouter returned an empty response");
     return { value: JSON.parse(choice.message.content), usage, model, requestId };

@@ -7,8 +7,8 @@ export { redactPreviewUrl } from "./token";
  * PREVIEW_ORIGIN is a template. "https://{projectId}.preview.nynz.in" gives every
  * generated app its own browser origin (cookies, storage and service workers
  * cannot collide between apps). A template without {projectId} is the legacy
- * shared-origin mode, which works but shares one origin between all of a
- * browser's previews; see docs/RELEASE.md for the wildcard-domain setup.
+ * shared-origin mode, permitted only in development. Production requires an
+ * isolated project hostname; see docs/RELEASE.md for wildcard-domain setup.
  */
 export function getPreviewOrigin(projectId: string) {
   const template = process.env.PREVIEW_ORIGIN || "http://{projectId}.preview.localhost:3001";

@@ -45,16 +45,16 @@ export class BuildMeter {
     this.pending.push({ spendId: Number(spendId), eventKey, model: event.models[0] });
   }
 
-  async afterModelCall(event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null }) {
+  async afterModelCall(event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null; providerCostReported?: boolean }) {
     // Failed/aborted requests retain their conservative authorised hold. The
     // latest request, not an earlier failed attempt, owns this response.
     const call = this.pending.pop();
-    const cost = actualModelCallPaise({ model: event.model, inputTokens: event.prompt_tokens, outputTokens: event.completion_tokens, providerCostUsd: event.costUsd }, this.env);
+    const cost = actualModelCallPaise({ model: event.model, inputTokens: event.prompt_tokens, outputTokens: event.completion_tokens, providerCostUsd: event.providerCostReported === false ? undefined : event.costUsd }, this.env);
     const eventKey = event.requestId ? `openrouter:${event.requestId}` : call?.eventKey || `model:${this.job.id}:${randomUUID()}`;
     const base = { owner_id: this.job.requested_by, project_id: this.job.project_id, build_id: this.job.id, provider: "openrouter", model: event.model, provider_request_id: event.requestId };
     const usage = await this.db.from("usage_events").insert([
       { ...base, kind: "model_input_tokens", quantity: event.prompt_tokens, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
-      { ...base, kind: "model_output_tokens", quantity: event.completion_tokens, estimated_cost_minor: cost.paise || null, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
+      { ...base, kind: "model_output_tokens", quantity: event.completion_tokens, estimated_cost_minor: cost.paise, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
     ]);
     if (usage.error) console.error(`[meter] usage recording failed for build ${this.job.id}`);
     if (call?.spendId) {

@@ -29,6 +29,7 @@ describe("model-aware cost weighting", () => {
     expect(outputHeavy.paise).toBeGreaterThan(sonnet.paise);
   });
   it("prefers provider-reported cost and labels estimates", () => {
+    expect(actualModelCallPaise({ model: "x", inputTokens: 1000, outputTokens: 1000, providerCostUsd: 0 }, env)).toEqual({ paise: 0, source: "provider_reported" });
     expect(actualModelCallPaise({ model: "x", inputTokens: 1, outputTokens: 1, providerCostUsd: 0.01 }, env)).toEqual({ paise: 95, source: "provider_reported" });
     expect(actualModelCallPaise({ model: "unknown/model", inputTokens: 1000, outputTokens: 0 }, env).source).toBe("estimated_from_price_table");
   });
