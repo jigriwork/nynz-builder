@@ -3,6 +3,10 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.14
+
+- Logo: a little more space between the N mark and the word NYNZ, so it no longer reads as "NNYNZ". The original logo file is unchanged; the site uses public/brand/nynz-wordmark-spaced.png.
+
 ## 0.3.13
 
 - Starter ideas are a tidy grid of matching cards with an icon each (two columns on phones, three on wider screens).
