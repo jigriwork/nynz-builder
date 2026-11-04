@@ -58,6 +58,11 @@ services:
         sync: false
       - key: E2B_API_KEY
         sync: false
-      # PREVIEW_SIGNING_SECRET is intentionally unset: Vercel and the preview
-      # gateway sign with the SUPABASE_SERVICE_ROLE_KEY fallback, and the worker
-      # never signs preview sessions. Set it on all three together if rotated.
+      # Required since release 0.3 (the worker checks preview signing at start-up).
+      # Use the same value as the web app and preview host; never the service key.
+      - key: PREVIEW_SIGNING_SECRET
+        sync: false
+      - key: PREVIEW_IDLE_DAYS
+        value: "7"
+      - key: PAISE_PER_CREDIT
+        value: "100"

@@ -21,7 +21,8 @@
     "test:db": "vitest run tests/db",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm check:brand",
     "check:brand": "tsx scripts/check-brand.ts",
-    "notices": "tsx scripts/third-party-notices.ts"
+    "notices": "tsx scripts/third-party-notices.ts",
+    "verify:release": "tsx scripts/verify-release.ts"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.9.0",

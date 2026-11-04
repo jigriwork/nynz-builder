@@ -65,10 +65,12 @@ export function migrationFiles() {
   return readdirSync(dir).filter((name) => name.endsWith(".sql")).sort().map((name) => ({ name, sql: readFileSync(join(dir, name), "utf8") }));
 }
 
-export async function createDb(): Promise<Db> {
+export async function createDb(options: { until?: string; beforeRest?: (db: Db) => Promise<void> } = {}): Promise<Db> {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
+  let seeded = false;
   for (const migration of migrationFiles()) {
+    if (options.until && !seeded && migration.name > options.until) { seeded = true; await options.beforeRest?.(db); }
     try { await db.exec(migration.sql); }
     catch (error) { throw new Error(`Migration ${migration.name} failed: ${(error as Error).message}`); }
   }

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NYNZ_EMAIL_DELIVERY: disabled
+      # Placeholder values so the production build can compile; no real services are contacted.
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+      PREVIEW_SIGNING_SECRET: ci-only-preview-signing-secret-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Unit and database tests (real migrations on in-process Postgres)
+        run: pnpm test
+      - run: pnpm check:brand
+      - run: pnpm build
