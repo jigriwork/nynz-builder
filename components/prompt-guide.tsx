@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Lightbulb, PenLine, X } from "lucide-react";
+import { CalendarCheck2, Handshake, Lightbulb, ListChecks, Package, PenLine, ShoppingBag, Trophy, X } from "lucide-react";
 import { STARTERS, draftToPrompt, type StarterDraft } from "@/lib/prompt-starters";
 
 const TIPS: Array<[string, string]> = [
@@ -11,6 +11,8 @@ const TIPS: Array<[string, string]> = [
   ["Look", "How it should feel. “Warm and earthy, large readable text.”"],
   ["Data", "Demonstration data saved in the browser, or your own connected Supabase project."],
 ];
+
+const STARTER_ICONS = { Booking: CalendarCheck2, Inventory: Package, CRM: Handshake, Portal: Trophy, Storefront: ShoppingBag, Tracker: ListChecks } as const;
 
 const field = "w-full rounded-xl border border-white/[.1] bg-white/[.035] px-3 py-2 text-[13px] text-white outline-none placeholder:text-white/35 focus:border-[#c7ff4a]/45";
 
@@ -62,7 +64,10 @@ export function PromptGuide({ getValue, onChange }: { getValue: () => string; on
     </form>}
     <div className="mt-4">
       <p className="mb-2 text-center text-[10px] font-medium uppercase tracking-[.2em] text-white/40">Starter ideas</p>
-      <div className="flex flex-wrap justify-center gap-2">{STARTERS.map((starter) => <button key={starter.label} type="button" onClick={() => put(starter.prompt)} title={starter.prompt} className="nynz-lift group inline-flex max-w-full items-center gap-2 rounded-full border border-white/[.08] bg-white/[.025] py-1.5 pl-1.5 pr-3.5 text-left transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05]"><span className="rounded-full bg-white/[.07] px-2 py-0.5 text-[10px] uppercase tracking-[.12em] text-white/60 transition group-hover:bg-[#c7ff4a] group-hover:text-[#071019]">{starter.label}</span><span className="truncate text-[12px] text-white/65 group-hover:text-white">{starter.title}</span></button>)}</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{STARTERS.map((starter) => { const Icon = STARTER_ICONS[starter.label]; return <button key={starter.label} type="button" onClick={() => put(starter.prompt)} title={starter.prompt} className="nynz-lift group flex min-w-0 items-start gap-2.5 rounded-2xl border border-white/[.08] bg-white/[.025] p-3 text-left transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05]">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/[.06] text-[#c7ff4a] transition group-hover:bg-[#c7ff4a] group-hover:text-[#071019]"><Icon className="h-4 w-4" /></span>
+        <span className="min-w-0"><span className="block text-[10px] font-medium uppercase tracking-[.14em] text-white/45">{starter.label}</span><span className="mt-0.5 line-clamp-2 block text-[12px] leading-[1.35] text-white/75 group-hover:text-white">{starter.title}</span></span>
+      </button>; })}</div>
     </div>
   </div>;
 }

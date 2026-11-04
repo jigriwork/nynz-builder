@@ -251,21 +251,27 @@ body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-t
     8% { opacity: 1; }
     100% { transform: scale(1.16, 1.55); opacity: 0; }
   }
+  /* Phones: the composer nearly fills the width, so ripples grow mostly up and down. */
+  @media (max-width: 639px) { .nynz-ripple { animation-name: nynz-ripple-tall; } }
+  @keyframes nynz-ripple-tall {
+    0% { transform: scale(1, 1); opacity: 0; }
+    8% { opacity: 1; }
+    100% { transform: scale(1.035, 1.5); opacity: 0; }
+  }
   .group\/aura:focus-within .nynz-ripple { animation-play-state: paused; opacity: 0; }
 }
 
 /* Made in India badge: tricolour edge, warm glow, slow light sweep. */
 .nynz-proud {
   border: 1px solid transparent;
-  background: linear-gradient(#0e1621, #0e1621) padding-box, linear-gradient(90deg, #ff9933, #f4f1e8 50%, #2fbf3a) border-box;
-  box-shadow: -14px 0 30px -12px rgba(255, 153, 51, .45), 14px 0 30px -12px rgba(47, 191, 58, .4);
+  background: linear-gradient(#0e1621, #0e1621) padding-box, linear-gradient(90deg, rgba(255, 153, 51, .55), rgba(244, 241, 232, .22) 50%, rgba(47, 191, 58, .55)) border-box;
 }
 .nynz-proud::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .16) 50%, transparent 70%);
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .09) 50%, transparent 70%);
   transform: translateX(-120%);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .nynz-proud::after { animation: nynz-proud-sweep 4.5s ease-in-out 1.2s infinite; }
-  @keyframes nynz-proud-sweep { 0% { transform: translateX(-120%); } 45%, 100% { transform: translateX(120%); } }
+  .nynz-proud::after { animation: nynz-proud-sweep 7s ease-in-out 1.5s infinite; }
+  @keyframes nynz-proud-sweep { 0% { transform: translateX(-120%); } 30%, 100% { transform: translateX(120%); } }
 }

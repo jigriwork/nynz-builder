@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.13
+
+- Starter ideas are a tidy grid of matching cards with an icon each (two columns on phones, three on wider screens).
+- Launch ripples on phones grow mostly up and down, so the screen edge never cuts them.
+- Made in India badge keeps its bright text but has a softer tricolour edge, no side glow and a gentler shine.
+
 ## 0.3.12
 
 - Removed the floating app cards, phone ticker and pointer glow from the homepage hero.
