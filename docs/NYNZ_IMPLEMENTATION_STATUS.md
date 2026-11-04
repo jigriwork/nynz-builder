@@ -1,9 +1,9 @@
 # NYNZ release 0.3: implementation status
 
 **Date:** 4 November 2026 (Asia/Kolkata)
-**Branch:** `feat/nynz-platform` (local; not pushed). Base: `e24612b`.
+**Branch:** `feat/nynz-platform` (pushed). Base: `e24612b`.
 **Commits:** `e71b8a9` isolation and preview sessions · `726dea5` staged builds, ledger, staff and billing schema · `6721aef` admin console, team, account security, billing UI · `c7389d7` inherited-surface removal, metadata, safe errors · `83b9235` backends, publishing, GitHub · final commit: verification scripts, CI and documentation.
-**Production state:** nothing in this release has been deployed or applied. A read-only probe on 4 Nov 2026 confirmed none of the nine 0.3 migrations exist on Supabase project `rgrlilmfjurdchcnxolt`. See [RELEASE.md](RELEASE.md).
+**Production state (4 Nov 2026):** released. All nine 0.3 migrations were first rehearsed on production inside a rolled-back transaction, then applied with `supabase db push`. The web app (Vercel `nynz-platform-preview`, www.nynz.in) and preview host (Vercel `preview-host`, preview.nynz.in) were deployed, and the Render worker auto-deployed from the branch. All 7 existing previews were bound to their projects; no conflicts. Post-deploy: `verify:release` 28/28 and `verify-public-pages` 34/34 against www.nynz.in. Follow-up fix: the preview host needed explicit `.js` imports (it returned 500 for a few minutes after the first deploy).
 
 ## Status key
 
@@ -17,8 +17,8 @@
 | Item | State |
 |---|---|
 | ID ↔ email | Verified read-only against production: user `41080a24-57a9-4686-8d53-c0a3a9e09588` is `adib@nynz.in`, email confirmed, not banned, no MFA factor, currently `profiles.role = member`. `pnpm bootstrap:owner … --check` passes; a mismatched email is refused (exit 3). |
-| Owner assigned? | **No, not in any hosted environment.** The bootstrap needs migration `20261104100300` first. Assignment is tested (exact match, idempotent, mismatch/unverified refusal, logging) on the real migrations locally. |
-| Admin URL | `https://www.nynz.in/admin` (after release). Non-staff receive 404. |
+| Owner assigned? | **Yes, in production** (Supabase `rgrlilmfjurdchcnxolt`): bootstrap returned `created_owner`, re-run returned `already_owner`; staff record owner/active, logged and audited. |
+| Admin URL | `https://www.nynz.in/admin`. Non-staff receive 404 (verified in production). Mobile layout is responsive but has not been checked signed-in on a phone. |
 | Back to workspace | "Back to workspace" in the console header → `/dashboard`. The owner keeps the normal builder; the account menu shows "Admin console". |
 | Adding team members | Admin → Team → "Add a team member": email, optional name, role, optional capabilities, reason. Existing accounts accept in-app (Account menu → Staff invitation); new addresses get a Supabase activation email and choose their own password. Resend/revoke from the Invitations table; Manage → role, capabilities, require 2FA, suspend/reactivate, remove. Details: [PERMISSIONS.md](PERMISSIONS.md), [OWNERSHIP.md](OWNERSHIP.md). |
 
@@ -97,7 +97,8 @@ Covered: customer grants (included, purchased, promotional, owner testing, adjus
 | `pnpm build` | Pass |
 | `scripts/verify-public-pages.ts` on local production build | Pass: 34/34 browser checks |
 | `pnpm bootstrap:owner --check` against production | Pass (read-only); mismatch correctly refused |
-| `pnpm verify:release` (post-deploy, authenticated journeys) | **Not run**: requires the release to be deployed |
+| `pnpm verify:release` against www.nynz.in | Pass: 28/28 (fixture accounts removed) |
+| `verify-public-pages` against www.nynz.in | Pass: 34/34 |
 | Paid generation, E2B, Firecrawl calls | **Not run** |
 
 Concurrency note: PGlite runs one connection, so "concurrent" credit and restore tests exercise the locking logic sequentially; row locks guarantee the behaviour on Postgres but true parallel load was not tested.
@@ -106,8 +107,8 @@ Concurrency note: PGlite runs one connection, so "concurrent" credit and restore
 
 ## Exact blockers and remaining setup
 
-1. Your authorisation to release: set env vars, apply the nine migrations, push/deploy, run the owner bootstrap ([RELEASE.md](RELEASE.md)). The Supabase database password is not in this workspace, so the CLI cannot apply migrations from here.
-2. `PREVIEW_SIGNING_SECRET` on the web app, preview host and worker (required; previews stop without it).
+1. Done: release applied and deployed. Rotate the Supabase database password (it was shared in chat).
+2. `PREVIEW_SIGNING_SECRET` is set on both Vercel projects. Not set on Render (no API access); the worker does not sign previews, so this only shows as "preview signing missing" in its health report.
 3. Wildcard DNS for per-app preview origins and for published sites; Vercel API token for custom domains.
 4. Razorpay test keys, webhook secret and webhook registration; later merchant activation, legal entity, GSTIN and invoice details for live mode.
 5. GitHub App registration.
