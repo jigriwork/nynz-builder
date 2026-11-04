@@ -102,7 +102,10 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [messages, setMessages] = useState(initialMessages);
   const [builds, setBuilds] = useState(initialBuilds);
   const [selected, setSelected] = useState(initialFiles[0]?.path || "");
-  const [prompt, setPrompt] = useState("");
+  // The chat box keeps its own text, so typing does not re-render the whole
+  // workspace (chat, code and preview). Only empty/non-empty changes re-render.
+  const promptRef = useRef("");
+  const [hasPrompt, setHasPrompt] = useState(false);
   const [url, setUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [usageCredits, setUsageCredits] = useState(initialCredits);
@@ -132,6 +135,12 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const conversation = useRef<HTMLDivElement>(null);
   const followConversation = useRef(true);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const setPrompt = useCallback((next: string | ((value: string) => string)) => {
+    const value = typeof next === "function" ? next(promptRef.current) : next;
+    promptRef.current = value;
+    if (composer.current && composer.current.value !== value) composer.current.value = value;
+    setHasPrompt(Boolean(value.trim()));
+  }, []);
   const codeEditor = useRef<HTMLTextAreaElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
   const assetInput = useRef<HTMLInputElement>(null);
@@ -262,8 +271,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   async function build(event?: FormEvent) {
     event?.preventDefault();
-    if (!prompt.trim()) return;
-    const text = prompt;
+    const text = promptRef.current;
+    if (!text.trim()) return;
     // Questions about NYNZ itself are answered in chat even during a build or plan review.
     const platformQuestion = classifyPlatformQuestion(text);
     if (running && !platformQuestion) return;
@@ -509,13 +518,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           <AnimatePresence>{showReference && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden"><div className="mb-2 flex gap-1.5"><div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[.09] bg-[#0a0f17] px-3"><Globe2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" /><input value={url} onChange={(event) => setUrl(event.target.value)} autoFocus placeholder="Paste a public website URL" className="h-9 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-white/35" /></div><button type="button" onClick={importUrl} disabled={!url} className="rounded-xl bg-white/[.08] px-3 text-[11px] text-white/75 transition hover:bg-white/[.12] disabled:opacity-30">Add</button></div></motion.div>}</AnimatePresence>
           {assets.length > 0 && <div className="nynz-scrollbar mb-2 flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">{assets.map((asset) => <span key={asset.storageName} className="group flex max-w-full items-center gap-1.5 rounded-lg border border-white/[.08] bg-white/[.035] py-1 pl-1.5 pr-1 text-[9px] text-white/55">{asset.previewUrl && /\.(png|jpe?g|webp|gif|svg)$/i.test(asset.name) ? <Image unoptimized src={asset.previewUrl} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" /> : <FileImage className="h-3 w-3 text-[#c7ff4a]/70" />}<span className="max-w-[180px] truncate">{asset.name}</span><button type="button" onClick={() => removeAsset(asset)} aria-label={`Remove ${asset.name}`} className="grid h-5 w-5 place-items-center rounded text-white/30 hover:bg-white/[.07] hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
           <div className="nynz-composer relative rounded-2xl bg-[#121a26] p-2 shadow-[0_10px_40px_rgba(0,0,0,.25)]" style={{ animation: "none" }}>
-            <textarea ref={composer} value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={onComposerKey} placeholder={files.length ? "Ask for a change…" : "Describe your app…"} rows={3} className="w-full resize-none bg-transparent px-2 py-1.5 text-[13px] leading-5 outline-none placeholder:text-white/35" />
+            <textarea ref={composer} defaultValue="" onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); }} onKeyDown={onComposerKey} placeholder={files.length ? "Ask for a change…" : "Describe your app…"} rows={3} className="w-full resize-none bg-transparent px-2 py-1.5 text-[13px] leading-5 outline-none placeholder:text-white/35" />
             <div className="mt-1 flex items-center gap-1">
               <button type="button" onClick={() => setShowReference((value) => !value)} aria-label="Add website reference" title="Add website reference" className={`grid h-8 w-8 place-items-center rounded-lg transition ${showReference ? "bg-[#c7ff4a]/[.12] text-[#c7ff4a]" : "text-white/45 hover:bg-white/[.06] hover:text-white/80"}`}><Globe2 className="h-4 w-4" /></button>
               <input ref={assetInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,font/woff,font/woff2,font/ttf,application/pdf,text/plain,text/csv,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAsset(file); }} />
               <button type="button" onClick={() => assetInput.current?.click()} disabled={assetBusy} aria-label="Upload project file" title="Upload logo, image or project file" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white/80 disabled:opacity-35">{assetBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <span className="flex-1 truncate px-1 text-[10px] text-white/30"><kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift + Enter</kbd> for a new line</span>
-              {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!prompt.trim()} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none"><ArrowUp className="h-4 w-4" /></motion.button>}
+              {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!hasPrompt} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none"><ArrowUp className="h-4 w-4" /></motion.button>}
             </div>
           </div>
         </form>
@@ -541,7 +550,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
                 <motion.div layout transition={{ type: "spring", stiffness: 260, damping: 30 }} className={`mx-auto h-full ${device === "mobile" ? "max-w-[400px]" : "max-w-none"}`}>
                   {previewSrc ? <div className={`flex h-full flex-col overflow-hidden border border-white/[.08] bg-white shadow-[0_24px_70px_rgba(0,0,0,.45)] ${device === "mobile" ? "rounded-[28px] border-[6px] border-[#1a2230]" : "rounded-xl"}`}>
                     {!running && project.preview_revision != null && project.source_revision != null && project.preview_revision !== project.source_revision && <div role="status" className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-300/30 bg-[#2a2210] px-3 py-1.5 text-[11px] text-amber-100"><span>The preview is showing an earlier version of your files.</span><button onClick={restart} className="rounded-md border border-amber-200/30 px-2 py-0.5 font-medium hover:bg-amber-200/10">Restart preview</button></div>}
-                    <iframe key={previewSrc} src={previewSrc} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" referrerPolicy="no-referrer" className="h-full w-full bg-white" />
+                    <iframe key={previewSrc} src={previewSrc} title="Application preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin" referrerPolicy="no-referrer" className="nynz-reveal h-full w-full bg-white" />
                   </div> : <PreviewPlaceholder running={Boolean(running)} status={running?.status} progress={lastProgress} error={project.last_error} />}
                 </motion.div>
               </div>}

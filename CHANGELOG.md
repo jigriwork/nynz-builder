@@ -3,6 +3,13 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.7
+
+- Typing no longer re-renders the homepage, dashboard or builder: each prompt box keeps its own text and the page only updates when it switches between empty and not empty. The homepage typing placeholder writes directly to the box instead of re-rendering the page.
+- Paint-heavy effects (rotating border, blurred background motion, text sweep, marquee) pause while you type; the border never rotates on touch devices; the opaque composers no longer use a hidden glass blur.
+- New motion using only transform and opacity: heartbeat on the Made in India heart, a slow light ring behind the homepage composer, pop-in prompt panels, lift on starter ideas, bouncing counts and staggered rows in the interactive example, and a soft reveal when a builder preview loads. All respect reduced-motion settings.
+- Added scripts/perf/typing-latency.ts to measure typing responsiveness on a simulated mid-range phone.
+
 ## 0.3.6
 
 - Compact prompt guidance and a "Help me write my prompt" form on the homepage and dashboard composers; they only fill the box (confirmation before replacing text), never submit or spend credits.

@@ -20,10 +20,11 @@ const field = "w-full rounded-xl border border-white/[.1] bg-white/[.035] px-3 p
  * composer; nothing submits, creates a project or uses credits. Existing text
  * is replaced only after the person confirms.
  */
-export function PromptGuide({ value, onChange }: { value: string; onChange: (text: string) => void }) {
+export function PromptGuide({ getValue, onChange }: { getValue: () => string; onChange: (text: string) => void }) {
   const [panel, setPanel] = useState<"none" | "tips" | "helper">("none");
   const [draft, setDraft] = useState<StarterDraft>({ name: "", purpose: "", users: "", features: "", look: "", data: "demo" });
   const put = (text: string) => {
+    const value = getValue();
     if (value.trim() && value.trim() !== text.trim() && !window.confirm("Replace the text you have already written in the box?")) return false;
     onChange(text);
     return true;
@@ -39,13 +40,13 @@ export function PromptGuide({ value, onChange }: { value: string; onChange: (tex
       <button type="button" onClick={() => toggle("tips")} aria-expanded={panel === "tips"} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[.09] bg-white/[.025] px-3 text-[12px] text-white/65 transition hover:border-[#c7ff4a]/30 hover:text-white"><Lightbulb className="h-3.5 w-3.5 text-[#c7ff4a]" /> How to write a good prompt</button>
       <button type="button" onClick={() => toggle("helper")} aria-expanded={panel === "helper"} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[.09] bg-white/[.025] px-3 text-[12px] text-white/65 transition hover:border-[#c7ff4a]/30 hover:text-white"><Wand2 className="h-3.5 w-3.5 text-[#c7ff4a]" /> Help me write my prompt</button>
     </div>
-    {panel === "tips" && <div className="relative mt-3 rounded-2xl border border-white/[.09] bg-[#0b121b] p-4">
+    {panel === "tips" && <div className="nynz-pop-in relative mt-3 rounded-2xl border border-white/[.09] bg-[#0b121b] p-4">
       <button type="button" onClick={() => setPanel("none")} aria-label="Close tips" className="absolute right-3 top-3 text-white/45 hover:text-white"><X className="h-4 w-4" /></button>
       <p className="text-[12px] font-medium text-white/85">Describe these five things and NYNZ can plan a better app:</p>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">{TIPS.map(([term, text]) => <div key={term} className="rounded-xl bg-white/[.03] p-2.5"><dt className="text-[11px] font-medium text-[#c7ff4a]">{term}</dt><dd className="mt-0.5 text-[12px] leading-5 text-white/65">{text}</dd></div>)}</dl>
       <p className="mt-3 text-[11px] leading-5 text-white/50">Payments, real sign-in and publishing need extra setup, so ask for a demonstration of those flows unless your own backend is connected.</p>
     </div>}
-    {panel === "helper" && <form onSubmit={useDraft} className="relative mt-3 grid gap-2.5 rounded-2xl border border-white/[.09] bg-[#0b121b] p-4 sm:grid-cols-2">
+    {panel === "helper" && <form onSubmit={useDraft} className="nynz-pop-in relative mt-3 grid gap-2.5 rounded-2xl border border-white/[.09] bg-[#0b121b] p-4 sm:grid-cols-2">
       <button type="button" onClick={() => setPanel("none")} aria-label="Close prompt helper" className="absolute right-3 top-3 text-white/45 hover:text-white"><X className="h-4 w-4" /></button>
       <p className="text-[12px] font-medium text-white/85 sm:col-span-2">Answer what you can. You can edit the brief before building.</p>
       <label className="text-[11px] text-white/60">App name (optional)<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Stillwater" className={`${field} mt-1`} /></label>
@@ -61,7 +62,7 @@ export function PromptGuide({ value, onChange }: { value: string; onChange: (tex
     </form>}
     <div className="mt-4">
       <p className="mb-2 text-center text-[10px] font-medium uppercase tracking-[.2em] text-white/40">Starter ideas</p>
-      <div className="flex flex-wrap justify-center gap-2">{STARTERS.map((starter) => <button key={starter.label} type="button" onClick={() => put(starter.prompt)} title={starter.prompt} className="group inline-flex max-w-full items-center gap-2 rounded-full border border-white/[.08] bg-white/[.025] py-1.5 pl-1.5 pr-3.5 text-left transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05]"><span className="rounded-full bg-white/[.07] px-2 py-0.5 text-[10px] uppercase tracking-[.12em] text-white/60 transition group-hover:bg-[#c7ff4a] group-hover:text-[#071019]">{starter.label}</span><span className="truncate text-[12px] text-white/65 group-hover:text-white">{starter.title}</span></button>)}</div>
+      <div className="flex flex-wrap justify-center gap-2">{STARTERS.map((starter) => <button key={starter.label} type="button" onClick={() => put(starter.prompt)} title={starter.prompt} className="nynz-lift group inline-flex max-w-full items-center gap-2 rounded-full border border-white/[.08] bg-white/[.025] py-1.5 pl-1.5 pr-3.5 text-left transition hover:border-[#c7ff4a]/30 hover:bg-[#c7ff4a]/[.05]"><span className="rounded-full bg-white/[.07] px-2 py-0.5 text-[10px] uppercase tracking-[.12em] text-white/60 transition group-hover:bg-[#c7ff4a] group-hover:text-[#071019]">{starter.label}</span><span className="truncate text-[12px] text-white/65 group-hover:text-white">{starter.title}</span></button>)}</div>
     </div>
   </div>;
 }

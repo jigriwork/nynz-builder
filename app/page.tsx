@@ -29,15 +29,21 @@ const faqs = [
 ];
 const demoLogs = ["Reading the brief", "Plan approved · 4 steps", "Writing 14 files", "Installing dependencies", "Production build passed", "Preview is live"];
 
-function useTypedPlaceholder(lines: string[], enabled: boolean) {
-  const [text, setText] = useState("Describe the app you want to build…");
+/**
+ * Typing placeholder written straight to the textarea, so the animation never
+ * re-renders the page (it previously re-rendered the whole homepage ~25 times a
+ * second).
+ */
+function useTypedPlaceholder(ref: React.RefObject<HTMLTextAreaElement | null>, lines: string[], enabled: boolean) {
   useEffect(() => {
-    if (!enabled) return;
+    const node = ref.current;
+    if (!node) return;
+    if (!enabled) { node.placeholder = "Describe the app you want to build…"; return; }
     let line = 0, char = 0, deleting = false, timer: ReturnType<typeof setTimeout>;
     const tick = () => {
       const target = lines[line];
       char += deleting ? -1 : 1;
-      setText(target.slice(0, char));
+      node.placeholder = target.slice(0, char);
       let delay = deleting ? 18 : 42;
       if (!deleting && char === target.length) { deleting = true; delay = 1800; }
       else if (deleting && char === 0) { deleting = false; line = (line + 1) % lines.length; delay = 300; }
@@ -45,12 +51,14 @@ function useTypedPlaceholder(lines: string[], enabled: boolean) {
     };
     timer = setTimeout(tick, 900);
     return () => clearTimeout(timer);
-  }, [lines, enabled]);
-  return text;
+  }, [ref, lines, enabled]);
 }
 
 export default function HomePage() {
-  const [prompt, setPrompt] = useState("");
+  // The composer keeps its own text; the page only re-renders when it switches
+  // between empty and non-empty, so typing never re-renders the homepage.
+  const promptRef = useRef("");
+  const [hasPrompt, setHasPrompt] = useState(false);
   const [reference, setReference] = useState("");
   const [attachment, setAttachment] = useState<{ name: string; content: string } | null>(null);
   const [error, setError] = useState("");
@@ -58,7 +66,8 @@ export default function HomePage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const reduce = useReducedMotion();
-  const placeholder = useTypedPlaceholder(typedExamples, !reduce && !focused && !prompt);
+  useTypedPlaceholder(composerRef, typedExamples, !reduce && !focused && !hasPrompt);
+  const setPrompt = (text: string) => { promptRef.current = text; if (composerRef.current) composerRef.current.value = text; setHasPrompt(Boolean(text.trim())); };
 
   async function attach(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -70,6 +79,7 @@ export default function HomePage() {
 
   function start(event: FormEvent) {
     event.preventDefault();
+    const prompt = promptRef.current;
     if (prompt.trim().length < 12) { setError("Tell us a little more about what you want to build."); return; }
     let parsedReference = "";
     if (reference.trim()) {
@@ -106,6 +116,7 @@ export default function HomePage() {
       <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-16 h-[980px] nynz-hero-grid" />
       <div aria-hidden className="nynz-float pointer-events-none absolute -top-64 left-1/2 h-[650px] w-[900px] -translate-x-1/2 rounded-full bg-[#294662]/25 blur-[170px]" />
       <div aria-hidden className="nynz-float-slow pointer-events-none absolute left-[8%] top-[380px] h-[300px] w-[420px] rounded-full bg-[#c7ff4a]/[.06] blur-[130px]" />
+      <div aria-hidden className="nynz-orbit pointer-events-none absolute left-1/2 top-[250px] h-[760px] w-[760px] -translate-x-1/2 rounded-full opacity-60 [mask-image:radial-gradient(circle,transparent_54%,black_56%,black_57%,transparent_62%)]" style={{ background: "conic-gradient(from 0deg, transparent 0deg, rgba(199,255,74,.55) 40deg, transparent 90deg, transparent 180deg, rgba(90,151,199,.45) 230deg, transparent 290deg)" }} />
 
       <section className="relative z-10 mx-auto max-w-[1180px] px-5 pb-20 pt-16 text-center md:px-8 md:pb-28 md:pt-24">
         <motion.a href="#how" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6, ease }} className="group mx-auto inline-flex items-center gap-2 rounded-full border border-white/[.1] bg-white/[.03] py-1 pl-1 pr-3 text-[12px] text-white/65 backdrop-blur transition hover:border-[#c7ff4a]/30">
@@ -119,13 +130,13 @@ export default function HomePage() {
           Describe what you need. NYNZ writes the source, runs the build and gives you a live app to shape with every message.
         </motion.p>
 
-        <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto mt-11 max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824]/95 p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)] backdrop-blur-2xl" style={{ animation: "none" }}>
+        <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto mt-11 max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)]" style={{ animation: "none" }}>
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
               <span className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-[#c7ff4a]" /> New application</span>
               <span className="hidden sm:inline">Compiled, editable React source</span>
             </div>
-            <textarea ref={composerRef} value={prompt} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(event) => { setPrompt(event.target.value); setError(""); }} rows={4} maxLength={30_000} placeholder={focused ? "Describe the app you want to build…" : placeholder} aria-label="Application description" className="min-h-[140px] w-full resize-none bg-transparent px-5 pb-5 pt-4 text-[18px] leading-7 text-[#f4f1e8] outline-none placeholder:text-white/35 md:text-[21px]" />
+            <textarea ref={composerRef} defaultValue="" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); if (error) setError(""); }} rows={4} maxLength={30_000} aria-label="Application description" className="min-h-[140px] w-full resize-none bg-transparent px-5 pb-5 pt-4 text-[18px] leading-7 text-[#f4f1e8] outline-none placeholder:text-white/35 md:text-[21px]" />
             <div className="mx-2 flex flex-col gap-2 border-t border-white/[.07] p-2.5 md:flex-row md:items-center">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.035] px-3.5 text-xs text-white/65 transition hover:bg-white/[.07] hover:text-white"><Paperclip className="h-3.5 w-3.5" /> Attach brief</button>
@@ -133,14 +144,14 @@ export default function HomePage() {
                 <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.035] px-3.5 text-white/50 transition focus-within:border-[#c7ff4a]/30 sm:min-w-[210px] md:max-w-[310px]"><Globe2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/80" /><input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Add a website reference" aria-label="Website reference" className="min-w-0 flex-1 bg-transparent text-xs text-white/80 outline-none placeholder:text-white/40" /></label>
                 <AnimatePresence>{attachment && <motion.button initial={{ opacity: 0, scale: .9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .9 }} type="button" onClick={() => setAttachment(null)} className="h-10 max-w-[180px] truncate rounded-xl bg-[#c7ff4a]/10 px-3 text-xs text-[#c7ff4a]">{attachment.name} ×</motion.button>}</AnimatePresence>
               </div>
-              <motion.button whileTap={{ scale: .97 }} disabled={!prompt.trim()} className="group/button relative inline-flex h-11 shrink-0 items-center justify-center gap-3 overflow-hidden rounded-xl bg-[#c7ff4a] px-5 text-[13px] font-semibold text-[#071019] shadow-[0_8px_30px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] hover:shadow-[0_10px_40px_rgba(199,255,74,.4)] disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none">Build this app <ArrowRight className="h-4 w-4 transition-transform group-hover/button:translate-x-0.5" /></motion.button>
+              <motion.button whileTap={{ scale: .97 }} disabled={!hasPrompt} className="group/button relative inline-flex h-11 shrink-0 items-center justify-center gap-3 overflow-hidden rounded-xl bg-[#c7ff4a] px-5 text-[13px] font-semibold text-[#071019] shadow-[0_8px_30px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] hover:shadow-[0_10px_40px_rgba(199,255,74,.4)] disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none">Build this app <ArrowRight className="h-4 w-4 transition-transform group-hover/button:translate-x-0.5" /></motion.button>
             </div>
           </div>
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-3 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </motion.form>
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .8 }}>
-          <PromptGuide value={prompt} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
+          <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
         </motion.div>
 
         <motion.ul initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: 1 }} className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-[12px] text-white/50">
@@ -262,15 +273,15 @@ function BuilderMock() {
         <div className={`mx-auto overflow-hidden border border-black/10 bg-[#f4f7f2] text-[#16241c] shadow-[0_20px_60px_rgba(0,0,0,.35)] transition-[max-width] duration-300 ${device === "phone" ? "max-w-[340px] rounded-[26px]" : "max-w-none rounded-xl"}`}>
           <div className="flex items-center justify-between gap-3 bg-[#1f3d2f] px-4 py-3 text-white">
             <div><p className="text-[10px] uppercase tracking-[.2em] text-[#bfe3c9]">Stillwater</p><p className="text-[15px] font-semibold">This week&apos;s classes</p></div>
-            <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px]" aria-live="polite">{bookedCount} booked</span>
+            <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px]" aria-live="polite"><span key={bookedCount} className="nynz-bump">{bookedCount}</span> booked</span>
           </div>
           <div role="tablist" aria-label="Day" className="flex gap-1.5 border-b border-black/[.06] bg-white px-3 py-2.5">{DEMO_DAYS.map((d, index) => <button key={d.day} role="tab" type="button" aria-selected={index === dayIndex} onClick={() => setDayIndex(index)} className={`flex min-w-[52px] flex-col items-center rounded-xl px-3 py-1.5 text-[11px] ${index === dayIndex ? "bg-[#1f3d2f] text-white" : "text-[#16241c]/70 hover:bg-black/[.04]"}`}><span>{d.day}</span><span className="text-[15px] font-semibold">{d.date}</span></button>)}</div>
-          <ul className="divide-y divide-black/[.06]">{day.classes.map((c) => {
+          <ul key={dayIndex} className="divide-y divide-black/[.06]">{day.classes.map((c, rowIndex) => {
             const isBooked = Boolean(booked[c.id]);
             const left = c.spots - (isBooked ? 1 : 0);
             const full = c.spots === 0;
             const place = waitlist[c.id];
-            return <li key={c.id} className={`flex items-center gap-3 px-4 py-3 ${device === "phone" ? "flex-wrap" : ""}`}>
+            return <li key={c.id} style={{ animationDelay: `${rowIndex * 60}ms` }} className={`nynz-pop-in flex items-center gap-3 px-4 py-3 ${device === "phone" ? "flex-wrap" : ""}`}>
               <span className="w-12 shrink-0 font-mono text-[12px] text-[#16241c]/60">{c.time}</span>
               <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-semibold">{c.name}</span><span className="block text-[11px] text-[#16241c]/55">{c.teacher} · {c.level}</span></span>
               <span className={`text-[11px] ${full ? "text-[#b4532a]" : "text-[#16241c]/60"}`}>{full ? (changed && place ? `Waitlist #${place}` : "Full") : `${left} of ${c.capacity} left`}</span>

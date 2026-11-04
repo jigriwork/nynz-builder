@@ -179,3 +179,42 @@
   @keyframes nynz-scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
   @keyframes nynz-breathe { 0%, 100% { opacity: .55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
 }
+
+/* ---------------------------------------------------------------------------
+   Motion that stays smooth on phones.
+   Every animation below changes only transform or opacity, which the GPU
+   composites without repainting. Paint-heavy effects (the rotating conic
+   border, animated blurred blobs, the gradient text sweep, the marquee) pause
+   while anyone is typing in a composer, and the conic border never rotates on
+   touch devices.
+   ------------------------------------------------------------------------- */
+.nynz-composer:focus-within::before { animation-play-state: paused; }
+@media (pointer: coarse) {
+  .nynz-composer::before,
+  .nynz-edge::before { animation: none !important; }
+}
+body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-text-shine, .nynz-marquee, .nynz-orbit, .nynz-breathe) {
+  animation-play-state: paused;
+}
+.nynz-composer textarea { contain: layout paint; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .nynz-heartbeat { display: inline-block; transform-origin: 50% 60%; animation: nynz-heartbeat 1.8s ease-in-out infinite; will-change: transform; }
+  @keyframes nynz-heartbeat {
+    0%, 45%, 100% { transform: scale(1); }
+    12% { transform: scale(1.28); }
+    24% { transform: scale(.96); }
+    34% { transform: scale(1.16); }
+  }
+  .nynz-orbit { animation: nynz-orbit 22s linear infinite; will-change: transform; }
+  @keyframes nynz-orbit { to { transform: rotate(360deg); } }
+  .nynz-pop-in { animation: nynz-pop-in .38s cubic-bezier(.2, .8, .2, 1) both; }
+  @keyframes nynz-pop-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+  .nynz-bump { display: inline-block; animation: nynz-bump .45s cubic-bezier(.3, 1.6, .5, 1); }
+  @keyframes nynz-bump { 0% { transform: scale(1); } 40% { transform: scale(1.22); } 100% { transform: scale(1); } }
+  .nynz-reveal { animation: nynz-reveal .6s cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes nynz-reveal { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: none; } }
+  .nynz-lift { transition: transform .25s cubic-bezier(.2, .7, .2, 1); }
+  .nynz-lift:hover { transform: translateY(-2px); }
+  .nynz-lift:active { transform: translateY(0) scale(.97); }
+}

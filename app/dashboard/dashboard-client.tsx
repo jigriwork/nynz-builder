@@ -34,7 +34,12 @@ function projectName(prompt: string) {
 export default function DashboardClient({ initialProjects, account }: { initialProjects: Project[]; account: AccountSummary }) {
   usePresence();
   const [projects, setProjects] = useState(initialProjects);
-  const [prompt, setPrompt] = useState("");
+  // The composer keeps its own text; the dashboard (and its layout-animated
+  // project grid) only re-renders when the box switches between empty and not.
+  const promptRef = useRef("");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [hasPrompt, setHasPrompt] = useState(false);
+  const setPrompt = (text: string) => { promptRef.current = text; if (composerRef.current) composerRef.current.value = text; setHasPrompt(Boolean(text.trim())); };
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number][0]>("all");
   const [busy, setBusy] = useState(false);
@@ -69,6 +74,7 @@ export default function DashboardClient({ initialProjects, account }: { initialP
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
+    const prompt = promptRef.current;
     if (prompt.trim().length < 12) { setError("Tell NYNZ a little more about what you want to build."); return; }
     const draft: Draft = { prompt: prompt.trim(), reference: "", attachment: null, createdAt: Date.now() };
     sessionStorage.setItem("nynz_build_draft", JSON.stringify(draft));
@@ -117,18 +123,18 @@ export default function DashboardClient({ initialProjects, account }: { initialP
         <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .05, ease }} className="mt-5 text-5xl font-medium tracking-[-.065em] md:text-7xl">What will you <span className="nynz-text-shine">build</span> today?</motion.h1>
         <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .12, ease }} className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/55">Describe an app and NYNZ will plan it, write it and run it live in a few minutes.</motion.p>
 
-        <form onSubmit={submit} className="nynz-composer relative mx-auto mt-9 rounded-[24px] border border-white/[.1] bg-[#0f1722]/95 p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.5)] backdrop-blur-2xl">
+        <form onSubmit={submit} className="nynz-composer relative mx-auto mt-9 rounded-[24px] border border-white/[.1] bg-[#0f1722] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.5)]">
           <div className="rounded-[18px] border border-white/[.05] bg-[#0b121b]">
-            <textarea value={prompt} onChange={(event) => { setPrompt(event.target.value); setError(""); }} onKeyDown={onKey} rows={3} maxLength={30_000} placeholder="Describe the app you want to build…" aria-label="Application description" className="w-full resize-none bg-transparent px-5 pb-3 pt-5 text-[17px] leading-7 outline-none placeholder:text-white/35" />
+            <textarea ref={composerRef} defaultValue="" onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); if (error) setError(""); }} onKeyDown={onKey} rows={3} maxLength={30_000} placeholder="Describe the app you want to build…" aria-label="Application description" className="w-full resize-none bg-transparent px-5 pb-3 pt-5 text-[17px] leading-7 outline-none placeholder:text-white/35" />
             <div className="flex items-center gap-2 border-t border-white/[.06] p-2.5">
               <button type="button" onClick={createBlank} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-xl px-3 text-[12px] text-white/55 transition hover:bg-white/[.05] hover:text-white disabled:opacity-40"><FilePlus2 className="h-4 w-4" /> Blank project</button>
               <span className="ml-auto hidden text-[11px] text-white/30 sm:inline">Press Enter to build</span>
-              <motion.button whileTap={{ scale: .96 }} disabled={busy || !prompt.trim()} className="group inline-flex h-10 items-center gap-2 rounded-xl bg-[#c7ff4a] px-4 text-[13px] font-semibold text-[#071019] shadow-[0_8px_28px_rgba(199,255,74,.2)] transition hover:bg-[#d5ff72] disabled:cursor-not-allowed disabled:opacity-35">{busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#071019]/20 border-t-[#071019]" /> : <>Build <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></>}</motion.button>
+              <motion.button whileTap={{ scale: .96 }} disabled={busy || !hasPrompt} className="group inline-flex h-10 items-center gap-2 rounded-xl bg-[#c7ff4a] px-4 text-[13px] font-semibold text-[#071019] shadow-[0_8px_28px_rgba(199,255,74,.2)] transition hover:bg-[#d5ff72] disabled:cursor-not-allowed disabled:opacity-35">{busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#071019]/20 border-t-[#071019]" /> : <>Build <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /></>}</motion.button>
             </div>
           </div>
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-2.5 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </form>
-        <PromptGuide value={prompt} onChange={(text) => { setPrompt(text); setError(""); }} />
+        <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
       </section>
 
       <section className="mt-20">
