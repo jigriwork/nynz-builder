@@ -4,6 +4,7 @@ import { redact } from "./redact";
 export type ReconcileDeps = {
   db: SupabaseClient;
   killSandbox: (sandboxId: string) => Promise<unknown>;
+  removePreviewDomain?: (host: string) => Promise<unknown>;
   listSandboxes: () => Promise<Array<{ sandboxId: string; startedAt: Date; metadata: Record<string, string> }>>;
   now?: () => number;
   idleDays?: number;
@@ -61,6 +62,9 @@ export async function reconcileResources(deps: ReconcileDeps) {
       if (resource.kind === "e2b_sandbox") {
         try { await deps.killSandbox(resource.provider_ref); } catch (error) { if (!isNotFound(error)) throw error; }
         summary.killed += 1;
+      } else if (resource.kind === "preview_domain") {
+        if (!deps.removePreviewDomain) throw new Error("Preview domain cleanup is not configured");
+        await deps.removePreviewDomain(resource.provider_ref);
       } else if (resource.kind === "storage_prefix" || resource.kind === "deployment_artifact") {
         const [bucket, ...rest] = String(resource.provider_ref).split("/");
         const prefix = rest.join("/");

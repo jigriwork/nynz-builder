@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BudgetError } from "./budget-error";
-import { actualModelCallPaise, creditsForPaise, sandboxSecondsPaise } from "./pricing";
+import { actualModelCallPaise, creditsForPaise, sandboxSecondsPaise, paisePerCredit, usdToInrRate } from "./pricing";
 
 type Job = { id: string; requested_by: string; project_id: string };
 type Pending = { spendId: number | null; eventKey: string; model: string };
@@ -51,10 +51,11 @@ export class BuildMeter {
     const call = this.pending.pop();
     const cost = actualModelCallPaise({ model: event.model, inputTokens: event.prompt_tokens, outputTokens: event.completion_tokens, providerCostUsd: event.providerCostReported === false ? undefined : event.costUsd }, this.env);
     const eventKey = event.requestId ? `openrouter:${event.requestId}` : call?.eventKey || `model:${this.job.id}:${randomUUID()}`;
+    const costMetadata = { cost_currency: "INR", cost_source: cost.source, event_key: eventKey, provider_cost_usd: event.providerCostReported === false ? null : event.costUsd, usd_to_inr_rate: usdToInrRate(this.env) };
     const base = { owner_id: this.job.requested_by, project_id: this.job.project_id, build_id: this.job.id, provider: "openrouter", model: event.model, provider_request_id: event.requestId };
     const usage = await this.db.from("usage_events").insert([
-      { ...base, kind: "model_input_tokens", quantity: event.prompt_tokens, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
-      { ...base, kind: "model_output_tokens", quantity: event.completion_tokens, estimated_cost_minor: cost.paise, metadata: { cost_currency: "INR", cost_source: cost.source, event_key: eventKey } },
+      { ...base, kind: "model_input_tokens", quantity: event.prompt_tokens, metadata: costMetadata },
+      { ...base, kind: "model_output_tokens", quantity: event.completion_tokens, estimated_cost_minor: cost.paise, metadata: costMetadata },
     ]);
     if (usage.error) console.error(`[meter] usage recording failed for build ${this.job.id}`);
     if (call?.spendId) {
@@ -64,7 +65,7 @@ export class BuildMeter {
     if (await this.hasReservation()) {
       const { error } = await this.db.rpc("consume_credits", {
         p_build: this.job.id, p_amount: creditsForPaise(cost.paise, this.env), p_event_key: eventKey, p_provider: "openrouter", p_model: event.model,
-        p_cost_paise: cost.paise, p_cost_source: cost.source, p_metadata: { input_tokens: event.prompt_tokens, output_tokens: event.completion_tokens },
+        p_cost_paise: cost.paise, p_cost_source: cost.source, p_metadata: { input_tokens: event.prompt_tokens, output_tokens: event.completion_tokens, provider_spend_id: call?.spendId, paise_per_credit: paisePerCredit(this.env) },
       });
       if (error) throw error;
     }
@@ -101,7 +102,7 @@ export class BuildMeter {
       : await this.db.rpc("record_provider_spend", { p_provider: "e2b", p_kind: "sandbox", p_model: null, p_actual: paise, p_source: "estimate", p_build: this.job.id, p_user: this.job.requested_by, p_event_key: eventKey });
     if (recorded.error) throw recorded.error;
     if (await this.hasReservation()) {
-      const consumed = await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "allocated_runtime_estimate", p_metadata: { seconds, allocated_seconds: budgetSeconds, outcome } });
+      const consumed = await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "allocated_runtime_estimate", p_metadata: { seconds, allocated_seconds: budgetSeconds, outcome, provider_spend_id: this.sandboxSpend?.id, paise_per_credit: paisePerCredit(this.env), provisional: true } });
       if (consumed.error) throw consumed.error;
     }
   }

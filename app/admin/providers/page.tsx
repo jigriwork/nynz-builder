@@ -19,14 +19,14 @@ export default async function ProvidersPage() {
     const entry = byProvider.get(row.provider) || { reported: 0, estimated: 0, pending: 0, calls: 0 };
     entry.calls += 1;
     if (row.status === "voided") continue;
-    if (row.status === "authorized") entry.pending += Number(row.estimated_paise);
-    else if (row.cost_source === "provider_reported") entry.reported += Number(row.actual_paise);
+    if (row.status === "authorized" && !row.cost_source) entry.pending += Number(row.estimated_paise);
+    else if (["provider_reported", "provider_invoice"].includes(row.cost_source || "")) entry.reported += Number(row.actual_paise);
     else entry.estimated += Number(row.actual_paise ?? row.estimated_paise);
     byProvider.set(row.provider, entry);
   }
   const configured = (key: string) => Boolean(process.env[key]);
   return <>
-    <PageHeader title="Providers and spend" description={`Month to date from ${when(monthStart.toISOString())}. “Provider-reported” is cost returned by the provider with each call; “estimated” uses NYNZ's dated price table; “awaiting result” is held against limits until the call reports.`} />
+    <PageHeader title="Providers and spend" description={`Month to date from ${when(monthStart.toISOString())}. Provider-reported costs come from responses or invoices, converted at the configured exchange rate. Estimates include conservative runtime allocations awaiting invoice reconciliation. Estimates and calls awaiting results remain held against spending limits.`} />
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title="Configuration">
         <Table head={["Service", "Role", "Status"]} rows={[

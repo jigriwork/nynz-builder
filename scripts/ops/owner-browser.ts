@@ -11,12 +11,24 @@
  */
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { chromium, type BrowserContext } from "playwright-core";
+import { createServerClient } from "@supabase/ssr";
+import { config } from "dotenv";
+
+config({ path: ".env.local", quiet: true });
 
 export const BASE = process.env.NYNZ_VERIFY_BASE_URL || "https://www.nynz.in";
 export const PROFILE = process.env.NYNZ_OWNER_PROFILE || "";
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 export async function ownerContext(headless = true, viewport = { width: 1366, height: 900 }): Promise<BrowserContext> {
+  if (process.env.NYNZ_OWNER_CDP) {
+    const browser = await chromium.connectOverCDP(process.env.NYNZ_OWNER_CDP);
+    const context = browser.contexts()[0];
+    // Disconnect from the explicitly opened task browser; do not close the
+    // owner's sign-in or provider tabs when a verifier finishes.
+    context.close = async () => { await browser.close(); };
+    return context;
+  }
   if (!PROFILE) throw new Error("Set NYNZ_OWNER_PROFILE to a private directory");
   mkdirSync(PROFILE, { recursive: true }); chmodSync(PROFILE, 0o700);
   return chromium.launchPersistentContext(PROFILE, { executablePath: CHROME, headless, viewport });
@@ -26,9 +38,14 @@ export async function whoAmI(context: BrowserContext) {
   const page = await context.newPage();
   await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
   const onDashboard = new URL(page.url()).pathname === "/dashboard";
-  const email = onDashboard ? await page.locator("button[aria-haspopup=menu]").first().innerText().catch(() => "") : "";
+  // The account button contains an avatar initial (and hides the email on
+  // phones). Verify the actual browser session with Supabase Auth instead of
+  // treating the button's first line as the account identity.
+  const cookies = await context.cookies(BASE);
+  const client = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { cookies: { getAll: () => cookies.map(({ name, value }) => ({ name, value })), setAll: () => undefined } });
+  const { data: { user } } = await client.auth.getUser();
   await page.close();
-  return { signedIn: onDashboard, email: email.trim().split("\n")[0] };
+  return { signedIn: onDashboard && Boolean(user), email: user?.email || "", userId: user?.id || null };
 }
 
 async function main() {

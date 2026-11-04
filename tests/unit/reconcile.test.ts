@@ -40,6 +40,16 @@ function fakeDb(tables: Record<string, Row[]>, storage: Record<string, string[]>
 }
 
 describe("resource reconciliation", () => {
+  it("retries failed preview domain removal and only marks a confirmed removal terminated", async () => {
+    const tables = { platform_resources: [{ id:"domain",kind:"preview_domain",provider_ref:"fixture.preview.nynz.in",state:"terminating",attempts:0 }] };
+    const { db } = fakeDb(tables, {});
+    const remove = vi.fn().mockRejectedValueOnce(new Error("Vercel unavailable")).mockResolvedValueOnce(undefined);
+    await reconcileResources({db,killSandbox:async()=>undefined,listSandboxes:async()=>[],removePreviewDomain:remove});
+    expect(tables.platform_resources[0].state).toBe("terminating");
+    await reconcileResources({db,killSandbox:async()=>undefined,listSandboxes:async()=>[],removePreviewDomain:remove});
+    expect(tables.platform_resources[0].state).toBe("terminated");
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
   it("does not kill any orphan when its registry lookup fails", async () => {
     const { db } = fakeDb({}, {});
     const from = db.from.bind(db);

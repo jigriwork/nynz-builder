@@ -21,7 +21,7 @@ describe("runtime admission and origins", () => {
   });
 
   it("reserves the window's full possible runtime and rejects broken prices", () => {
-    expect(runtimeAdmissionArgs("sandbox", project, "user", 600, {})).toMatchObject({ p_estimate: 320, p_credits: 4, p_seconds: 600 });
+    expect(runtimeAdmissionArgs("sandbox", project, "user", 600, {})).toMatchObject({ p_estimate: 525, p_credits: 6, p_seconds: 600, p_paise_per_credit: 100 });
     expect(() => runtimeAdmissionArgs("s", project, "u", 600, { E2B_COST_USD_PER_SECOND: "NaN" })).toThrow();
   });
 

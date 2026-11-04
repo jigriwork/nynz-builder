@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { apiError, dbError } from "@/lib/http/errors";
+import { prepareProjectPreview } from "@/lib/preview/registration";
 
 export type Entitlements = { plan_code: string; plan_name: string; subscription_status: string | null; max_concurrent_builds: number; max_projects: number; features: string[]; current_period_end?: string | null; cancel_at_period_end?: boolean; grace_until?: string | null };
 
@@ -39,6 +40,8 @@ export async function admitPaidWork(admin: SupabaseClient, input: { userId: stri
   const { data: ready, error: readyError } = await admin.rpc("generation_ready", { p_max_age_seconds: 90 });
   if (readyError) return apiError("SERVICE_UNAVAILABLE", "Building is temporarily unavailable.", { cause: readyError, scope: "admission" });
   if (!ready) return apiError("SERVICE_UNAVAILABLE", "Building is temporarily unavailable. Please try again in a few minutes. You have not been charged.");
+  try { await prepareProjectPreview(admin, input.projectId, input.userId); }
+  catch (error) { return apiError("SERVICE_UNAVAILABLE", "Your secure preview is being prepared. Please try again shortly. You have not been charged.", { cause: error, scope: "preview-registration" }); }
   const entitlements = await entitlementsFor(admin, input.userId);
   await ensureTrialCredits(admin, input.userId);
   const { error } = await admin.rpc("reserve_credits", { p_user: input.userId, p_project: input.projectId, p_build: input.buildId, p_amount: input.credits, p_max_concurrent: entitlements.max_concurrent_builds });

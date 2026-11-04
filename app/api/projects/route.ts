@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { json, requireUser } from "@/lib/supabase/auth";
 import { createAdmin } from "@/lib/supabase/server";
-import { apiError } from "@/lib/http/errors";
+import { apiError, logServerError } from "@/lib/http/errors";
+import { prepareProjectPreview } from "@/lib/preview/registration";
 import { rateLimit } from "@/lib/platform/rate-limit";
 import { entitlementsFor } from "@/lib/billing/entitlements";
 
@@ -31,5 +32,9 @@ export async function POST(request: Request) {
   if (error) return apiError("INTERNAL", "Could not create the project", { cause: error, scope: "projects" });
   await auth.supabase.from("conversations").insert({ project_id: project.id });
   await admin.rpc("record_activity", { p_user: auth.user.id, p_kind: "project_created" });
+  // Start certificate issuance without losing a successfully created project
+  // when the provider needs more time. Paid admission checks readiness again.
+  try { await prepareProjectPreview(admin, project.id, auth.user.id); }
+  catch (cause) { logServerError("preview-registration", cause); }
   return json({ project }, { status: 201 });
 }

@@ -17,6 +17,18 @@ async function fixture() {
 }
 
 describe("paid runtime admission", () => {
+  it("binds preview-domain registration to the owner and retains a durable cleanup record on deletion", async () => {
+    const a=await fixture(), b=await fixture(), host=`${a.project}.preview.nynz.in`;
+    const sql="select public.register_preview_domain($1,$2,$3,true)";
+    expect(await outcome(svc(sql,[a.project,b.user.id,host]))).toMatch(/NOT_PROJECT_OWNER/);
+    expect(await outcome(svc(sql,[a.project,a.user.id,`${b.project}.preview.nynz.in`]))).toMatch(/NOT_PROJECT_OWNER/);
+    expect(await outcome(asUser(db,a.user,tx=>tx.query(sql,[a.project,a.user.id,host])))).toMatch(/permission denied/);
+    await svc(sql,[a.project,a.user.id,host]);
+    expect((await svc("select state from public.platform_resources where provider_ref=$1",[host])).state).toBe("active");
+    await asUser(db,a.user,tx=>tx.query("select public.request_project_deletion($1)",[a.project]));
+    expect((await svc("select state from public.platform_resources where provider_ref=$1",[host])).state).toBe("terminating");
+    expect(await outcome(svc(sql,[a.project,a.user.id,host]))).toMatch(/NOT_PROJECT_OWNER/);
+  });
   it("publishes a consistent snapshot atomically and refuses cancellation and concurrent edits", async () => {
     const a = await fixture();
     await svc("insert into public.project_files(project_id,path,content) values($1,'index.html','working')", [a.project]);

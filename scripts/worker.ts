@@ -7,6 +7,7 @@ import { buildArtifactInE2B, listNynzSandboxes, runInE2B, stopE2B } from "../lib
 import { createHash } from "node:crypto";
 import { MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FILES, contentType, validateArtifact } from "../preview-host/lib/sites";
 import { getPreviewOrigin } from "../lib/preview/session";
+import { removePreviewDomain } from "../lib/preview/registration";
 import { redact } from "../lib/platform/redact";
 import { planApplication } from "../lib/platform/openrouter";
 import { BuildMeter } from "../lib/billing/meter";
@@ -331,7 +332,7 @@ async function processJob(job: Job) {
 async function maintenance(requestedBy: string | null = null) {
   const { data: run } = await db.from("maintenance_runs").insert({ kind: "reconcile", requested_by: requestedBy }).select("id").single();
   try {
-    const summary = await reconcileResources({ db, killSandbox: stopE2B, listSandboxes: listNynzSandboxes, idleDays: Number(process.env.PREVIEW_IDLE_DAYS || 7) });
+    const summary = await reconcileResources({ db, killSandbox: stopE2B, removePreviewDomain, listSandboxes: listNynzSandboxes, idleDays: Number(process.env.PREVIEW_IDLE_DAYS || 7) });
     await db.from("maintenance_runs").update({ finished_at: new Date().toISOString(), summary }).eq("id", run?.id);
     return run?.id;
   } catch (error) {

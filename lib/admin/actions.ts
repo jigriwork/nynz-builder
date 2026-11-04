@@ -35,6 +35,7 @@ async function sendInvite(admin: SupabaseClient, email: string, next: string) {
 }
 
 export const ACTIONS = {
+  "provider_spend.reconcile": define({ capability: "owner.manage", schema: z.object({ spendId: z.number().int().positive(), actualPaise: z.number().int().nonnegative(), evidence: z.string().trim().min(10).max(1000) }), run: (ctx, i) => rpc(ctx.supabase, "admin_reconcile_provider_spend", { p_id: i.spendId, p_actual: i.actualPaise, p_evidence: i.evidence }) }),
   "team.invite": define({
     capability: "team.manage",
     schema: z.object({ email: z.string().trim().toLowerCase().email().max(254), name: z.string().trim().max(120).default(""), role, capabilities: caps, reason }),

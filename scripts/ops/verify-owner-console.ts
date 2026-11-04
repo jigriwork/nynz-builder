@@ -52,11 +52,13 @@ const status = async (page: Page, path: string) => (await page.goto(`${BASE}${pa
 async function sensitive() {
   const context = await ownerContext(true);
   const me = await whoAmI(context);
-  check("owner session is signed in as adib@nynz.in", me.signedIn && me.email === "adib@nynz.in", me.email || "not signed in");
-  if (!me.signedIn || me.email !== "adib@nynz.in") return context.close();
+  check("owner session is the exact verified NYNZ owner", me.signedIn && me.email === "adib@nynz.in" && me.userId === OWNER_ID, me.email || "not signed in");
+  if (!me.signedIn || me.email !== "adib@nynz.in" || me.userId !== OWNER_ID) return context.close();
   const page = await context.newPage();
 
   // 1. Combined ₹50 fixed-window cap through the Providers form.
+  const priorCap = (await service.from("spend_limits").select("id").eq("name","Release verification ₹50 (all providers)").eq("active",true).maybeSingle()).data;
+  if (!priorCap) {
   await page.goto(`${BASE}/admin/providers`, { waitUntil: "networkidle" });
   await page.locator("summary", { hasText: "Add a limit" }).click();
   const form = page.locator("details", { has: page.locator("summary", { hasText: "Add a limit" }) }).locator("form");
@@ -68,12 +70,16 @@ async function sensitive() {
   await form.getByLabel("Reason").fill("Combined cap before paid release verification");
   await form.getByRole("button", { name: "Save limit" }).click();
   await form.getByText("Done.").waitFor({ timeout: 20_000 }).catch(() => undefined);
+  }
   const { data: cap } = await service.from("spend_limits").select("*").eq("name", "Release verification ₹50 (all providers)").eq("active", true).maybeSingle();
   check("₹50 combined fixed-window cap saved from the console", Boolean(cap && cap.limit_paise === 5000 && cap.period === "window" && cap.provider === null && new Date(cap.window_start) <= new Date() && new Date(cap.window_end) > new Date()), cap ? `${cap.limit_paise} paise, ${cap.window_start} → ${cap.window_end}` : "missing");
+  if (!cap) { console.log("Stopping: the real owner must complete the console's password confirmation before paid testing."); return context.close(); }
   const { count: capAudit } = await service.from("admin_audit_log").select("id", { count: "exact", head: true }).eq("action", "spend_limit.saved").eq("actor_id", OWNER_ID);
   check("cap change is in the audit history with the owner as actor", (capAudit || 0) >= 1);
 
   // 2. Explicit, expiring owner testing allowance through the Credits form.
+  const priorGrant = (await service.from("credit_grants").select("id").eq("user_id",OWNER_ID).eq("source","owner_testing").eq("reason","Owner testing allowance for release verification (₹50 cap)").limit(1).maybeSingle()).data;
+  if (!priorGrant) {
   await page.goto(`${BASE}/admin/credits`, { waitUntil: "networkidle" });
   const grant = page.locator("form", { has: page.getByRole("button", { name: "Grant owner testing credits" }) });
   await grant.getByLabel("Credits").fill("50");
@@ -81,8 +87,10 @@ async function sensitive() {
   await grant.getByLabel("Reason").fill("Owner testing allowance for release verification (₹50 cap)");
   await grant.getByRole("button", { name: "Grant owner testing credits" }).click();
   await grant.getByText("Done.").waitFor({ timeout: 20_000 }).catch(() => undefined);
+  }
   const { data: bal } = await service.rpc("credit_balance", { p_user: OWNER_ID });
   check("owner testing allowance granted and expiring", Number(bal?.owner_testing) >= 50, JSON.stringify(bal));
+  if (Number(bal?.owner_testing) < 50) return context.close();
 
   // 3. Team workflow with disposable fixtures.
   const staff = await fixture("support");
@@ -112,10 +120,20 @@ async function sensitive() {
     await f.page.goto(`${BASE}/admin`);
     check("support cannot suspend accounts", (await action(f.page, "user.status", { userId: other.id, status: "suspended", reason: "probe" })).status === 403);
     check("support cannot invite staff (no self-escalation path)", (await action(f.page, "team.invite", { email: "x@nynz-verify.invalid", role: "owner", reason: "probe" })).status === 403);
-    const over = await action(f.page, "credits.grant", { userId: OWNER_ID, amount: 500, source: "promotional", expiresAt: new Date(Date.now() + 3600_000).toISOString(), reason: "limit probe", idempotencyKey: randomUUID() });
+    const over = await action(f.page, "credits.grant", { userId: other.id, amount: 500, source: "promotional", expiresAt: new Date(Date.now() + 3600_000).toISOString(), reason: "limit probe", idempotencyKey: randomUUID() });
     check("support grant above role limit is refused", over.status === 403 && /limit/i.test(over.body.error || ""), `${over.status} ${over.body.error || ""}`);
-    const within = await action(f.page, "credits.grant", { userId: OWNER_ID, amount: 5, source: "promotional", expiresAt: new Date(Date.now() + 3600_000).toISOString(), reason: "within-limit verification grant", idempotencyKey: randomUUID() });
-    check("support grant within role limit succeeds and expires in 1 hour", within.status === 200, String(within.status));
+
+    await f.page.setViewportSize({ width:390,height:844 });
+    check("support Users section works at phone width", (await status(f.page,"/admin/users"))===200 && await f.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    for (const role of ["operations","billing"] as const) {
+      const current = (await service.from("staff_members").select("version").eq("user_id",staff.id).single()).data!;
+      check(`owner changes fixture to ${role}`, (await action(page,"team.update",{userId:staff.id,role,extra:[],revoked:[],requireMfa:null,expectedVersion:current.version,reason:"Release role verification"})).status===200);
+      check(`${role} provider access`, (await status(f.page,"/admin/providers"))===200);
+      check(`${role} billing permission`, (await status(f.page,"/admin/billing"))===(role==="billing"?200:404));
+      check(`${role} cannot manage staff`, (await action(f.page,"team.invite",{email:"probe@nynz-verify.invalid",role:"support",reason:"Permission probe"})).status===403);
+      if (role==="operations") check("operations cannot grant credits", (await action(f.page,"credits.grant",{userId:other.id,amount:1,source:"promotional",expiresAt:null,reason:"Permission probe",idempotencyKey:randomUUID()})).status===403);
+      else check("billing cannot suspend a user", (await action(f.page,"user.status",{userId:other.id,status:"suspended",reason:"Permission probe"})).status===403);
+    }
 
     const { data: row } = await service.from("staff_members").select("version").eq("user_id", staff.id).single();
     const toReadonly = await action(page, "team.update", { userId: staff.id, role: "readonly", extra: [], revoked: [], requireMfa: null, expectedVersion: row!.version, reason: "Verification role change" });

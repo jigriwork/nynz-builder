@@ -82,8 +82,9 @@ export function creditsForPaise(paise: number, env: Record<string, string | unde
 
 /** E2B and Firecrawl have no per-call price in their responses; these are labelled estimates. */
 export function sandboxSecondsPaise(seconds: number, env: Record<string, string | undefined> = process.env) {
-  // Default: 2 vCPU + 2 GiB on E2B's published usage pricing (~$0.000028/s); override when measured.
-  const rate = Number(env.E2B_COST_USD_PER_SECOND || 0.000028);
+  // Published default 2 vCPU ($0.000028/s) + 4 GiB ($0.000018/s),
+  // checked 2026-11-04 at https://e2b.dev/pricing. Still an estimate, not an invoice.
+  const rate = Number(env.E2B_COST_USD_PER_SECOND || 0.000046);
   if (!Number.isFinite(rate) || rate <= 0 || !Number.isFinite(seconds) || seconds < 0) throw new Error("Invalid sandbox pricing configuration");
   return usdToPaise(seconds * rate, env);
 }

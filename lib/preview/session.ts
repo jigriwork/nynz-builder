@@ -8,7 +8,7 @@ export { redactPreviewUrl } from "./token";
  * generated app its own browser origin (cookies, storage and service workers
  * cannot collide between apps). A template without {projectId} is the legacy
  * shared-origin mode, permitted only in development. Production requires an
- * isolated project hostname; see docs/RELEASE.md for wildcard-domain setup.
+ * isolated project hostname; see docs/RELEASE.md for certificate registration.
  */
 export function getPreviewOrigin(projectId: string) {
   const template = process.env.PREVIEW_ORIGIN || "http://{projectId}.preview.localhost:3001";
@@ -16,7 +16,7 @@ export function getPreviewOrigin(projectId: string) {
   if (parsed.username || parsed.password) throw new Error("Preview origin must not contain credentials");
   if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") throw new Error("Production preview origin must use HTTPS");
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.pathname !== "/" || parsed.search || parsed.hash) throw new Error("Preview origin must be an HTTP(S) origin without a path or query");
-  if (process.env.NODE_ENV === "production" && hostProjectId(parsed.host) !== projectId) throw new Error("Production previews require a dedicated project hostname; configure wildcard preview DNS");
+  if (process.env.NODE_ENV === "production" && hostProjectId(parsed.host) !== projectId) throw new Error("Production previews require a dedicated project hostname");
   return parsed.origin;
 }
 

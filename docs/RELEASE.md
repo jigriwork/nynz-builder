@@ -1,21 +1,31 @@
 # Release 0.3.4: deployment and rollback
 
-Implementation commits: a49753b and 0105025 on feat/nynz-platform. This candidate is local,
-not pushed or deployed. Pushing this branch auto-deploys the Render worker.
-Do not push until the configuration and migration steps below are approved.
+Release preparation is on feat/nynz-platform. The coordinated production
+release is authorised. Pushing this branch auto-deploys the Render worker;
+complete certificate provisioning and hold build admission during rollout.
 
 ## Prerequisites
 
 1. Record the current web, preview-host and worker deployment IDs. Confirm the
    existing Supabase backup/restore mechanism and retain a pre-release backup.
    Do not reset the hosted database.
-2. Finish isolated preview hosting before deploying this candidate. Configure
-   *.preview.nynz.in on the preview Vercel project using a supported wildcard
-   domain setup. Preserve existing apex, www, email and unrelated DNS records;
-   do not switch the whole domain's nameservers merely to make a test pass.
+2. Keep Hostinger authoritative nameservers and the existing wildcard CNAME
+   *.preview -> 7896bea1d38b7b8e.vercel-dns-017.com. Use individual Vercel domain
+   attachments/certificates, not wildcard certificate validation. No NS
+   delegation or apex/email DNS change is needed. Pre-provision existing
+   project addresses before switching the preview host.
 3. Set PREVIEW_ORIGIN=https://{projectId}.preview.nynz.in on web and worker.
    The new code refuses shared production preview hosts. It also refuses paid
    jobs when the worker reports an invalid preview origin.
+   Configure PREVIEW_VERCEL_TOKEN, PREVIEW_VERCEL_PROJECT_ID (the private preview
+   project) and PREVIEW_VERCEL_TEAM_ID on web and worker. Use a dedicated
+   project-scoped credential where supported, with its expiry recorded and
+   rotation scheduled. Never copy the expiring CLI OAuth login into production.
+   Web admission registers the owner-checked project address and probes HTTPS
+   before reserving credits; an unavailable API or pending certificate refuses
+   the request without queueing paid work. Preview-session renewal also checks
+   registration. The worker removes deleted-project domains through the
+   durable resource cleanup queue. Vercel certificate/API limits apply.
 4. Verify DNS/TLS for two UUID project subdomains. Confirm the preview host
    receives each original Host header. The per-project host must not redirect
    every app to the shared preview origin.
@@ -35,10 +45,21 @@ The existing deployed 0.3 schema is preserved. For an installation that is
 behind, apply all migration files in timestamp order, including the 0.3.1
 workspace-isolation and staff-account-deletion migrations.
 
-The two new migrations for this increment are:
+The two original pending migrations are:
 
 1. supabase/migrations/20261104101100_runtime_admission.sql
 2. supabase/migrations/20261104101200_restore_revision.sql
+
+An additional blocking accounting/preview-cleanup correction is:
+
+3. supabase/migrations/20261104101300_spend_reconciliation.sql
+
+The unapplied runtime admission signature also records the credit conversion
+rate in each debit, needed for exact later correction. The supplementary
+migration keeps estimates' actual_paise NULL and status authorized, including
+older estimate rows previously marked settled; it does not rewrite the
+append-only credit ledger. Historical events without a linked debit and rate
+require manual review rather than guessed refunds.
 
 The first adds runtime admission, stricter worker readiness, a platform-backend
 guard, and transactional publishing source/completion functions. The second
@@ -128,8 +149,17 @@ Before any additional paid verification:
 5. Run the create/edit/controlled-failure/restore/cleanup journey and compare
    provider records with the metering ledger.
 
-E2B runtime is charged as a labelled conservative allocation estimate; invoice
-reconciliation and automatic correction of excess estimates remain incomplete.
+E2B runtime credits are provisionally charged as a labelled conservative
+allocation estimate. Estimated provider spend remains an outstanding hold,
+with actual_paise NULL. Never fabricate an invoice from allocated timeout.
+The signed-in, recently authenticated owner can submit documented provider
+evidence through admin action provider_spend.reconcile (spendId, actualPaise,
+evidence). Its database transaction settles the evidenced amount and corrects
+the linked customer debit once; refunds keep original grant expiry. Replays
+are idempotent and conflicting evidence is refused. Local database tests cover
+authorization, stale authentication, estimate holds, refunds, expiry and
+duplicate reconciliation. Production estimates remain pending until genuine
+provider evidence is available; test fixtures are never presented as invoices.
 An aborted HTTP request may still incur provider charges. Keep its unknown-cost
 hold rather than assuming it was free. Do not present a ledger estimate as a
 settled invoice or exact profitability.

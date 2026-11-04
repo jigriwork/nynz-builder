@@ -11,15 +11,21 @@ import { config } from "dotenv";
 import JSZip from "jszip";
 import { createClient } from "@supabase/supabase-js";
 import { Sandbox } from "e2b";
-import type { Page } from "playwright-core";
+import type { Page, BrowserContext } from "playwright-core";
+import { writeFileSync } from "node:fs";
 import { BASE, ownerContext, whoAmI } from "./owner-browser";
+import { redactPreviewUrl } from "../../lib/preview/token";
 
 config({ path: ".env.local", quiet: true });
 const OWNER_ID = "41080a24-57a9-4686-8d53-c0a3a9e09588";
 const service = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
 const results: Array<[string, boolean, string]> = [];
-const check = (name: string, ok: boolean, detail = "") => { results.push([name, ok, detail]); console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`); };
+const check = (name: string, ok: boolean, detail = "") => { detail=redactPreviewUrl(detail); results.push([name, ok, detail]); console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`); };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let fixtureContext: BrowserContext | null = null;
+let fixturePage: Page | null = null;
+let fixtureProject: string | null = null;
+const extraProjects: string[] = [];
 
 async function api(page: Page, path: string, method = "GET", body?: unknown) {
   return page.evaluate(async ([p, m, b]) => {
@@ -49,15 +55,21 @@ async function main() {
   if (!cap) { check("₹50 combined cap is active before any paid call", false, "missing: refusing to start"); return; }
   check("₹50 combined cap is active before any paid call", true, cap.name);
   const context = await ownerContext(true);
+  fixtureContext = context;
   const me = await whoAmI(context);
-  if (me.email !== "adib@nynz.in") { check("owner session", false, me.email); return; }
+  if (me.email !== "adib@nynz.in" || me.userId !== OWNER_ID) { check("owner session", false, me.email); return; }
   const page = await context.newPage();
+  fixturePage = page;
   await page.goto(`${BASE}/dashboard`);
   const before = (await service.rpc("credit_balance", { p_user: OWNER_ID })).data;
+  if (Number(before?.owner_testing) < 1) { check("explicit owner testing allowance exists", false); return; }
 
   const created = await api(page, "/api/projects", "POST", { name: "Release verification calculator", description: "Temporary project for release verification" });
   check("create project", created.status === 201, String(created.status));
+  if (created.status !== 201) return;
   const projectId = created.body.project.id as string;
+  fixtureProject = projectId;
+  if (process.env.NYNZ_JOURNEY_RECORD) writeFileSync(process.env.NYNZ_JOURNEY_RECORD, JSON.stringify({ started, projectId }), { mode: 0o600 });
   // 1x1 PNG asset
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
   const upload = await page.evaluate(async ([id, b64]) => {
@@ -69,12 +81,21 @@ async function main() {
   const spoof = await page.evaluate(async (id) => { const form = new FormData(); form.set("file", new File([new TextEncoder().encode("MZ not an image")], "x.png", { type: "image/png" })); return (await fetch(`/api/projects/${id}/assets`, { method: "POST", body: form })).status; }, projectId);
   check("spoofed image upload is rejected", spoof === 400);
 
-  const brief = "Build a minimal single-page tip calculator called Tipwise. Inputs for bill amount and tip percent (10, 15, 20 buttons), shows tip and total. Show the uploaded logo at /uploads/logo.png in the header. Plain CSS, no backend.";
-  const queued = await api(page, `/api/projects/${projectId}/builds`, "POST", { prompt: brief, mode: "create", idempotencyKey: `verify-create-${Date.now()}` });
+  if (upload.status !== 201) return;
+  const assetPath = upload.body.asset.appPath as string;
+  const brief = `Build a minimal single-page tip calculator called Tipwise. Inputs for bill amount and tip percent (10, 15, 20 buttons), shows tip and total. Show the uploaded logo at ${assetPath} in the header. Plain CSS, no backend.`;
+  const request = { prompt: brief, mode: "create", idempotencyKey: `verify-create-${Date.now()}` };
+  let queued = await api(page, `/api/projects/${projectId}/builds`, "POST", request);
+  const registrationDeadline = Date.now() + 180_000;
+  while (queued.status === 503 && /secure preview is being prepared/.test(queued.body?.error || "") && Date.now() < registrationDeadline) {
+    await sleep(10_000);
+    queued = await api(page, `/api/projects/${projectId}/builds`, "POST", request);
+  }
   check("queue create request (credits reserved)", queued.status === 202, String(queued.status));
+  if (queued.status !== 202) return;
   let job = await waitBuild(queued.body.build.id, (b) => b.plan?.approval === "awaiting", 6);
   check("plan ready for approval, no code written", job?.plan?.approval === "awaiting" && Array.isArray(job.plan.steps), `${job?.status} ${job?.plan?.steps?.length || 0} steps`);
-  if (job?.plan?.approval !== "awaiting") return context.close();
+  if (job?.plan?.approval !== "awaiting") return;
   const { count: filesBefore } = await service.from("project_files").select("path", { count: "exact", head: true }).eq("project_id", projectId);
   check("no files exist before approval", filesBefore === 0);
   const approved = await api(page, `/api/projects/${projectId}/builds`, "PATCH", { action: "approve", buildId: job.id, revision: job.plan.revision, summary: job.plan.summary, steps: job.plan.steps });
@@ -83,10 +104,10 @@ async function main() {
   check("generation, install, production build and preview succeed", job?.status === "succeeded", `${job?.status} ${job?.error_code || ""}`);
   const createSpend = await spentPaise(started);
   check("spend after create is within the ₹50 cap", createSpend <= 5000, `₹${(createSpend / 100).toFixed(2)}`);
-  if (job?.status !== "succeeded") return context.close();
+  if (job?.status !== "succeeded") return;
 
   const { data: files } = await service.from("project_files").select("path,content").eq("project_id", projectId);
-  check("generated source references the uploaded logo", (files || []).some((f) => f.content.includes("/uploads/logo.png")));
+  check("generated source references the uploaded logo", (files || []).some((f) => f.content.includes(assetPath)));
   const session = await api(page, `/api/projects/${projectId}/preview-session`, "POST");
   check("authorised preview session issued", session.status === 200, String(session.status));
   const preview = await context.newPage();
@@ -94,12 +115,37 @@ async function main() {
   check("exchange link redirects to a clean preview URL", !preview.url().includes("t=") && opened?.status() === 200, preview.url());
   const body = await preview.locator("body").innerText();
   check("preview renders the generated app", /tip/i.test(body), body.slice(0, 80).replace(/\s+/g, " "));
+  const logo = await context.request.get(new URL(assetPath,preview.url()).toString());
+  check("uploaded image actually serves in the preview",logo.status()===200 && (logo.headers()["content-type"]||"").includes("image/png"));
   const button = preview.getByRole("button", { name: /15/ }).first();
   if (await button.isVisible().catch(() => false)) { await button.click(); check("preview responds to interaction", true); } else check("preview responds to interaction", false, "no 15% button");
   const reused = await (await context.newPage()).goto(session.body.url);
   check("used exchange link cannot be replayed", reused?.status() === 401, String(reused?.status()));
   await preview.reload({ waitUntil: "networkidle" });
   check("preview survives refresh with the cookie session", /tip/i.test(await preview.locator("body").innerText()));
+
+  // A second real project needs no generation to test browser-origin and
+  // credential separation. Its domain is registered by normal project creation.
+  const second = await api(page,"/api/projects","POST",{name:"Release verification isolation",description:"Disposable no-generation isolation fixture"});
+  if(second.status!==201)throw new Error("Could not create isolation fixture");
+  extraProjects.push(second.body.project.id);
+  const otherOrigin=`https://${second.body.project.id}.preview.nynz.in`;
+  let otherReady=false; const tlsDeadline=Date.now()+180_000;
+  while(Date.now()<tlsDeadline){try{const r=await fetch(otherOrigin,{redirect:"manual",signal:AbortSignal.timeout(10_000)});otherReady=r.status===401;if(otherReady)break;}catch{}await sleep(5000);}
+  check("second project has independent HTTPS and rejects anonymous access",otherReady);
+  if(!otherReady)throw new Error("Second preview certificate did not become ready");
+  const fresh=await api(page,`/api/projects/${projectId}/preview-session`,"POST");
+  const transplanted=new URL(fresh.body.url);transplanted.host=new URL(otherOrigin).host;
+  const wrongExchange=await fetch(transplanted,{redirect:"manual"});
+  check("project A exchange token is rejected on project B",wrongExchange.status===401||wrongExchange.status===403);
+  const cookies=await context.cookies(preview.url());const cookie=cookies.find(c=>c.name==="__Host-nynz_preview");
+  check("preview session cookie is Secure, HttpOnly and pinned to its exact host",Boolean(cookie?.secure&&cookie.httpOnly&&cookie.domain===new URL(preview.url()).hostname));
+  const wrongCookie=await fetch(otherOrigin,{headers:{cookie:`__Host-nynz_preview=${cookie?.value||""}`},redirect:"manual"});
+  check("project A session cookie is rejected on project B",wrongCookie.status===401||wrongCookie.status===403);
+  await preview.evaluate(()=>localStorage.setItem("nynz-isolation-fixture","project-a"));
+  const otherPage=await context.newPage();await otherPage.goto(otherOrigin);
+  check("project B cannot read project A browser storage",await otherPage.evaluate(()=>localStorage.getItem("nynz-isolation-fixture"))===null);
+  await otherPage.close();
 
   const editStart = new Date().toISOString();
   const edit = await api(page, `/api/projects/${projectId}/builds`, "POST", { prompt: "Change the main heading text to exactly: NYNZ Verified Tipwise", mode: "edit", idempotencyKey: `verify-edit-${Date.now()}` });
@@ -137,31 +183,43 @@ async function main() {
   const { data: reservations } = await service.from("credit_reservations").select("status,amount,consumed").in("build_id", builds);
   const after = (await service.rpc("credit_balance", { p_user: OWNER_ID })).data;
   const consumed = -(ledger || []).filter((l) => l.entry_type === "consume").reduce((s, l) => s + Number(l.amount), 0);
-  check("credits consumed from measured cost and recorded per build", consumed > 0 && (ledger || []).some((l) => l.cost_source === "provider_reported"), `${consumed} credits`);
+  check("credits record provider-reported model cost and provisional runtime estimates separately", consumed > 0 && (ledger || []).some((l) => l.cost_source === "provider_reported") && (ledger || []).some((l) => l.cost_source === "allocated_runtime_estimate"), `${consumed} credits`);
   check("every reservation settled or released", (reservations || []).every((r) => r.status !== "active"), JSON.stringify(reservations));
   check("owner balance reflects consumption", Number(before.available) - Number(after.available) === consumed, `${before.available} → ${after.available}`);
   const total = await spentPaise(started);
+  const pending=await service.from("provider_spend").select("actual_paise,status,cost_source").gte("created_at",started).eq("provider","e2b");
+  check("runtime allocations remain estimates awaiting reconciliation",Boolean(pending.data?.length)&&pending.data!.every(s=>s.actual_paise===null&&s.status==="authorized"));
   check("total provider spend within ₹50", total <= 5000, `₹${(total / 100).toFixed(2)} (create ₹${(createSpend / 100).toFixed(2)}, edit and failure ₹${((total - createSpend) / 100).toFixed(2)})`);
   console.log(`SPEND_SINCE ${started} paise=${total} edit_since=${editStart}`);
 
-  // Cleanup of this verification project only, then confirm resources are gone.
+}
+
+async function cleanup() {
+  if (!fixtureProject || !fixturePage) { await fixtureContext?.close(); return; }
+  const projectId = fixtureProject, page = fixturePage;
+  // Always clean this fixture, including when an earlier verification fails.
   const { data: sandboxes } = await service.from("platform_resources").select("provider_ref,state").eq("project_id", projectId).eq("kind", "e2b_sandbox");
   const deleted = await api(page, `/api/projects/${projectId}`, "DELETE");
   check("delete the verification project", deleted.status === 204);
+  for(const id of extraProjects)check("delete isolation fixture",(await api(page,`/api/projects/${id}`,"DELETE")).status===204);
   const deadline = Date.now() + 8 * 60_000;
   let live: string[] = [];
   while (Date.now() < deadline) {
     const all: string[] = []; const p = Sandbox.list({ apiKey: process.env.E2B_API_KEY });
     while (p.hasNext) all.push(...(await p.nextItems()).map((s) => s.sandboxId));
     live = (sandboxes || []).map((s) => s.provider_ref).filter((id) => all.includes(id));
-    if (!live.length) break;
+    const pending=await service.from("platform_resources").select("state").in("project_id",[projectId,...extraProjects]).neq("state","terminated");
+    if (!live.length && !pending.data?.length) break;
     await sleep(30_000);
   }
   check("all of this project's sandboxes are terminated at E2B", live.length === 0, `${(sandboxes || []).length} created, ${live.length} still live`);
   const { data: storage } = await service.storage.from("project-assets").list(projectId);
   check("project asset storage removed", !(storage || []).some((o) => o.id));
-  await context.close();
+  const resources=await service.from("platform_resources").select("state,kind").in("project_id",[projectId,...extraProjects]);
+  check("all fixture resources, including preview domain attachments, are terminated",Boolean(resources.data?.length)&&resources.data!.every(r=>r.state==="terminated"));
+  await fixtureContext?.close();
 }
 
 main().catch((error) => check("run", false, error instanceof Error ? error.message : String(error)))
+  .then(cleanup).catch((error) => check("cleanup", false, error instanceof Error ? error.message : String(error)))
   .finally(() => { console.log(`\n${results.filter((r) => r[1]).length}/${results.length} checks passed`); process.exit(results.every((r) => r[1]) ? 0 : 1); });
