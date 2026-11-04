@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.11
+
+- Homepage hero: live moments from apps people build (a booking, weekly sales, a new order, a new version) float beside the composer on wide screens and rotate above it on phones; a soft glow follows the pointer. Transform and opacity only, paused while typing, static with reduced motion.
+- Dashboard: the Made in India line moved from beside Projects to a quiet line under the composer.
+
 ## 0.3.10
 
 - Busy or capacity pauses no longer tell customers about NYNZ's internal provider spending limits; they now say NYNZ is very busy and to try again in a few minutes.

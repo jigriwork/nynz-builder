@@ -241,3 +241,14 @@ body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-t
   .nynz-highlight::after { content: ""; position: absolute; inset: -3px; border: 2px solid #c7ff4a; border-radius: 12px; pointer-events: none; opacity: 0; animation: nynz-highlight 1.4s ease-out 2; }
   @keyframes nynz-highlight { 0% { opacity: .9; transform: scale(.97); } 100% { opacity: 0; transform: scale(1.06); } }
 }
+
+/* Homepage hero moments: enter once, then drift gently. Transform/opacity only. */
+.nynz-moment { transform: rotate(var(--r, 0deg)); }
+@media (prefers-reduced-motion: no-preference) {
+  .nynz-moment { animation: nynz-moment-in .9s cubic-bezier(.2, .8, .2, 1) both, nynz-drift 7s ease-in-out infinite; will-change: transform; }
+  .nynz-moment:nth-child(2n) { animation-duration: .9s, 8.5s; }
+  @keyframes nynz-moment-in { from { opacity: 0; transform: translate3d(0, 24px, 0) rotate(var(--r, 0deg)) scale(.92); } to { opacity: 1; transform: rotate(var(--r, 0deg)); } }
+  @keyframes nynz-drift { 0%, 100% { transform: translate3d(0, 0, 0) rotate(var(--r, 0deg)); } 50% { transform: translate3d(0, -12px, 0) rotate(calc(var(--r, 0deg) * .6)); } }
+  .nynz-grow { animation: nynz-grow .7s cubic-bezier(.2, .8, .2, 1) both; }
+  @keyframes nynz-grow { from { transform: scaleY(.08); opacity: .4; } to { transform: none; opacity: 1; } }
+}

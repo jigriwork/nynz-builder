@@ -9,6 +9,7 @@ import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, 
 import { NynzBrand } from "@/components/nynz-brand";
 import { PromptGuide } from "@/components/prompt-guide";
 import { MadeInOdisha } from "@/components/made-in-odisha";
+import { HeroMoments, HeroSpotlight, HeroTicker } from "@/components/hero-stage";
 import { STARTERS } from "@/lib/prompt-starters";
 import { BuildPipeline, Reveal, buildStages, ease } from "@/components/nynz-motion";
 
@@ -113,6 +114,7 @@ export default function HomePage() {
     </header>
 
     <div className="relative">
+      <HeroSpotlight />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-16 h-[980px] nynz-hero-grid" />
       <div aria-hidden className="nynz-float pointer-events-none absolute -top-64 left-1/2 h-[650px] w-[900px] -translate-x-1/2 rounded-full bg-[#294662]/25 blur-[170px]" />
       <div aria-hidden className="nynz-float-slow pointer-events-none absolute left-[8%] top-[380px] h-[300px] w-[420px] rounded-full bg-[#c7ff4a]/[.06] blur-[130px]" />
@@ -130,7 +132,10 @@ export default function HomePage() {
           Describe what you need. NYNZ writes the source, runs the build and gives you a live app to shape with every message.
         </motion.p>
 
-        <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto mt-11 max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)]" style={{ animation: "none" }}>
+        <HeroTicker />
+        <div className="relative mx-auto mt-4 max-w-[900px] hero:mt-11">
+        <HeroMoments />
+        <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)]" style={{ animation: "none" }}>
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
               <span className="flex items-center gap-2"><span aria-hidden className="relative flex h-2 w-2"><span className="nynz-ping absolute inset-0 rounded-full bg-[#c7ff4a]/60" /><span className="relative h-2 w-2 rounded-full bg-[#c7ff4a]" /></span> New application</span>
@@ -149,6 +154,7 @@ export default function HomePage() {
           </div>
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-3 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </motion.form>
+        </div>
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .8 }}>
           <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />

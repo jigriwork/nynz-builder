@@ -135,12 +135,13 @@ export default function DashboardClient({ initialProjects, account, cards = {} }
           </div>
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-2.5 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </form>
+        <div className="mt-3 flex justify-center"><MadeInOdisha plain /></div>
         <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
       </section>
 
       <section className="mt-20">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div><div className="flex flex-wrap items-center gap-3"><h2 className="text-2xl font-medium tracking-[-.04em]">Projects</h2><MadeInOdisha /></div><p className="mt-1 text-[13px] text-white/45">{projects.length ? `${projects.length} application${projects.length === 1 ? "" : "s"} · ${counts.ready} live` : "No applications yet"}</p></div>
+          <div><h2 className="text-2xl font-medium tracking-[-.04em]">Projects</h2><p className="mt-1 text-[13px] text-white/45">{projects.length ? `${projects.length} application${projects.length === 1 ? "" : "s"} · ${counts.ready} live` : "No applications yet"}</p></div>
           {projects.length > 0 && <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="flex overflow-x-auto rounded-xl border border-white/[.08] bg-white/[.02] p-1">{filters.map(([id, label]) => <button key={id} onClick={() => setFilter(id)} className={`relative whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] transition ${filter === id ? "text-[#071019]" : "text-white/55 hover:text-white"}`}>{filter === id && <motion.span layoutId="dash-filter" transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute inset-0 rounded-lg bg-[#c7ff4a]" />}<span className="relative">{label}<span className={`ml-1.5 text-[10px] ${filter === id ? "text-[#071019]/60" : "text-white/30"}`}>{counts[id]}</span></span></button>)}</div>
             <label className="flex h-10 items-center gap-2 rounded-xl border border-white/[.08] bg-white/[.02] px-3 text-white/45 transition focus-within:border-[#c7ff4a]/35 sm:w-60"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" className="min-w-0 flex-1 bg-transparent text-[13px] text-white outline-none placeholder:text-white/35" /></label>
