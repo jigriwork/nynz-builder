@@ -25,7 +25,7 @@ No regression was found.
 ### Spending and open holds
 
 - Provider-reported OpenRouter spend in the ₹50 window: ₹6.44 (5 calls, 0.3.5 journey).
-- Open estimate holds, not confirmed spend: five E2B runtime holds from the 0.3.5 journey (₹18.39 total) and one OpenRouter hold of ₹2.39 from the 0.3.6 chat check (13:28 UTC; the request was aborted on cancellation). None has a provider request ID, and no OpenRouter management key or E2B invoice is available here. They stay counted against spending caps until the owner reconciles them with provider evidence (admin action provider_spend.reconcile). They are not released or reported as confirmed spending.
+- Open estimate holds, not confirmed spend: five E2B runtime holds from the 0.3.5 journey (₹18.39 total) and two OpenRouter holds of ₹2.39 each: #11 from the 0.3.6 chat check (13:28 UTC; aborted on cancellation) and #15 from the 0.3.7 functional check (14:07 UTC; a planning call the verification script failed to cancel, after which deleting the test account also removed its usage record). None has a provider request ID, and no OpenRouter management key or E2B invoice is available here. They stay counted against spending caps until the owner reconciles them with provider evidence (admin action provider_spend.reconcile). They are not released or reported as confirmed spending.
 
 ### Still unavailable
 
