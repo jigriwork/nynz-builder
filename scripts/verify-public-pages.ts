@@ -15,7 +15,7 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error" && !/Failed to load resource/.test(message.text())) errors.push(message.text()); });
-  for (const [path, title] of [["/", /NYNZ: build real web apps/], ["/pricing", /Pricing · NYNZ/], ["/login", /Sign in · NYNZ/], ["/forgot-password", /NYNZ/], ["/reset-password", /Choose a new password · NYNZ/]] as const) {
+  for (const [path, title] of [["/", /^NYNZ: AI app builder for real web apps$/], ["/pricing", /Pricing · NYNZ/], ["/login", /Sign in · NYNZ/], ["/forgot-password", /NYNZ/], ["/reset-password", /Choose a new password · NYNZ/]] as const) {
     const response = await page.goto(`${base}${path}`, { waitUntil: "networkidle" });
     check(`${path} loads`, response?.status() === 200, String(response?.status()));
     check(`${path} title`, title.test(await page.title()), await page.title());
