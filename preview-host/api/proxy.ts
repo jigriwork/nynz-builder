@@ -66,7 +66,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const wantsPage = (headers.accept || "").includes("text/html");
     if (wantsPage && result.status >= 400 && String(result.headers["content-type"] || "").startsWith("text/plain")) {
       response.status(result.status).setHeader("content-type", "text/html; charset=utf-8").setHeader("cache-control", "no-store")
-        .setHeader("content-security-policy", `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
+        .setHeader("content-security-policy", `default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
         .send(previewErrorPage(codeForStatus(result.status), appOrigin));
       return;
     }
@@ -77,7 +77,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const accept = String(request.headers.accept || "");
     if (accept.includes("text/html")) {
       response.status(503).setHeader("content-type", "text/html; charset=utf-8").setHeader("cache-control", "no-store")
-        .setHeader("content-security-policy", `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
+        .setHeader("content-security-policy", `default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors ${frameAncestors}`)
         .send(previewErrorPage(previewErrorCode(error), appOrigin));
       return;
     }

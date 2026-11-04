@@ -58,13 +58,13 @@ const caps = capabilities();
 
 export function publicFailure(error: unknown) {
   if (error instanceof BudgetError) {
-    if (error.code === "SPEND_LIMIT") return { code: "SPEND_LIMIT", message: "Generation is paused because a platform spending limit was reached. Your previous working version is unchanged. Please try again later." };
+    if (error.code === "SPEND_LIMIT") return { code: "SPEND_LIMIT", message: "NYNZ is very busy right now, so this build couldn't start. Your previous working version is unchanged. Please try again in a few minutes." };
     return { code: "INSUFFICIENT_CREDITS", message: "This build ran out of credits before it could finish. Your previous working version is unchanged. Add credits and try again." };
   }
   const message = safeError(error);
   if (/SOURCE_CHANGED/.test(message)) return { code: "SOURCE_CHANGED", message: "Your files changed while this build was running, so it was not applied. Your edits are preserved. Ask NYNZ again to continue." };
   if (/GENERATOR_NOT_CONFIGURED/.test(message)) return { code: "GENERATOR_UNAVAILABLE", message: "The application generator is not available right now. No credits were used for generation." };
-  if (/spending limit/i.test(message)) return { code: "MODEL_BUDGET_REACHED", message: "This build reached its model spending limit. Reduce the scope, then try again." };
+  if (/spending limit/i.test(message)) return { code: "MODEL_BUDGET_REACHED", message: "This request needed more work than one build allows. Try a smaller step, then build again." };
   if (/request rejected \((401|402|429)\)/i.test(message)) return { code: "GENERATOR_UNAVAILABLE", message: "The application generator is temporarily unavailable. Please try again shortly." };
   if (/production build failed|missing dependencies|invalid syntax/i.test(message)) return { code: "BUILD_VALIDATION_FAILED", message: "The generated changes did not pass production validation, so they were not applied. Your previous working version is unchanged." };
   if (/wrong files|incomplete|output limit|truncated|application plan|complete enough/i.test(message)) return { code: "GENERATION_INCOMPLETE", message: "The generator returned an incomplete result, so nothing was changed. Please try again." };

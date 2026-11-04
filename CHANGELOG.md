@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.10
+
+- Busy or capacity pauses no longer tell customers about NYNZ's internal provider spending limits; they now say NYNZ is very busy and to try again in a few minutes.
+- The preview error page shows the real NYNZ logo (embedded, no network request) instead of a plain "N" box.
+
 ## 0.3.9
 
 - Fix: the "Watch it happen" section and other homepage grids no longer spill off phone screens; added a strict phone-fit check (scripts/perf/phone-fit.ts).

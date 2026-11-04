@@ -7,8 +7,8 @@ export type IssueTone = "paused" | "credits" | "fixable" | "retry" | "stopped";
 export type BuildIssue = { title: string; body: string; tone: IssueTone; action: "retry" | "billing" | "wait" | "ask" | "none" };
 
 const ISSUES: Record<string, BuildIssue> = {
-  SPEND_LIMIT: { tone: "paused", action: "wait", title: "Building is paused for a moment", body: "NYNZ has a safety limit on how much it spends with its AI and cloud providers, and it has been reached for now. Nothing in your project changed. Try again a little later." },
-  MODEL_BUDGET_REACHED: { tone: "paused", action: "ask", title: "This request was too large for one build", body: "It hit the per-build spending limit before finishing. Try a smaller step, for example one screen or feature at a time." },
+  SPEND_LIMIT: { tone: "paused", action: "wait", title: "NYNZ is very busy right now", body: "So many apps are being built at the moment that yours couldn't start. Nothing in your project changed. Please try again in a few minutes." },
+  MODEL_BUDGET_REACHED: { tone: "paused", action: "ask", title: "This request was too large for one build", body: "It needed more work than one build allows. Try a smaller step, for example one screen or feature at a time." },
   INSUFFICIENT_CREDITS: { tone: "credits", action: "billing", title: "You're out of credits for this step", body: "Builds and previews use credits for the AI and cloud time they need. Add credits or choose a plan, then try again." },
   CONCURRENCY_LIMIT: { tone: "credits", action: "billing", title: "Another build is already running", body: "Your plan runs one build at a time. Wait for the current one to finish, or upgrade to run more at once." },
   GENERATOR_UNAVAILABLE: { tone: "retry", action: "retry", title: "The AI builder is briefly unavailable", body: "Our AI provider didn't respond. Nothing was changed and you weren't charged for an unfinished step. Try again in a minute." },
@@ -28,7 +28,7 @@ export function describeIssue(code: string | null | undefined): BuildIssue {
 
 /** Codes the preview host can report when a preview cannot be woken. */
 export function describePreviewIssue(code: string | null | undefined) {
-  if (code === "SPEND_LIMIT") return { title: "Preview is paused for a moment", body: "NYNZ's provider spending limit has been reached for now. Your app is safe. Try again a little later." };
+  if (code === "SPEND_LIMIT") return { title: "NYNZ is very busy right now", body: "Your app is safe. Previews are in high demand at the moment, so please reload in a few minutes." };
   if (code === "INSUFFICIENT_CREDITS") return { title: "Not enough credits to wake this preview", body: "Waking a preview uses a few credits for cloud time. Add credits from Plan and billing, then reload." };
   if (code === "NO_PREVIEW") return { title: "This app isn't running right now", body: "Open the project in NYNZ and press Restart preview to start it again." };
   return { title: "Preview couldn't load", body: "The preview didn't respond. Reload in a moment, or restart the preview from your NYNZ project." };
