@@ -46,6 +46,11 @@
   outline-offset: 3px;
 }
 
+/* Inside a composer the whole composer edge lights up on focus (focus-within),
+   so the text box itself does not need a second ring cutting across labels. */
+.nynz-dark .nynz-composer textarea:focus-visible { outline: none; }
+.nynz-composer:focus-within { box-shadow: 0 0 0 1px rgba(199, 255, 74, .45), 0 40px 120px rgba(0, 0, 0, .55); }
+
 .nynz-dark ::selection {
   color: #071019;
   background: #c7ff4a;
