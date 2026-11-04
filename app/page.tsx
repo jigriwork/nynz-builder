@@ -9,7 +9,7 @@ import { ArrowRight, Box, Check, ChevronDown, Code2, Download, Globe2, History, 
 import { NynzBrand } from "@/components/nynz-brand";
 import { PromptGuide } from "@/components/prompt-guide";
 import { MadeInOdisha } from "@/components/made-in-odisha";
-import { HeroMoments, HeroSpotlight, HeroTicker } from "@/components/hero-stage";
+import { ComposerAura } from "@/components/composer-aura";
 import { STARTERS } from "@/lib/prompt-starters";
 import { BuildPipeline, Reveal, buildStages, ease } from "@/components/nynz-motion";
 
@@ -114,7 +114,6 @@ export default function HomePage() {
     </header>
 
     <div className="relative">
-      <HeroSpotlight />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-16 h-[980px] nynz-hero-grid" />
       <div aria-hidden className="nynz-float pointer-events-none absolute -top-64 left-1/2 h-[650px] w-[900px] -translate-x-1/2 rounded-full bg-[#294662]/25 blur-[170px]" />
       <div aria-hidden className="nynz-float-slow pointer-events-none absolute left-[8%] top-[380px] h-[300px] w-[420px] rounded-full bg-[#c7ff4a]/[.06] blur-[130px]" />
@@ -132,9 +131,8 @@ export default function HomePage() {
           Describe what you need. NYNZ writes the source, runs the build and gives you a live app to shape with every message.
         </motion.p>
 
-        <HeroTicker />
-        <div className="relative mx-auto mt-4 max-w-[900px] hero:mt-11">
-        <HeroMoments />
+        <div className="group/aura relative mx-auto mt-11 max-w-[900px]">
+        <ComposerAura />
         <motion.form onSubmit={start} initial={{ opacity: 0, y: 24, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .8, delay: .55, ease }} className="nynz-composer group relative mx-auto max-w-[900px] rounded-[26px] border border-white/[.12] bg-[#101824] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.55)]" style={{ animation: "none" }}>
           <div className="rounded-[20px] border border-white/[.055] bg-[#0b121c]">
             <div className="flex items-center justify-between px-5 pt-4 text-[10px] uppercase tracking-[.18em] text-white/40">
@@ -155,6 +153,7 @@ export default function HomePage() {
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-3 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </motion.form>
         </div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .75, ease }} className="mt-5 flex justify-center"><MadeInOdisha /></motion.div>
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .8 }}>
           <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
@@ -163,7 +162,6 @@ export default function HomePage() {
         <motion.ul initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: 1 }} className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-[12px] text-white/50">
           {[[Code2, "Real, editable source"], [ShieldCheck, "Isolated sandbox previews"], [Lock, "Export anytime, no lock-in"]].map(([Icon, label]) => { const ItemIcon = Icon as typeof Code2; return <li key={String(label)} className="flex items-center gap-2"><ItemIcon className="h-3.5 w-3.5 text-[#c7ff4a]/80" />{String(label)}</li>; })}
         </motion.ul>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: 1.1 }} className="mt-6 flex justify-center"><MadeInOdisha /></motion.div>
       </section>
     </div>
 

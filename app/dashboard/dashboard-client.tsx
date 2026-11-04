@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { PromptGuide } from "@/components/prompt-guide";
 import { MadeInOdisha } from "@/components/made-in-odisha";
+import { ComposerAura } from "@/components/composer-aura";
 import { AppPoster, type ProjectCard } from "@/components/app-poster";
 import { AccountMenu, type AccountSummary } from "@/components/account-menu";
 import { usePresence } from "@/hooks/use-presence";
@@ -124,7 +125,9 @@ export default function DashboardClient({ initialProjects, account, cards = {} }
         <motion.h1 initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .05, ease }} className="mt-5 text-5xl font-medium tracking-[-.065em] md:text-7xl">What will you <span className="nynz-text-shine">build</span> today?</motion.h1>
         <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .12, ease }} className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/55">Describe an app and NYNZ will plan it, write it and run it live in a few minutes.</motion.p>
 
-        <form onSubmit={submit} className="nynz-composer relative mx-auto mt-9 rounded-[24px] border border-white/[.1] bg-[#0f1722] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.5)]">
+        <div className="group/aura relative mx-auto mt-9">
+        <ComposerAura radius="rounded-[24px]" />
+        <form onSubmit={submit} className="nynz-composer relative mx-auto rounded-[24px] border border-white/[.1] bg-[#0f1722] p-2 text-left shadow-[0_40px_120px_rgba(0,0,0,.5)]">
           <div className="rounded-[18px] border border-white/[.05] bg-[#0b121b]">
             <textarea ref={composerRef} defaultValue="" onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); if (error) setError(""); }} onKeyDown={onKey} rows={3} maxLength={30_000} placeholder="Describe the app you want to build…" aria-label="Application description" className="w-full resize-none bg-transparent px-5 pb-3 pt-5 text-[17px] leading-7 outline-none placeholder:text-white/35" />
             <div className="flex items-center gap-2 border-t border-white/[.06] p-2.5">
@@ -135,7 +138,8 @@ export default function DashboardClient({ initialProjects, account, cards = {} }
           </div>
           <AnimatePresence>{error && <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} role="alert" className="px-4 py-2.5 text-xs text-red-300">{error}</motion.p>}</AnimatePresence>
         </form>
-        <div className="mt-3 flex justify-center"><MadeInOdisha plain /></div>
+        </div>
+        <div className="mt-5 flex justify-center"><MadeInOdisha /></div>
         <PromptGuide getValue={() => promptRef.current} onChange={(text) => { setPrompt(text); setError(""); composerRef.current?.focus(); }} />
       </section>
 

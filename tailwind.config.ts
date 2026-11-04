@@ -287,9 +287,7 @@ const themeConfig: Config = {
         lg: { min: "996px" },
         "lg-max": { max: "995px" },
         xl: { min: "1200px" },
-        "xl-max": { max: "1199px" },
-        // Wide enough for the homepage hero moments beside the composer.
-        hero: { min: "1400px" }
+        "xl-max": { max: "1199px" }
       },
       opacity: opacities,
       spacing: {

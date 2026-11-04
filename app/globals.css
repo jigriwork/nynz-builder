@@ -226,7 +226,7 @@ body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-t
 
 /* Indian national flag colours: saffron, white, India green. */
 .nynz-tricolour {
-  background: linear-gradient(90deg, #ff9933 0 34%, #ffffff 34% 66%, #138808 66% 100%);
+  background: linear-gradient(90deg, #ff9933 0 34%, #ffffff 34% 66%, #2fbf3a 66% 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -242,13 +242,30 @@ body:has(.nynz-composer:focus-within) :is(.nynz-float, .nynz-float-slow, .nynz-t
   @keyframes nynz-highlight { 0% { opacity: .9; transform: scale(.97); } 100% { opacity: 0; transform: scale(1.06); } }
 }
 
-/* Homepage hero moments: enter once, then drift gently. Transform/opacity only. */
-.nynz-moment { transform: rotate(var(--r, 0deg)); }
+/* Ripples behind composers (ComposerAura). Transform/opacity only. */
+.nynz-ripple { opacity: 0; }
 @media (prefers-reduced-motion: no-preference) {
-  .nynz-moment { animation: nynz-moment-in .9s cubic-bezier(.2, .8, .2, 1) both, nynz-drift 7s ease-in-out infinite; will-change: transform; }
-  .nynz-moment:nth-child(2n) { animation-duration: .9s, 8.5s; }
-  @keyframes nynz-moment-in { from { opacity: 0; transform: translate3d(0, 24px, 0) rotate(var(--r, 0deg)) scale(.92); } to { opacity: 1; transform: rotate(var(--r, 0deg)); } }
-  @keyframes nynz-drift { 0%, 100% { transform: translate3d(0, 0, 0) rotate(var(--r, 0deg)); } 50% { transform: translate3d(0, -12px, 0) rotate(calc(var(--r, 0deg) * .6)); } }
-  .nynz-grow { animation: nynz-grow .7s cubic-bezier(.2, .8, .2, 1) both; }
-  @keyframes nynz-grow { from { transform: scaleY(.08); opacity: .4; } to { transform: none; opacity: 1; } }
+  .nynz-ripple { animation: nynz-ripple 4.6s cubic-bezier(.2, .6, .3, 1) infinite; will-change: transform, opacity; }
+  @keyframes nynz-ripple {
+    0% { transform: scale(1, 1); opacity: 0; }
+    8% { opacity: 1; }
+    100% { transform: scale(1.16, 1.55); opacity: 0; }
+  }
+  .group\/aura:focus-within .nynz-ripple { animation-play-state: paused; opacity: 0; }
+}
+
+/* Made in India badge: tricolour edge, warm glow, slow light sweep. */
+.nynz-proud {
+  border: 1px solid transparent;
+  background: linear-gradient(#0e1621, #0e1621) padding-box, linear-gradient(90deg, #ff9933, #f4f1e8 50%, #2fbf3a) border-box;
+  box-shadow: -14px 0 30px -12px rgba(255, 153, 51, .45), 14px 0 30px -12px rgba(47, 191, 58, .4);
+}
+.nynz-proud::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .16) 50%, transparent 70%);
+  transform: translateX(-120%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nynz-proud::after { animation: nynz-proud-sweep 4.5s ease-in-out 1.2s infinite; }
+  @keyframes nynz-proud-sweep { 0% { transform: translateX(-120%); } 45%, 100% { transform: translateX(120%); } }
 }

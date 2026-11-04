@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.3.12
+
+- Removed the floating app cards, phone ticker and pointer glow from the homepage hero.
+- Launch ripples: thin outlines shaped like the chat box pulse outward from behind it on the homepage and the projects page (transform and opacity only, paused while typing, off with reduced motion).
+- Made in India is now a proud badge just below the chat box on both pages: bright text, bold tricolour India, saffron-to-green edge, a slow shine and the beating heart. Fits on one line on phones.
+
 ## 0.3.11
 
 - Homepage hero: live moments from apps people build (a booking, weekly sales, a new order, a new version) float beside the composer on wide screens and rotate above it on phones; a soft glow follows the pointer. Transform and opacity only, paused while typing, static with reduced motion.
