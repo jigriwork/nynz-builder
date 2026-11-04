@@ -1,0 +1,73 @@
+/**
+ * Secure owner browser handoff for production verification.
+ *
+ *   tsx scripts/ops/owner-browser.ts signin   # opens a visible Chrome window; the owner signs in themselves
+ *   tsx scripts/ops/owner-browser.ts status   # headless: is the stored session still the owner?
+ *
+ * The browser uses a dedicated temporary profile (NYNZ_OWNER_PROFILE, mode 700),
+ * never the person's everyday Chrome profile. Credentials are typed by the owner
+ * into nynz.in directly; nothing is read from or written to chat, logs or Git.
+ * Delete the profile directory to end the session (`signout` also signs out).
+ */
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
+import { chromium, type BrowserContext } from "playwright-core";
+
+export const BASE = process.env.NYNZ_VERIFY_BASE_URL || "https://www.nynz.in";
+export const PROFILE = process.env.NYNZ_OWNER_PROFILE || "";
+const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+export async function ownerContext(headless = true, viewport = { width: 1366, height: 900 }): Promise<BrowserContext> {
+  if (!PROFILE) throw new Error("Set NYNZ_OWNER_PROFILE to a private directory");
+  mkdirSync(PROFILE, { recursive: true }); chmodSync(PROFILE, 0o700);
+  return chromium.launchPersistentContext(PROFILE, { executablePath: CHROME, headless, viewport });
+}
+
+export async function whoAmI(context: BrowserContext) {
+  const page = await context.newPage();
+  await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
+  const onDashboard = new URL(page.url()).pathname === "/dashboard";
+  const email = onDashboard ? await page.locator("button[aria-haspopup=menu]").first().innerText().catch(() => "") : "";
+  await page.close();
+  return { signedIn: onDashboard, email: email.trim().split("\n")[0] };
+}
+
+async function main() {
+  const mode = process.argv[2];
+  if (mode === "signin") {
+    const context = await ownerContext(false);
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto(`${BASE}/login?next=/admin`);
+    console.log("[owner-browser] A Chrome window is open at the NYNZ sign-in page. Waiting up to 20 minutes for the owner to sign in…");
+    const deadline = Date.now() + 20 * 60_000;
+    while (Date.now() < deadline) {
+      const path = new URL(page.url()).pathname;
+      if (path === "/admin" || path === "/dashboard") break;
+      await page.waitForTimeout(2000);
+    }
+    const path = new URL(page.url()).pathname;
+    if (path !== "/admin" && path !== "/dashboard") { console.log("[owner-browser] Timed out without a sign-in."); await context.close(); process.exit(2); }
+    await page.waitForTimeout(1500);
+    console.log(`[owner-browser] Signed in; landed on ${path}. Closing the window; the session stays in the private profile.`);
+    await context.close();
+    return;
+  }
+  if (mode === "status") {
+    const context = await ownerContext(true);
+    console.log(JSON.stringify(await whoAmI(context)));
+    await context.close();
+    return;
+  }
+  if (mode === "signout") {
+    const context = await ownerContext(true);
+    const page = await context.newPage();
+    await page.goto(`${BASE}/dashboard`);
+    await page.evaluate(async () => { await fetch("/auth/signout", { method: "POST" }).catch(() => undefined); });
+    await context.close();
+    rmSync(PROFILE, { recursive: true, force: true });
+    console.log("[owner-browser] Profile deleted.");
+    return;
+  }
+  throw new Error("usage: owner-browser.ts signin|status|signout");
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(`[owner-browser] ${error instanceof Error ? error.message : error}`); process.exit(1); });

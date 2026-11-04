@@ -218,3 +218,18 @@ describe("audit history", () => {
     expect(await auditCount("account.suspended")).toBe(before + 1);
   });
 });
+
+describe("account deletion", () => {
+  it("deleting a removed staff member's account also removes the staff record, but the last owner's account cannot be deleted", async () => {
+    const fresh = await createDb();
+    const soleOwner = await createUser(fresh, { email: "sole-owner@example.test" });
+    await asService(fresh, (tx) => tx.query("select public.bootstrap_owner($1,$2)", [soleOwner.id, soleOwner.email]));
+    const temp = await createUser(fresh, { email: "temp-staff@example.test" });
+    const inv = await asUser(fresh, soleOwner, async (tx) => (await tx.query<any>("select public.admin_invite_staff($1,'','support','{}','fixture') r", [temp.email])).rows[0].r);
+    await asUser(fresh, temp, (tx) => tx.query("select public.accept_staff_invitation($1)", [inv.invitation_id]));
+    await asUser(fresh, soleOwner, (tx) => tx.query("select public.admin_set_staff_status($1,'removed','fixture cleanup')", [temp.id]));
+    expect(await outcome(fresh.query("delete from auth.users where id=$1", [temp.id]))).toBe("OK");
+    expect((await fresh.query("select count(*)::int n from public.staff_members where user_id=$1", [temp.id])).rows[0]).toEqual({ n: 0 });
+    expect(await outcome(fresh.query("delete from auth.users where id=$1", [soleOwner.id]))).toMatch(/LAST_OWNER/);
+  });
+});
