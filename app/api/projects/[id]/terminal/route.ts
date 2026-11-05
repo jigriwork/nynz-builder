@@ -4,7 +4,7 @@ import { CommandExitError, Sandbox } from "e2b";
 import { requireProject } from "@/lib/supabase/auth";
 import { createAdmin } from "@/lib/supabase/server";
 import { apiError, dbError } from "@/lib/http/errors";
-import { sessionExtensionArgs } from "@/preview-host/lib/runtime";
+import { abandonVisitArgs, sessionExtensionArgs, type SessionVisit } from "@/preview-host/lib/runtime";
 import { rateLimit } from "@/lib/platform/rate-limit";
 
 export const maxDuration = 60;
@@ -32,7 +32,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const admitted = await createAdmin().rpc("extend_sandbox_session", sessionExtensionArgs(sandboxId, id, auth.user.id, 60));
     if (admitted.error) return dbError(admitted.error, "terminal");
-    const sandbox = await Sandbox.connect(sandboxId, { apiKey: process.env.E2B_API_KEY, timeoutMs: 60_000 });
+    const sandbox = await Sandbox.connect(sandboxId, { apiKey: process.env.E2B_API_KEY, timeoutMs: 60_000 }).catch(async (error) => {
+      // Nothing ran for a visit that could not reach the sandbox: release its hold.
+      const args = abandonVisitArgs(admitted.data as SessionVisit);
+      if (args) await createAdmin().rpc("abandon_sandbox_visit", args).then(() => undefined, () => undefined);
+      throw error;
+    });
     const info = await sandbox.getInfo();
     const boundProject = info.metadata?.projectId;
     if (boundProject && boundProject !== id) return apiError("FORBIDDEN", "This sandbox does not belong to this project", { cause: new Error(`sandbox metadata mismatch for project ${id}`), scope: "terminal" });

@@ -13,6 +13,14 @@ export function runtimeAdmissionArgs(sandboxId: string, projectId: string, userI
  * sandbox's runtime, so the extension is held before it happens. Charges are
  * settled later against the recorded running time, once per session.
  */
+/** The extension result the host keeps until the sandbox has been reached. */
+export type SessionVisit = { session?: string; opened?: boolean; visit_at?: string } | null | undefined;
+
+/** Arguments for abandon_sandbox_visit when the visit that opened a segment could not reach the sandbox. */
+export function abandonVisitArgs(visit: SessionVisit) {
+  return visit?.opened && visit.session && visit.visit_at ? { p_session: visit.session, p_visit: visit.visit_at } : null;
+}
+
 export function sessionExtensionArgs(sandboxId: string, projectId: string, userId: string, seconds: number, env: Record<string, string | undefined> = process.env) {
   const rate = Number(env.USD_TO_INR_RATE || 95);
   const perSecond = Number(env.E2B_COST_USD_PER_SECOND || 0.000046);

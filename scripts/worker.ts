@@ -68,7 +68,7 @@ const runPreview: typeof runInE2B = localSandbox ? (runLocalFixtureSandbox as ty
 
 export function publicFailure(error: unknown) {
   if (error instanceof BudgetError) {
-    if (error.code === "TRIAL_BUDGET") return { code: "TRIAL_BUDGET", message: "Free trial building is paused for today because today's shared trial allowance is used up. Everything finished so far is saved. Try again tomorrow, or choose a plan to continue now." };
+    if (error.code === "TRIAL_BUDGET") return { code: "TRIAL_BUDGET", message: "Free trial building is paused for today because today's shared trial allowance is used up. Everything finished so far is saved. Building reopens at 12:00 am India time." };
     if (error.code === "SPEND_LIMIT") return { code: "SPEND_LIMIT", message: "NYNZ is very busy right now, so this build couldn't start. Your previous working version is unchanged. Please try again in a few minutes." };
     return { code: "INSUFFICIENT_CREDITS", message: "This build needs more credits to continue. Everything finished so far is saved and your previous working version is unchanged. Add credits, then Resume to continue from the next step." };
   }

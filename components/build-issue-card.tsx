@@ -20,7 +20,7 @@ export type ResumeInfo = { saved: number; total: number; failedStep?: string | n
  * steps are saved, Resume continues from the first unfinished step; Start over
  * (replanning and regenerating everything) needs an explicit confirmation.
  */
-export function BuildIssueCard({ code, hasPreview, resume, onResume, onStartOver, onLogs }: { code: string | null | undefined; hasPreview: boolean; resume?: ResumeInfo | null; onResume?: () => Promise<void>; onStartOver: () => Promise<void> | void; onLogs: () => void }) {
+export function BuildIssueCard({ code, hasPreview, resume, onResume, onStartOver, onLogs, checkoutAvailable = false }: { code: string | null | undefined; hasPreview: boolean; resume?: ResumeInfo | null; onResume?: () => Promise<void>; onStartOver: () => Promise<void> | void; onLogs: () => void; checkoutAvailable?: boolean }) {
   const issue = describeIssue(code);
   const tone = TONE[issue.tone];
   const Icon = tone.icon;
@@ -33,7 +33,8 @@ export function BuildIssueCard({ code, hasPreview, resume, onResume, onStartOver
     {resume && <p className="mt-2 text-[11px] leading-5 text-white/55">{resume.total ? `${resume.saved} of ${resume.total} planned files are saved.` : `${resume.saved} finished step${resume.saved === 1 ? " is" : "s are"} saved.`}{resume.failedStep ? ` Stopped at: ${resume.failedStep}.` : ""}</p>}
     {hasPreview && issue.tone !== "stopped" && <p className="mt-2 text-[11px] text-white/45">Your previous working version is still live in the preview.</p>}
     <div className="mt-3 flex flex-wrap gap-2">
-      {issue.action === "billing" && <Link href="/billing" className="nynz-lift inline-flex items-center gap-1.5 rounded-lg bg-[#c7ff4a] px-3 py-1.5 text-[11px] font-semibold text-[#071019]"><Coins className="h-3.5 w-3.5" /> Add credits</Link>}
+      {issue.action === "billing" && code === "TRIAL_BUDGET" && checkoutAvailable && <Link href="/pricing" className="nynz-lift inline-flex items-center gap-1.5 rounded-lg bg-[#c7ff4a] px-3 py-1.5 text-[11px] font-semibold text-[#071019]">Choose a plan</Link>}
+      {issue.action === "billing" && code !== "TRIAL_BUDGET" && <Link href="/billing" className="nynz-lift inline-flex items-center gap-1.5 rounded-lg bg-[#c7ff4a] px-3 py-1.5 text-[11px] font-semibold text-[#071019]"><Coins className="h-3.5 w-3.5" /> Add credits</Link>}
       {resume && onResume && <button disabled={busy} onClick={() => run(onResume)} className="nynz-lift inline-flex items-center gap-1.5 rounded-lg bg-[#c7ff4a] px-3 py-1.5 text-[11px] font-semibold text-[#071019] disabled:opacity-50"><Play className="h-3.5 w-3.5" /> Resume</button>}
       {!resume && (issue.action === "retry" || issue.action === "wait") && <button disabled={busy} onClick={() => run(onStartOver)} className="nynz-lift inline-flex items-center gap-1.5 rounded-lg bg-white/[.08] px-3 py-1.5 text-[11px] text-white/85 hover:bg-white/[.12] disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" /> Try again</button>}
       {resume && !confirming && <button disabled={busy} onClick={() => setConfirming(true)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] text-white/55 hover:bg-white/[.06] hover:text-white"><RotateCcw className="h-3.5 w-3.5" /> Start over</button>}

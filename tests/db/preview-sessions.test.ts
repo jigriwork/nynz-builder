@@ -148,15 +148,18 @@ describe("session rules", () => {
     const [s] = await sessions(sandbox);
     const est = (await q("select (public.settle_sandbox_session($1,null,'none','no visit or provider record')).*", [s.id]))[0];
     expect(est.status).toBe("estimated");
-    expect(Number(est.charged_credits)).toBe(Number(s.held_credits));
+    // Charged up to NYNZ's visit record (last visit + 600 s = 18 min), never the whole hold.
+    expect(Number(est.runtime_seconds)).toBe(1080);
+    expect(Number(est.charged_credits)).toBe(5);
+    expect(Number(est.charged_credits)).toBeLessThan(Number(s.held_credits));
     const ledger = (await q("select cost_source, metadata from public.credit_ledger where event_key=$1", [`session:${s.id}`]))[0];
     expect(ledger.cost_source).toBe("runtime_estimate");
     expect(ledger.metadata.estimate).toBe(true);
-    // Evidence arrives: it ran until 07:18 (last visit + 600 s).
-    const rec = (await q("select (public.reconcile_sandbox_session($1,$2,'provider')).*", [s.id, at("2026-11-05T07:18:00Z")]))[0];
+    // Evidence arrives: the provider paused it at 07:12 (720 s, 4 credits).
+    const rec = (await q("select (public.reconcile_sandbox_session($1,$2,'provider')).*", [s.id, at("2026-11-05T07:12:00Z")]))[0];
     expect(rec.status).toBe("reconciled");
-    expect(Number(rec.refunded_credits)).toBe(Number(s.held_credits) - 5);
-    await q("select public.reconcile_sandbox_session($1,$2,'provider')", [s.id, at("2026-11-05T07:18:00Z")]);
+    expect(Number(rec.refunded_credits)).toBe(1);
+    await q("select public.reconcile_sandbox_session($1,$2,'provider')", [s.id, at("2026-11-05T07:12:00Z")]);
     const refunds = await q("select amount from public.credit_ledger where user_id=$1 and entry_type='grant' and reason='Preview time correction'", [owner]);
     expect(refunds.length).toBe(1);
     expect(opened.started_at).toBeTruthy();

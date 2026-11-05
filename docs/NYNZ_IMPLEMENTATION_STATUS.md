@@ -42,13 +42,13 @@ Branch: `feat/nynz-platform`.
 Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
 Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
-## 0.5.0 (for review, branch feat/preview-sessions-trial, not deployed)
+## 0.5.0 (release candidate, branch feat/preview-sessions-trial)
 
 | Area | State | Evidence |
 | --- | --- | --- |
-| Preview billing sessions | Implemented locally | Replays of Saffron Loom, Kesari Threads (both sandboxes) and StudioMark; clock-boundary reopen, pause/resume, duplicates, refusal before extension, estimate and refund-only reconciliation (13 DB tests, 4 unit tests) |
-| Trial 60 credits / 7 days, ₹300 trial budget | Implemented locally | New-customer journey 12/12 (signup → plan → approval → build → first preview → settlement; budget exhausted message); paid accounts unaffected |
-| Rollout | Not started | Needs the migration, worker and the preview host (Vercel) together; see the review report |
+| Preview billing sessions | Verified locally through the real preview host | tests/e2e/preview-host/run.ts 32/32:<br>- open, clock-boundary reconnect, pause and reopen, replacement after an edit<br>- refused holds never reach the provider<br>- 20 concurrent visits on 5 instances plus old-host calls<br>- settlement races, connect failure, legacy switchover, estimate and refund |
+| Trial: 60 credits / 7 days, ₹300 trial allowance | Verified locally | Journey 15/15, with a lasting pause card showing the reopen time; 12 concurrent trial accounts held to ₹300 before any request |
+| Switchover and rollout | Rehearsed | scripts/rehearse-preview-billing.sh 19/19 on production-shaped data, including overlap and rollback; docs/DEPLOY_0.5_PREVIEW_BILLING.md |
 
 ## 0.4.2 (deployed 2026-11-05 at d1a0492)
 

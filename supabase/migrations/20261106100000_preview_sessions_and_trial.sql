@@ -1,4 +1,12 @@
--- NYNZ 0.5 (local, for review): preview billing sessions and the revised trial.
+-- NYNZ 0.5: preview billing sessions and the revised trial.
+--
+-- Switchover: the old clock-window preview charge ends, and session billing
+-- starts, at the moment this migration commits. authorize_sandbox_runtime
+-- (still called by the previous preview host and terminal during the
+-- rollout) now holds and meters through the session path, and runtime a
+-- sandbox already paid for under the old billing is not charged again
+-- (private.legacy_paid_until). Preview holds are kept out of the build-hold
+-- sweep in reconcile_credits, which old and new workers both run.
 --
 -- 1. One billing session per sandbox. The sandbox a build creates becomes the
 --    project's preview, so its build time and later preview time are the same
@@ -159,18 +167,43 @@ create policy sandbox_sessions_owner_read on public.sandbox_sessions for select 
 create or replace function private.session_credits(p_seconds numeric, p_pps numeric, p_ppc integer) returns bigint
 language sql immutable set search_path = '' as $$ select greatest(0, ceil(p_seconds * p_pps / p_ppc))::bigint $$;
 
+-- Runtime a sandbox already paid for under the previous billing (before this
+-- migration): a 10-minute clock-window charge covered the sandbox until the
+-- end of the following window, and a build's sandbox charge covered its first
+-- allocated seconds from creation. A sandbox that has never had a session is
+-- only charged from the end of that time, so the switchover never charges the
+-- same runtime twice.
+create or replace function private.legacy_paid_until(p_sandbox text) returns timestamptz
+language sql stable security definer set search_path = '' as $$
+  select greatest(
+    (select max(to_timestamp((split_part(l.event_key, ':', 4)::numeric + 2) * split_part(l.event_key, ':', 3)::numeric))
+       from public.credit_ledger l
+      where l.entry_type = 'consume' and left(l.event_key, length('runtime:' || p_sandbox || ':')) = 'runtime:' || p_sandbox || ':'
+        and split_part(l.event_key, ':', 3) ~ '^[0-9]+$' and split_part(l.event_key, ':', 4) ~ '^[0-9]+$'),
+    (select r.created_at + make_interval(secs => coalesce(
+        (select (l.metadata->>'allocated_seconds')::numeric from public.credit_ledger l where l.event_key = 'e2b:' || p_sandbox || ':build' limit 1), 600))
+       from public.platform_resources r
+      where r.kind = 'e2b_sandbox' and r.provider_ref = p_sandbox and r.purpose = 'preview'
+      order by r.created_at limit 1));
+$$;
+
 -- Opens a session segment (worker: when a build creates the sandbox; host:
 -- the first visit to a sandbox without an open segment, or after a pause).
-create or replace function private.open_segment(p_sandbox text, p_project uuid, p_user uuid, p_build uuid, p_timeout integer, p_pps numeric, p_ppc integer, p_at timestamptz)
+-- p_start is when charging starts; it is later than the visit only for time
+-- already paid under the previous billing.
+create or replace function private.open_segment(p_sandbox text, p_project uuid, p_user uuid, p_build uuid, p_timeout integer, p_pps numeric, p_ppc integer, p_at timestamptz, p_start timestamptz default null)
 returns public.sandbox_sessions language plpgsql security definer set search_path = '' as $$
-declare s public.sandbox_sessions; v_id uuid := gen_random_uuid(); v_credits bigint; v_segment integer;
+declare s public.sandbox_sessions; v_id uuid := gen_random_uuid(); v_credits bigint; v_segment integer; v_start timestamptz; v_end timestamptz; v_seconds numeric;
 begin
-  v_credits := private.session_credits(p_timeout, p_pps, p_ppc);
+  v_start := greatest(p_at, coalesce(p_start, p_at));
+  v_end := p_at + make_interval(secs => p_timeout);
+  v_seconds := greatest(0, extract(epoch from v_end - v_start));
+  v_credits := private.session_credits(v_seconds, p_pps, p_ppc);
   perform private.reserve_runtime(p_user, p_project, v_id, v_credits);
-  perform public.authorize_provider_spend('e2b', 'sandbox', null, ceil(p_timeout * p_pps)::bigint, p_build, p_user, 'session:' || v_id || ':0');
+  perform public.authorize_provider_spend('e2b', 'sandbox', null, ceil(v_seconds * p_pps)::bigint, p_build, p_user, 'session:' || v_id || ':0');
   select coalesce(max(segment), 0) + 1 into v_segment from public.sandbox_sessions where sandbox_id = p_sandbox;
   insert into public.sandbox_sessions(id, sandbox_id, segment, project_id, owner_id, build_id, started_at, last_access_at, last_timeout_seconds, runs_until, covered_until, held_credits, paise_per_second, paise_per_credit)
-  values (v_id, p_sandbox, v_segment, p_project, p_user, p_build, p_at, p_at, p_timeout, p_at + make_interval(secs => p_timeout), p_at + make_interval(secs => p_timeout), v_credits, p_pps, p_ppc)
+  values (v_id, p_sandbox, v_segment, p_project, p_user, p_build, v_start, p_at, p_timeout, v_end, greatest(v_end, v_start), v_credits, p_pps, p_ppc)
   returning * into s;
   return s;
 end; $$;
@@ -189,20 +222,34 @@ end; $$;
 -- Settles a segment: charges its seconds once, releases the rest of the hold.
 create or replace function public.settle_sandbox_session(p_session uuid, p_ended_at timestamptz, p_source text, p_estimate_reason text default null)
 returns public.sandbox_sessions language plpgsql security definer set search_path = '' as $$
-declare s public.sandbox_sessions; v_end timestamptz; v_seconds integer; v_credits bigint;
+declare s public.sandbox_sessions; v_end timestamptz; v_seconds integer; v_credits bigint; v_owner uuid; v_cost bigint; v_first bigint;
 begin
-  select * into s from public.sandbox_sessions where id = p_session for update;
+  -- Same lock order as extend_sandbox_session (account, then session) so a
+  -- settlement and a visit can never deadlock.
+  select owner_id into v_owner from public.sandbox_sessions where id = p_session;
   if not found then raise exception 'NOT_FOUND' using errcode = 'P0001'; end if;
+  perform private.lock_credit_account(v_owner);
+  select * into s from public.sandbox_sessions where id = p_session for update;
   if s.status <> 'open' then return s; end if;
-  v_end := greatest(coalesce(p_ended_at, s.covered_until), s.started_at);
+  -- A sandbox cannot run past the latest end any visit asked for, so no
+  -- settlement (or retry claiming a later end) is charged beyond it.
+  v_end := greatest(least(coalesce(p_ended_at, s.runs_until), s.runs_until), s.started_at);
   v_seconds := ceil(extract(epoch from v_end - s.started_at))::integer;
   v_credits := private.session_credits(v_seconds, s.paise_per_second, s.paise_per_credit);
+  -- The provider cost is the running seconds at NYNZ's configured rate, so it
+  -- is always labelled an estimate; a fallback charge is also labelled.
+  v_cost := ceil(v_seconds * s.paise_per_second)::bigint;
   if v_credits > 0 then
-    perform public.consume_credits(s.id, v_credits, 'session:' || s.id, 'e2b', null, ceil(v_seconds * s.paise_per_second)::bigint,
-      case when p_estimate_reason is null then 'measured_runtime' else 'runtime_estimate' end,
+    perform public.consume_credits(s.id, v_credits, 'session:' || s.id, 'e2b', null, v_cost,
+      case when p_estimate_reason is null then 'configured_rate_estimate' else 'runtime_estimate' end,
       jsonb_build_object('step', 'Preview time', 'seconds', v_seconds, 'source', p_source, 'sandbox', s.sandbox_id, 'segment', s.segment,
-        'project_id', s.project_id, 'estimate', p_estimate_reason is not null, 'paise_per_credit', s.paise_per_credit));
+        'project_id', s.project_id, 'estimate', p_estimate_reason is not null, 'cost_estimate', true, 'paise_per_credit', s.paise_per_credit));
   end if;
+  -- Replace the held spend estimates with the estimate for the time that ran.
+  select min(id) into v_first from public.provider_spend where event_key like 'session:' || s.id || ':%' and status = 'authorized';
+  update public.provider_spend set estimated_paise = case when id = v_first then v_cost else 0 end,
+    cost_source = case when p_estimate_reason is null then 'configured_rate_estimate' else 'runtime_estimate' end
+  where event_key like 'session:' || s.id || ':%' and status = 'authorized';
   perform public.settle_reservation(s.id, 'preview time settled');
   update public.sandbox_sessions set status = case when p_estimate_reason is null then 'settled' else 'estimated' end,
     ended_at = v_end, end_source = p_source, runtime_seconds = v_seconds, charged_credits = v_credits, estimate_reason = p_estimate_reason
@@ -230,8 +277,9 @@ begin
     v_resumed := true;
   end if;
   if not found then
-    s := private.open_segment(p_sandbox, p_project, p_user, null, p_timeout, p_pps, p_ppc, p_at);
-    return jsonb_build_object('session', s.id, 'segment', s.segment, 'covered_until', s.covered_until, 'held', s.held_credits, 'opened', true, 'resumed', v_resumed);
+    s := private.open_segment(p_sandbox, p_project, p_user, null, p_timeout, p_pps, p_ppc, p_at,
+      case when exists (select 1 from public.sandbox_sessions where sandbox_id = p_sandbox) then null else private.legacy_paid_until(p_sandbox) end);
+    return jsonb_build_object('session', s.id, 'segment', s.segment, 'covered_until', s.covered_until, 'held', s.held_credits, 'opened', true, 'resumed', v_resumed, 'visit_at', p_at);
   end if;
   v_needed := p_at + make_interval(secs => p_timeout);
   if s.covered_until < v_needed then
@@ -250,7 +298,62 @@ begin
   update public.sandbox_sessions set last_access_at = greatest(last_access_at, p_at), last_timeout_seconds = case when p_at >= last_access_at then p_timeout else last_timeout_seconds end,
     runs_until = greatest(runs_until, p_at + make_interval(secs => p_timeout))
   where id = s.id returning * into s;
-  return jsonb_build_object('session', s.id, 'segment', s.segment, 'covered_until', s.covered_until, 'held', s.held_credits, 'opened', false, 'resumed', false);
+  return jsonb_build_object('session', s.id, 'segment', s.segment, 'covered_until', s.covered_until, 'held', s.held_credits, 'opened', false, 'resumed', false, 'visit_at', p_at);
+end; $$;
+
+-- Preview host: the visit that opened a segment could not reach the sandbox
+-- (for example it was deleted while paused). Nothing ran, so the segment is
+-- closed with no charge and its hold released. Ignored once anything else
+-- has used the segment.
+create or replace function public.abandon_sandbox_visit(p_session uuid, p_visit timestamptz)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare s public.sandbox_sessions; v_owner uuid;
+begin
+  select owner_id into v_owner from public.sandbox_sessions where id = p_session;
+  if not found then return false; end if;
+  perform private.lock_credit_account(v_owner);
+  select * into s from public.sandbox_sessions where id = p_session for update;
+  if s.status <> 'open' or s.last_access_at <> p_visit or s.started_at < p_visit or s.top_ups > 0 then return false; end if;
+  perform public.settle_sandbox_session(s.id, s.started_at, 'connect_failed');
+  return true;
+end; $$;
+
+-- The previous preview host and terminal call this. From this migration on it
+-- holds and meters through the session path, so the old clock-window charge
+-- ends the moment the migration commits, whichever code is still running.
+create or replace function public.authorize_sandbox_runtime(
+  p_project uuid, p_user uuid, p_sandbox text, p_seconds integer,
+  p_estimate bigint, p_credits bigint, p_paise_per_credit bigint default 100
+) returns bigint language plpgsql security definer set search_path = '' as $$
+begin
+  if p_seconds < 60 or p_seconds > 3600 or p_estimate < 1 or p_credits < 1 or p_paise_per_credit < 1 or p_credits <> ceil(p_estimate::numeric/p_paise_per_credit) then
+    raise exception 'INVALID_STATE' using errcode = 'P0001';
+  end if;
+  -- The old estimate is for twice the timeout.
+  perform public.extend_sandbox_session(p_project, p_user, p_sandbox, p_seconds, p_estimate::numeric / (2 * p_seconds), p_paise_per_credit::integer, now());
+  return 0;
+end; $$;
+
+-- Maintenance (every worker, old or new): a preview hold belongs to its
+-- session and is released only when the session settles, never by the
+-- build-hold sweep. A hold whose session is already closed is released.
+create or replace function public.reconcile_credits() returns jsonb language plpgsql security definer set search_path = '' as $$
+declare r record; v_released integer := 0; v_expired integer := 0; g record;
+begin
+  for r in select cr.build_id from public.credit_reservations cr left join public.build_jobs j on j.id = cr.build_id
+           where cr.status = 'active' and (
+             (cr.kind = 'build' and ((j.id is null and cr.created_at < now() - interval '10 minutes') or j.status in ('succeeded', 'failed', 'cancelled') or cr.created_at < now() - interval '12 hours'))
+             or (cr.kind = 'runtime' and cr.created_at < now() - interval '10 minutes'
+                 and not exists (select 1 from public.sandbox_sessions s where s.id = cr.build_id and s.status = 'open'))) loop
+    perform public.settle_reservation(r.build_id, 'reconciled');
+    v_released := v_released + 1;
+  end loop;
+  for g in select id, user_id, remaining from public.credit_grants where remaining > 0 and expires_at is not null and expires_at <= now() for update skip locked loop
+    update public.credit_grants set remaining = 0 where id = g.id;
+    insert into public.credit_ledger(user_id, entry_type, amount, grant_id, reason) values (g.user_id, 'expire', -g.remaining, g.id, 'Credits expired');
+    v_expired := v_expired + 1;
+  end loop;
+  return jsonb_build_object('released', v_released, 'expired', v_expired);
 end; $$;
 
 -- Worker: open segments whose sandbox has stopped (or must have) by now.
@@ -269,10 +372,12 @@ $$;
 -- ever refunds: a customer is never charged more after the fact.
 create or replace function public.reconcile_sandbox_session(p_session uuid, p_ended_at timestamptz, p_source text)
 returns public.sandbox_sessions language plpgsql security definer set search_path = '' as $$
-declare s public.sandbox_sessions; v_seconds integer; v_actual bigint; v_refund bigint; l public.credit_ledger;
+declare s public.sandbox_sessions; v_seconds integer; v_actual bigint; v_refund bigint; l public.credit_ledger; v_owner uuid;
 begin
-  select * into s from public.sandbox_sessions where id = p_session for update;
+  select owner_id into v_owner from public.sandbox_sessions where id = p_session;
   if not found then raise exception 'NOT_FOUND' using errcode = 'P0001'; end if;
+  perform private.lock_credit_account(v_owner);
+  select * into s from public.sandbox_sessions where id = p_session for update;
   if s.status <> 'estimated' then return s; end if;
   v_seconds := ceil(extract(epoch from greatest(p_ended_at, s.started_at) - s.started_at))::integer;
   v_actual := private.session_credits(v_seconds, s.paise_per_second, s.paise_per_credit);
@@ -292,7 +397,12 @@ end; $$;
 revoke all on function private.reserve_runtime(uuid, uuid, uuid, bigint) from public;
 revoke all on function private.is_trial_account(uuid) from public;
 revoke all on function private.session_credits(numeric, numeric, integer) from public;
-revoke all on function private.open_segment(text, uuid, uuid, uuid, integer, numeric, integer, timestamptz) from public;
+revoke all on function private.open_segment(text, uuid, uuid, uuid, integer, numeric, integer, timestamptz, timestamptz) from public;
+revoke all on function private.legacy_paid_until(text) from public;
+revoke all on function public.abandon_sandbox_visit(uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.abandon_sandbox_visit(uuid, timestamptz) to service_role;
+revoke all on function public.authorize_sandbox_runtime(uuid,uuid,text,integer,bigint,bigint,bigint) from public, anon, authenticated;
+grant execute on function public.authorize_sandbox_runtime(uuid,uuid,text,integer,bigint,bigint,bigint) to service_role;
 revoke all on function public.trial_budget_open(uuid) from public, anon, authenticated;
 revoke all on function public.account_is_trial(uuid) from public, anon, authenticated;
 grant execute on function public.account_is_trial(uuid) to service_role;

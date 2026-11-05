@@ -10,7 +10,8 @@ async function fixture() {
   const project = (await asUser(db, user, async (tx) => (await tx.query<any>("insert into public.projects(owner_id,name) values($1,'Runtime fixture') returning id", [user.id])).rows[0])).id;
   const sandbox = `sandbox-${project}`;
   await svc("select public.register_sandbox($1,$2,null)", [sandbox, project]);
-  await svc("update public.platform_resources set state='active' where provider_ref=$1", [sandbox]);
+  // An hour-old sandbox: any runtime paid under the previous billing has passed.
+  await svc("update public.platform_resources set state='active', created_at=now()-interval '1 hour' where provider_ref=$1", [sandbox]);
   await svc("update public.projects set active_sandbox_id=$1,status='ready' where id=$2", [sandbox, project]);
   await svc("select public.grant_credits($1,'promotional',100,null,'fixture',null,$2)", [user.id, project]);
   return { user, project, sandbox };
@@ -50,12 +51,16 @@ describe("paid runtime admission", () => {
     expect((await svc("select active_deployment_id from public.published_sites where project_id=$1", [a.project])).active_deployment_id).toBe(deployment);
   });
 
-  it("charges a window once, rejects cross-user access and revokes suspended access", async () => {
+  it("the previous host's call now holds through the session path (no clock-window charge), rejects cross-user access and revokes suspended access", async () => {
     const a = await fixture(), b = await fixture();
     const args = [a.project, a.user.id, a.sandbox];
     const sql = "select public.authorize_sandbox_runtime($1,$2,$3,600,320,4) id";
-    const first = await svc(sql, args);
-    expect(await svc(sql, args)).toEqual(first);
+    await svc(sql, args);
+    await svc(sql, args);
+    // Held, not charged: one segment, no consume, no clock-window event.
+    expect((await svc("select count(*)::int n, max(status) s from public.sandbox_sessions where sandbox_id=$1", [a.sandbox]))).toEqual({ n: 1, s: "open" });
+    expect((await svc("select count(*)::int n from public.credit_ledger where user_id=$1 and entry_type='consume'", [a.user.id])).n).toBe(0);
+    expect((await svc("select count(*)::int n from public.provider_spend where event_key like 'runtime:%' and user_id=$1", [a.user.id])).n).toBe(0);
     expect((await svc("select public.credit_balance($1) b", [a.user.id])).b.available).toBe(96);
     expect(await outcome(svc(sql, [a.project, b.user.id, a.sandbox]))).toMatch(/NOT_PROJECT_OWNER/);
     expect(await outcome(svc(sql, [a.project, a.user.id, b.sandbox]))).toMatch(/NOT_PROJECT_OWNER/);

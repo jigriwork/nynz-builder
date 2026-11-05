@@ -44,7 +44,7 @@ const DB_CODES: Record<string, [ApiErrorCode, string]> = {
   ACCOUNT_SUSPENDED: ["ACCOUNT_SUSPENDED", "This account is suspended. Contact support for help."],
   INSUFFICIENT_CREDITS: ["INSUFFICIENT_CREDITS", "You do not have enough credits for this request. Add credits or upgrade your plan."],
   CONCURRENCY_LIMIT: ["CONCURRENCY_LIMIT", "You have reached the number of builds that can run at once on your plan."],
-  TRIAL_BUDGET: ["TRIAL_BUDGET", "Free trial building is paused for today because today's shared trial allowance is used up. Your projects are safe. Try again tomorrow, or choose a plan to continue now."],
+  TRIAL_BUDGET: ["TRIAL_BUDGET", "Free trial building is paused until 12:00 am India time because today's shared trial allowance is used up. Your projects are safe, and nothing was charged for this request."],
   SPEND_LIMIT: ["SPEND_LIMIT", "Generation is paused because a platform spending limit was reached. Please try again later."],
   PERMISSION_DENIED: ["FORBIDDEN", "You do not have permission to do that."],
   REAUTH_REQUIRED: ["REAUTH_REQUIRED", "Confirm your password to continue."],

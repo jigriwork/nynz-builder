@@ -118,18 +118,24 @@ export async function handlePreview(request: ProxyRequest, deps: ProxyDeps): Pro
   return { status: upstream.status, headers: out, body: await upstream.arrayBuffer() };
 }
 
-/** E2B REST connect: resumes a paused sandbox and returns its private traffic token. */
-export function e2bConnector(apiKey: string, activeSeconds: number, beforeConnect?: (sandboxId: string, projectId: string, userId: string) => Promise<void>) {
+/**
+ * E2B REST connect: resumes a paused sandbox and returns its private traffic
+ * token. beforeConnect holds the runtime before it is extended; if the
+ * sandbox then cannot be reached, onConnectFailed receives what it returned
+ * so a hold placed for this visit alone can be released.
+ */
+export function e2bConnector<T = unknown>(apiKey: string, activeSeconds: number, beforeConnect?: (sandboxId: string, projectId: string, userId: string) => Promise<T>, onConnectFailed?: (ticket: T | undefined) => Promise<void>) {
   const cache = new Map<string, { target: string; trafficToken: string; until: number }>();
   return async (sandboxId: string, projectId: string, userId: string) => {
     const cached = cache.get(sandboxId);
     if (cached && cached.until > Date.now()) return cached;
-    await beforeConnect?.(sandboxId, projectId, userId);
+    const ticket = await beforeConnect?.(sandboxId, projectId, userId);
+    const failed = async (error: Error) => { await onConnectFailed?.(ticket).catch(() => undefined); return error; };
     const response = await fetch(`https://api.e2b.app/v2/sandboxes/${encodeURIComponent(sandboxId)}/connect`, {
       method: "POST", headers: { "content-type": "application/json", "x-api-key": apiKey },
       body: JSON.stringify({ timeout: activeSeconds }), signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`Sandbox connection failed (${response.status})`);
+    }).catch(async (error) => { throw await failed(error instanceof Error ? error : new Error("Sandbox connection failed")); });
+    if (!response.ok) throw await failed(new Error(`Sandbox connection failed (${response.status})`));
     const sandbox = await response.json() as { domain?: string | null; trafficAccessToken?: string | null };
     if (!sandbox.trafficAccessToken) throw new Error("Sandbox traffic authentication is unavailable");
     const value = { target: `https://5173-${sandboxId}.${sandbox.domain || "e2b.app"}`, trafficToken: sandbox.trafficAccessToken, until: Date.now() + 30_000 };

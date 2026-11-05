@@ -3,12 +3,21 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
-## 0.5.0 (for review): preview billing sessions and the revised trial (branch feat/preview-sessions-trial, not deployed)
+## 0.5.0: preview billing sessions and the revised trial
 
 - One billing session per sandbox: the build's sandbox and its later preview are the same runtime and are charged once. The first 600 s are held when the sandbox is created; every preview or terminal visit tops up the hold before runtime is extended (refused if the account cannot cover it); the actual running time is charged once when the sandbox stops (shutdown record, provider pause time, or NYNZ's visit record) and the rest of the hold is released. A visit after a pause opens a new segment. Duplicate visits and settlements do not double-charge. Missing evidence is charged as a labelled estimate and later reconciled with refunds only. Replaces the fixed 10-minute clock windows and the separate 600 s build-sandbox charge.
 - Recorded sessions replayed: Saffron Loom 15 → 4 credits (904 s), Kesari Threads 15 + 15 → 5 + 5 (936 s, 1,059 s), StudioMark 15 → 6 (1,206 s).
 - Trial: 60 credits for 7 days (TRIAL_CREDITS, TRIAL_DAYS), granted as source "trial". A separate daily trial spending limit (spend_limits scope "trial", ₹300 to start) counts only trial-only accounts; paid accounts keep the rest of the ₹1,000 platform cap. New trial requests are refused upfront with a clear message when the day's trial allowance is used up. Preview holds never occupy a build-concurrency slot.
-- Evidence: tests/db/preview-sessions.test.ts, tests/unit/preview-sessions.test.ts, tests/e2e/trial-journey/run.ts (12 checks), StudioMark local proof (43 checks).
+- Switchover: clock-window charging ends the moment the migration commits. The previous host's `authorize_sandbox_runtime` now holds and meters through sessions, and runtime already paid under the old billing (the following window after a window charge, the first 600 s after a build charge) is never charged again. Preview holds are kept out of the build-hold sweep that every worker runs.
+- A visit that opened a segment but could not reach the sandbox (for example deleted while paused) is closed with no charge. Lock order is the same for visits and settlements, so they never deadlock. No settlement or retry is charged beyond a sandbox's recorded end. Measured runtime cost is labelled `configured_rate_estimate`; the fallback is `runtime_estimate`.
+- Builder: when today's trial allowance is used up, a lasting card replaces the toast. It shows when building reopens (12:00 am India time), that the project is safe and nothing was charged, and "Choose a plan" only when checkout is configured. The preview error page and build stop card use the same reopen time.
+- Existing 25-credit trial grants keep their balances and expiry dates (the 60-credit grant is a no-op for them) and count toward the trial allowance.
+- Evidence:
+  - The real preview host driven against local Supabase and a fake E2B: tests/e2e/preview-host/run.ts, 32 checks.
+  - New-customer journey: 15 checks.
+  - Release rehearsal on production-shaped previews, holds and grants: scripts/rehearse-preview-billing.sh, 19 checks, including overlap and rollback.
+  - DB, unit and concurrency tests.
+  - Deploy guide: docs/DEPLOY_0.5_PREVIEW_BILLING.md.
 
 ## 0.4.2: honest build-complete replies (deployed 2026-11-05 at d1a0492)
 

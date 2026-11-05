@@ -9,7 +9,7 @@ export type BuildIssue = { title: string; body: string; tone: IssueTone; action:
 const ISSUES: Record<string, BuildIssue> = {
   SPEND_LIMIT: { tone: "paused", action: "wait", title: "NYNZ is very busy right now", body: "So many apps are being built at the moment that yours couldn't start. Nothing in your project changed. Please try again in a few minutes." },
   MODEL_BUDGET_REACHED: { tone: "paused", action: "ask", title: "This build reached its AI allowance", body: "A single build has a cap on AI usage. Everything finished so far is saved. Resume continues with a fresh allowance, or ask for a smaller step." },
-  TRIAL_BUDGET: { tone: "paused", action: "billing", title: "Free trial building is paused for today", body: "Free trials share a daily allowance, and today's is used up. Nothing more was charged and everything finished so far is saved. Try again tomorrow, or choose a plan to continue now." },
+  TRIAL_BUDGET: { tone: "paused", action: "billing", title: "Free trial building is paused for today", body: "Free trials share a daily allowance, and today's is used up. Nothing more was charged and everything finished so far is saved. Building reopens at 12:00 am India time." },
   INSUFFICIENT_CREDITS: { tone: "credits", action: "billing", title: "More credits are needed to continue", body: "NYNZ stopped before starting the next step, so nothing more was charged. Everything finished so far is saved. Add credits, then Resume." },
   CONCURRENCY_LIMIT: { tone: "credits", action: "billing", title: "Another build is already running", body: "Your plan runs one build at a time. Wait for the current one to finish, or upgrade to run more at once." },
   GENERATOR_UNAVAILABLE: { tone: "retry", action: "retry", title: "The AI builder is briefly unavailable", body: "Our AI provider didn't respond. Nothing was changed and you weren't charged for an unfinished step. Try again in a minute." },
@@ -29,7 +29,7 @@ export function describeIssue(code: string | null | undefined): BuildIssue {
 
 /** Codes the preview host can report when a preview cannot be woken. */
 export function describePreviewIssue(code: string | null | undefined) {
-  if (code === "TRIAL_BUDGET") return { title: "Free trial previews are paused for today", body: "Free trials share a daily allowance, and today's is used up. Your app is safe. Previews reopen tomorrow, or choose a plan to continue now." };
+  if (code === "TRIAL_BUDGET") return { title: "Free trial previews are paused for today", body: "Free trials share a daily allowance, and today's is used up. Your app is safe. Previews reopen at 12:00 am India time." };
   if (code === "SPEND_LIMIT") return { title: "NYNZ is very busy right now", body: "Your app is safe. Previews are in high demand at the moment, so please reload in a few minutes." };
   if (code === "INSUFFICIENT_CREDITS") return { title: "Not enough credits to wake this preview", body: "Waking a preview uses a few credits for cloud time. Add credits from Plan and billing, then reload." };
   if (code === "NO_PREVIEW") return { title: "This app isn't running right now", body: "Open the project in NYNZ and press Restart preview to start it again." };

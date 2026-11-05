@@ -142,18 +142,34 @@ suite("credit reservations under real concurrency", () => {
     expect(values).toHaveLength(2);
   }, 60_000);
 
-  it("parallel proxy instances charge the same resume window exactly once", async () => {
+  it("parallel preview host instances (previous and new) hold one session, and parallel settlements charge it exactly once", async () => {
     await admin.query("update public.spend_limits set active=false");
     const { user, projects } = await customer(100);
     const project = projects[0];
     const sandbox = `runtime-${project}`;
     await asService("select public.register_sandbox($1,$2,null)", [sandbox, project]);
-    await admin.query("update public.platform_resources set state='active' where provider_ref=$1", [sandbox]);
+    await admin.query("update public.platform_resources set state='active', created_at=now()-interval '1 hour' where provider_ref=$1", [sandbox]);
     await admin.query("update public.projects set active_sandbox_id=$1,status='ready' where id=$2", [sandbox, project]);
-    const results = await Promise.all(Array.from({ length: 20 }, () => asService<{ id: string }>("select public.authorize_sandbox_runtime($1,$2,$3,3600,320,4) id", [project, user, sandbox])));
-    expect(new Set(results.map((r) => r.id)).size).toBe(1);
-    const balance = (await admin.query("select public.credit_balance($1) b", [user])).rows[0].b;
-    expect(Number(balance.available)).toBe(96);
-    expect(Number(balance.reserved)).toBe(0);
+    const pps = 0.000046 * 95 * 100;
+    await Promise.all([
+      ...Array.from({ length: 20 }, () => asService("select public.authorize_sandbox_runtime($1,$2,$3,600,525,6)", [project, user, sandbox])),
+      ...Array.from({ length: 20 }, () => asService("select public.extend_sandbox_session($1,$2,$3,600,$4,100)", [project, user, sandbox, pps])),
+    ]);
+    const sessions = (await admin.query("select * from public.sandbox_sessions where sandbox_id=$1", [sandbox])).rows;
+    expect(sessions).toHaveLength(1);
+    expect((await admin.query("select count(*)::int n from public.credit_ledger where user_id=$1 and entry_type='consume'", [user])).rows[0].n).toBe(0);
+    let balance = (await admin.query("select public.credit_balance($1) b", [user])).rows[0].b;
+    expect(Number(balance.reserved)).toBe(Number(sessions[0].held_credits));
+    // Settlement runs and retries race further visits: no deadlocks, one charge for the segment.
+    const raced = await Promise.allSettled([
+      ...Array.from({ length: 10 }, () => asService("select public.settle_sandbox_session($1,$2,'parallel')", [sessions[0].id, sessions[0].runs_until])),
+      ...Array.from({ length: 10 }, () => asService("select public.extend_sandbox_session($1,$2,$3,600,$4,100)", [project, user, sandbox, pps])),
+    ]);
+    expect(raced.filter((r) => r.status === "rejected")).toEqual([]);
+    expect((await admin.query("select count(*)::int n from public.credit_ledger where event_key=$1", [`session:${sessions[0].id}`])).rows[0].n).toBe(1);
+    balance = (await admin.query("select public.credit_balance($1) b", [user])).rows[0].b;
+    const open = (await admin.query("select coalesce(sum(held_credits),0)::int h from public.sandbox_sessions where sandbox_id=$1 and status='open'", [sandbox])).rows[0].h;
+    expect(Number(balance.reserved)).toBe(open);
+    expect(Number(balance.available) + Number(balance.reserved) + Number(balance.used)).toBe(100);
   }, 60_000);
 });

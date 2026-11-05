@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { apiError, dbError } from "@/lib/http/errors";
 import { prepareProjectPreview } from "@/lib/preview/registration";
+import { razorpayConfig } from "@/lib/billing/razorpay";
+import { trialPausedMessage, trialReopensAt } from "@/lib/billing/trial";
 
 export type Entitlements = { plan_code: string; plan_name: string; subscription_status: string | null; max_concurrent_builds: number; max_projects: number; features: string[]; current_period_end?: string | null; cancel_at_period_end?: boolean; grace_until?: string | null };
 
@@ -55,7 +57,7 @@ export async function admitPaidWork(admin: SupabaseClient, input: { userId: stri
   // Tell trial customers before any work starts when today's trial allowance is used up.
   const { data: open, error: trialError } = await admin.rpc("trial_budget_open", { p_user: input.userId });
   if (trialError) return apiError("SERVICE_UNAVAILABLE", "Building is temporarily unavailable.", { cause: trialError, scope: "admission" });
-  if (open === false) return apiError("TRIAL_BUDGET", "Free trial building is paused for today because today's shared trial allowance is used up. Your projects are safe. Try again tomorrow, or choose a plan to continue now.");
+  if (open === false) return apiError("TRIAL_BUDGET", trialPausedMessage(), { extra: { retry_at: trialReopensAt().toISOString(), checkout_available: Boolean(razorpayConfig()) } });
   const { error } = await admin.rpc("reserve_credits", { p_user: input.userId, p_project: input.projectId, p_build: input.buildId, p_amount: input.credits, p_max_concurrent: entitlements.max_concurrent_builds });
   if (error) return dbError(error, "admission");
   return null;

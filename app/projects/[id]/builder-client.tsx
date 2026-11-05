@@ -18,6 +18,7 @@ import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { ProjectIntegrations } from "@/components/project-integrations";
 import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
 import { BuildIssueCard } from "@/components/build-issue-card";
+import { TrialPauseCard, type TrialPause } from "@/components/trial-pause-card";
 import { describeIssue } from "@/lib/platform/build-issues";
 import { ProjectFileSearch } from "@/components/project-file-search";
 
@@ -97,7 +98,7 @@ function fileIcon(path: string) {
   return <FileCode2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" />;
 }
 
-export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds, initialCredits = 0, initialCostPaise = 0 }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[]; initialCredits?: number; initialCostPaise?: number }) {
+export default function BuilderClient({ initialProject, initialFiles, initialVersions, initialMessages, initialBuilds, initialCredits = 0, initialCostPaise = 0, initialTrialPause = null, checkoutAvailable = false }: { initialProject: Project; initialFiles: FileRow[]; initialVersions: Version[]; initialMessages: Message[]; initialBuilds: Build[]; initialCredits?: number; initialCostPaise?: number; initialTrialPause?: TrialPause | null; checkoutAvailable?: boolean }) {
   const [project, setProject] = useState(initialProject);
   const [files, setFiles] = useState(initialFiles);
   const [versions, setVersions] = useState(initialVersions);
@@ -110,6 +111,14 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [hasPrompt, setHasPrompt] = useState(false);
   const [url, setUrl] = useState("");
   const [notice, setNotice] = useState("");
+  // Today's shared trial allowance is used up: a lasting card, not a toast.
+  const [trialPause, setTrialPause] = useState<TrialPause | null>(initialTrialPause);
+  const clearTrialPause = useCallback(() => setTrialPause(null), []);
+  /** Shows a refused request: the trial pause card for TRIAL_BUDGET, otherwise a notice. */
+  const refuse = (body: { code?: string; error?: string; retry_at?: string; checkout_available?: boolean } | null | undefined, fallback: string) => {
+    if (body?.code === "TRIAL_BUDGET" && body.retry_at) { setTrialPause({ retryAt: body.retry_at, checkoutAvailable: Boolean(body.checkout_available) }); setNotice(""); return; }
+    setNotice(body?.error || fallback);
+  };
   const [usageCredits, setUsageCredits] = useState(initialCredits);
   const [usageCostPaise, setUsageCostPaise] = useState(initialCostPaise);
   const [showUsage, setShowUsage] = useState(false);
@@ -270,7 +279,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
         setNotice("Preparing your plan. Review and approve it before building.");
         const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: fullPrompt, mode: "create", idempotencyKey: `homepage-${draft.createdAt}-${project.id}` }) });
         const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Could not queue build");
+        if (!response.ok) { refuse(body, "Could not queue build"); return; }
         if (body.informational) { setMessages((value) => [...value, { id: crypto.randomUUID(), role: "assistant", content: body.message, created_at: new Date().toISOString() }]); setNotice(""); return; }
         setBuilds((value) => [body.build, ...value]);
       } catch (error) { setNotice(error instanceof Error ? error.message : "Could not resume homepage brief"); }
@@ -290,7 +299,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
       const body = await response.json().catch(() => ({}));
       if (response.ok && body.informational) setMessages((value) => [...value, { id: crypto.randomUUID(), role: "assistant", content: body.message, created_at: new Date().toISOString() }]);
-      else setNotice(body.error || "Could not answer right now");
+      else refuse(body, "Could not answer right now");
       return;
     }
     if (pendingPlan) {
@@ -300,14 +309,14 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
     const body = await response.json();
-    if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
+    if (response.ok) { setBuilds((value) => [body.build, ...value]); setTrialPause(null); } else refuse(body, "Could not start this request");
   }
 
   async function reviewPlan(input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) {
     if (!pendingPlan) return;
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingPlan.id, revision: pendingPlan.plan?.revision }) });
     const body = await response.json();
-    if (!response.ok) { setNotice(body.error || "Could not review plan"); await refresh(); throw new Error(body.error || "Could not review plan"); }
+    if (!response.ok) { refuse(body, "Could not review plan"); await refresh(); throw new Error(body.error || "Could not review plan"); }
     setBuilds(value => value.map(build => build.id === body.build.id ? body.build : build));
     setNotice(input.action === "approve" ? "Plan approved. Building your app." : input.action === "revise" ? "Updating the plan for your review." : "Plan cancelled.");
     await refresh();
@@ -321,7 +330,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (failedBuild.mode === "restart") { await restart(); return; }
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: failedBuild.request || failedBuild.prompt, mode: failedBuild.mode, idempotencyKey: `start-over:${failedBuild.id}` }) });
     const body = await response.json();
-    if (response.ok) setBuilds((value) => [body.build, ...value.filter((item) => item.id !== body.build.id)]); else setNotice(body.error);
+    if (response.ok) setBuilds((value) => [body.build, ...value.filter((item) => item.id !== body.build.id)]); else refuse(body, "Could not start over");
   }
 
   /** Resume: continue from the first unfinished step, reusing saved work. Safe to click repeatedly. */
@@ -329,7 +338,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (!stoppedBuild?.resumable || running) return;
     const response = await fetch(`/api/builds/${stoppedBuild.id}/resume`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setNotice(body.error || "Could not resume this build"); return; }
+    if (!response.ok) { refuse(body, "Could not resume this build"); return; }
     setNotice("Resuming from the first unfinished step. Finished steps are reused.");
     setBuilds((value) => [body.build, ...value.filter((item) => item.id !== body.build.id)]);
     await refresh();
@@ -414,7 +423,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   async function restart() {
     const response = await fetch(`/api/projects/${project.id}/sandbox`, { method: "POST" });
-    if (response.ok) { setNotice("Preview restart queued"); refresh(); } else setNotice((await response.json()).error);
+    if (response.ok) { setNotice("Preview restart queued"); refresh(); } else refuse(await response.json().catch(() => null), "Could not restart the preview");
   }
 
   async function runTerminal(event?: FormEvent) {
@@ -528,7 +537,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 
-            {(project.last_error || resumeInfo) && stoppedBuild && !running && <BuildIssueCard code={stoppedBuild.error_code} hasPreview={Boolean(project.has_preview)} resume={resumeInfo} onResume={resumeBuild} onStartOver={retryFailedBuild} onLogs={() => setTab("logs")} />}
+            {trialPause && !running && <TrialPauseCard pause={trialPause} onReopen={clearTrialPause} />}
+            {(project.last_error || resumeInfo) && stoppedBuild && !running && !(trialPause && stoppedBuild.error_code === "TRIAL_BUDGET") && <BuildIssueCard code={stoppedBuild.error_code} hasPreview={Boolean(project.has_preview)} resume={resumeInfo} onResume={resumeBuild} onStartOver={retryFailedBuild} onLogs={() => setTab("logs")} checkoutAvailable={checkoutAvailable} />}
             {coverageGaps.length > 0 && !running && <section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/[.05] p-4"><p className="text-[12px] font-medium text-amber-200">Not built yet from your approved plan</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageGaps.map((item) => <li key={item}>{item}</li>)}</ul><button type="button" onClick={() => applyPrompt(`Add the parts of the approved plan that are not built yet:\n${coverageGaps.map((item) => `- ${item}`).join("\n")}`)} className="mt-3 rounded-lg bg-white/[.08] px-3 py-1.5 text-[11px] text-white/85 hover:bg-white/[.12]">Ask NYNZ to add these</button></section>}
             {coverageUnconfirmed.length > 0 && !running && <section role="status" className="rounded-2xl border border-sky-300/20 bg-sky-300/[.04] p-4"><p className="text-[12px] font-medium text-sky-200">Couldn&apos;t confirm automatically</p><p className="mt-1 text-[11px] leading-5 text-white/55">These may well be built. NYNZ couldn&apos;t verify them from the code, so please check them in the preview.</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageUnconfirmed.map((item) => <li key={item}>{item}</li>)}</ul></section>}
           </div>
