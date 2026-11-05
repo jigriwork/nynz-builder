@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateWithOpenRouter, reviewCoverage } from "../../lib/platform/openrouter";
-import { buildReply, classNamesIn, coverageEvidence, generatedContext, needsStyles, outlineForReview, styleContext, styleGaps } from "../../lib/platform/build-engine";
+import { completionMessage, classNamesIn, coverageEvidence, generatedContext, needsStyles, outlineForReview, styleContext, styleGaps } from "../../lib/platform/build-engine";
 import { FIXED_STARTER_PATHS } from "../../lib/platform/starter";
 import { classesFromStylesRequest, heuristicCss } from "../fixtures/heuristic-css";
 
@@ -131,9 +131,9 @@ describe("plan check after the Kesari Threads returns edit", () => {
     expect(sent).toContain("SOURCE EVIDENCE");
     expect(result.missing).toEqual([]);
     expect(result.unconfirmed).toHaveLength(1);
-    const message = buildReply("The returns workflow is ready.", "edit", result);
+    const message = completionMessage({ mode: "edit", plan: { summary: "Add returns and exchanges" }, changed: ["src/components/Returns.tsx"], coverage: result });
     expect(message).toContain("Couldn't confirm automatically");
     expect(message).not.toContain("Not built yet");
-    expect(buildReply("Ready.", "edit", { missing: ["Planned file src/x.tsx was not created"] })).toContain("Not built yet");
+    expect(completionMessage({ mode: "edit", coverage: { missing: ["Planned file src/x.tsx was not created"] } })).toContain("Not built yet");
   });
 });

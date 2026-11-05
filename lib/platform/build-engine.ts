@@ -400,21 +400,42 @@ export function coverageEvidence(input: { steps: string[]; files: SourceFile[]; 
   return `${parts.join("\n\n")}${others.length ? `\n\nOTHER FILES (not shown): ${others.join(", ")}` : ""}`.slice(0, max);
 }
 
+/** The app's own name, from the generated index.html title. */
+export function appNameFrom(files: SourceFile[]) {
+  const html = files.find((file) => file.path === "index.html")?.content || "";
+  const title = html.match(/<title>([^<]{1,120})<\/title>/i)?.[1]?.trim() || "";
+  return title.split(/\s[|—–-]\s/)[0].trim() || null;
+}
+
+function coverageNotes(coverage: { missing?: string[]; unconfirmed?: string[] }) {
+  const parts: string[] = [];
+  if (coverage.missing?.length) parts.push(`Not built yet (from the approved plan):\n${coverage.missing.map((item) => `- ${item}`).join("\n")}\n\nAsk NYNZ to add these and it will build them on top of this version.`);
+  if (coverage.unconfirmed?.length) parts.push(`Couldn't confirm automatically (please check these in the preview):\n${coverage.unconfirmed.map((item) => `- ${item}`).join("\n")}`);
+  return parts;
+}
+
 /**
- * The assistant message after a build. "Not built yet" is used only for
- * features known to be missing; anything the check could not verify is listed
- * as "Couldn't confirm" so customers are not told working features are absent.
+ * The assistant message posted when a build or edit has been validated and
+ * published. Written from the completed result (app name, approved steps,
+ * files changed), never from the plan's proposal text, which is posted
+ * separately when the plan is ready. "Not built yet" is used only for
+ * features known to be missing; anything the check could not verify is
+ * listed as "Couldn't confirm".
  */
-export function buildReply(message: string, mode: string, coverage: { missing?: string[]; unconfirmed?: string[] } = {}) {
-  const missing = coverage.missing || [];
-  const unconfirmed = coverage.unconfirmed || [];
-  if (missing.length || unconfirmed.length) {
-    const base = message.trim() || "Your application is ready and running in the preview.";
-    const parts = [base];
-    if (missing.length) parts.push(`Not built yet (from the approved plan):\n${missing.map((item) => `- ${item}`).join("\n")}\n\nAsk NYNZ to add these and it will build them on top of this version.`);
-    if (unconfirmed.length) parts.push(`Couldn't confirm automatically (please check these in the preview):\n${unconfirmed.map((item) => `- ${item}`).join("\n")}`);
-    return parts.join("\n\n");
+export function completionMessage(input: { mode: "create" | "edit"; appName?: string | null; plan?: { summary?: string; steps?: string[] } | null; changed?: string[]; coverage?: { missing?: string[]; unconfirmed?: string[] } }) {
+  const short = (text: string) => { const head = text.split(/:\s/)[0].trim(); return (head.length >= 6 && head.length <= 70 ? head : text.length > 90 ? `${text.slice(0, 87).trimEnd()}…` : text).replace(/\.$/, ""); };
+  const parts: string[] = [];
+  if (input.mode === "create") {
+    parts.push(`${input.appName || "Your app"} is built and running in the preview.`);
+    const steps = (input.plan?.steps || []).slice(0, 6).map(short).filter(Boolean);
+    if (steps.length) parts.push(`What's included:\n${steps.map((step) => `- ${step}`).join("\n")}`);
+  } else {
+    const summary = (input.plan?.summary || "").trim().replace(/\.$/, "");
+    parts.push(summary ? `Your change is live in the preview: ${summary.charAt(0).toLowerCase()}${summary.slice(1)}.` : "Your change is live in the preview.");
+    const files = (input.changed || []).map((path) => path.split("/").pop()!);
+    if (files.length) parts.push(`Updated: ${files.slice(0, 6).join(", ")}${files.length > 6 ? ` and ${files.length - 6} more` : ""}.`);
   }
-  const base = message.trim() || (mode === "edit" ? "Your requested changes are now live." : "Your application is ready and running in the preview.");
-  return /\?\s*$/.test(base) ? base : `${base}\n\nWhat would you like to change, add, or improve next?`;
+  parts.push(...coverageNotes(input.coverage || {}));
+  parts.push("Open the Preview tab to try it, and tell me what to change next.");
+  return parts.join("\n\n");
 }

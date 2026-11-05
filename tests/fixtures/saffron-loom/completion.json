@@ -1,0 +1,25 @@
+{
+ "source": "NYNZ 0.4.1 production validation, Saffron Loom build d4693669 (2026-11-05)",
+ "plan": {
+  "summary": "A frontend-only boutique orders app with a landing page and an orders workspace, using fictional data persisted in browser localStorage. No backend, authentication or payments.",
+  "steps": [
+   "Landing page: top navigation with the Saffron Loom brand, Collections, Workspace and About links, and an Open workspace button. On phones the links collapse into a menu button that opens and closes the menu, closes on Escape and closes when a link is chosen.",
+   "Hero: headline, short paragraph, two buttons and a CSS-built preview panel mimicking order cards, followed by a section of three feature cards.",
+   "Workspace: opened from Open workspace, with a header showing the brand and a Back to home button, and an Orders page showing 9 fictional orders as cards with customer, date, items, INR total and a New, Packed or Delivered status badge.",
+   "Orders layout: a grid of at least three columns on wide screens and a single column on phones, with a status filter (All, New, Packed, Delivered) above the cards.",
+   "New order form: customer, item, quantity and price fields with validation. Submitting adds a new card with status New, and all orders persist across reloads via localStorage.",
+   "Visual direction: warm saffron, deep indigo and cream palette with a serif display font for headings and a clean sans-serif for body text, with visible focus states and responsive spacing."
+  ]
+ },
+ "proposal": "Here is the proposed plan for Saffron Loom. It is frontend-only, so orders are fictional and stored in your browser's localStorage. Please review it and let me know if you'd like any changes before I write code.",
+ "reply_posted_on_completion": "Here is the proposed plan for Saffron Loom. It is frontend-only, so orders are fictional and stored in your browser's localStorage. Please review it and let me know if you'd like any changes before I write code.\n\nCouldn't confirm automatically (please check these in the preview):\n- Orders grid 3+ columns wide, one column on phones, with status filter (Filter built; column layout depends on unseen stylesheet.)\n- Visual direction: saffron/indigo/cream palette, serif headings, sans body, focus states, responsive spacing (Styling files not provided.)",
+ "coverage": {
+  "missing": [],
+  "checked_at": "2026-11-05T14:56:48.904Z",
+  "unconfirmed": [
+   "Orders grid 3+ columns wide, one column on phones, with status filter (Filter built; column layout depends on unseen stylesheet.)",
+   "Visual direction: saffron/indigo/cream palette, serif headings, sans body, focus states, responsive spacing (Styling files not provided.)"
+  ]
+ },
+ "index_html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Saffron Loom – Boutique order workspace</title>\n    <meta name=\"description\" content=\"Saffron Loom is a small boutique orders app for tracking customers, items, totals in INR and order status from new to delivered.\" />\n    <meta name=\"theme-color\" content=\"#2b2a6b\" />\n    <link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232b2a6b'/%3E%3Cpath d='M18 44V20h6v24zm11 0V20h6v24zm11 0V20h6v24z' fill='%23f4a52a'/%3E%3C/svg%3E\" />\n    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\" />\n    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin />\n    <link href=\"https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Fraunces:wght@600;700&display=swap\" rel=\"stylesheet\" />\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.tsx\"></script>\n  </body>\n</html>\n"
+}

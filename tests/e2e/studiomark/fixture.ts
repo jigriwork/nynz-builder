@@ -25,7 +25,8 @@ export const SCREENS = ["Landing", "DemoLogin", "Workspace", "Dashboard", "Produ
 
 export const MANIFEST = {
   plan: PLAN,
-  message: "StudioMark is ready. Explore the demo as Manager or Staff.",
+  // Production planners phrase this as a proposal; it must never be the completion reply.
+  message: "Here is the proposed plan for StudioMark. Please review it and let me know if you'd like any changes before I write code.",
   files: [
     ["package.json", "Dependencies"], ["index.html", "Document with StudioMark title"], ["src/main.tsx", "Entry"], ["src/App.tsx", "Routing between screens"],
     ["src/index.css", "Responsive premium styles"], ["src/types.ts", "Product, customer and order types"], ["src/seed.ts", "Fictional seed data"], ["src/store.tsx", "localStorage store"],
@@ -37,7 +38,7 @@ export const MANIFEST = {
 export const EDIT_REQUEST = "Add a dark theme toggle to the workspace header.";
 export const EDIT_MANIFEST = {
   plan: { summary: "Add a dark theme toggle", steps: ["Add a dark theme toggle to the workspace header and dark styles"] },
-  message: "The dark theme toggle is ready.",
+  message: "Here is the proposed change: a dark theme toggle in the workspace header. Please review it before I write code.",
   files: [{ path: "src/App.tsx", purpose: "Add the theme toggle" }, { path: "src/index.css", purpose: "Dark theme styles" }],
 };
 

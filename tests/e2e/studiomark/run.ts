@@ -210,6 +210,15 @@ async function main() {
   const chargedPaths = (chainCharges || []).flatMap((row) => fileResponses.get(row.event_key) || []);
   const okFiles = MANIFEST.files.map((file) => file.path).filter((path) => !["src/main.tsx", "src/pages/Orders.tsx", "src/pages/Reports.tsx"].includes(path));
   check("across the three builds, no saved file was charged again in a later build", okFiles.every((path) => (chainCharges || []).filter((row) => (fileResponses.get(row.event_key) || []).includes(path)).length === 1), `${chargedPaths.length} file slots charged in ${(chainCharges || []).length} responses`);
+  // Chat replies: the proposal is its own earlier message; only the published build gets a completion reply.
+  const { data: chat } = await admin.from("messages").select("content,metadata,created_at").eq("role", "assistant").in("metadata->>build_id", [first.id, second.id, resumed[0].id]).order("created_at");
+  const proposals = (chat || []).filter((m) => m.metadata?.kind === "plan_proposal");
+  const completions = (chat || []).filter((m) => m.metadata?.kind === "build_complete");
+  check("the plan proposal is kept as its own earlier chat entry", proposals.length === 1 && /proposed plan/.test(proposals[0].content) && proposals[0].metadata.build_id === first.id);
+  check("only the published build gets a completion reply, written from its result", completions.length === 1 && completions[0].metadata.build_id === resumed[0].id && completions[0].content.startsWith("StudioMark is built and running in the preview.") && /Open the Preview tab/.test(completions[0].content) && !/proposed plan|before I write code/.test(completions[0].content), completions.map((m) => m.content.split("\n")[0]).join(" | "));
+  check("failed builds show no success message", !(chat || []).some((m) => [first.id, second.id].includes(m.metadata?.build_id) && /built and running|live in the preview/.test(m.content)));
+  await page.reload({ waitUntil: "networkidle" });
+  check("the builder shows the completion reply", await page.locator("text=StudioMark is built and running in the preview.").first().isVisible().catch(() => false));
   const filesV1 = await projectFiles(projectId);
   check("the published app has every planned file", MANIFEST.files.every((file) => filesV1.has(file.path)), `${filesV1.size} files`);
   const { data: projectV1 } = await admin.from("projects").select("status,active_version_id,brief").eq("id", projectId).single();
@@ -243,6 +252,10 @@ async function main() {
   const edit = await until("the follow-up edit", async () => { const [b] = await builds(projectId); return b && b.mode === "edit" && ["succeeded", "failed", "cancelled"].includes(b.status) ? b : null; }, 180_000, 1000);
   check("the follow-up edit succeeded", edit.status === "succeeded", edit.error_message || "");
   const editLog = logSince(fake.log, editAt);
+  const { data: editChat } = await admin.from("messages").select("content,metadata").eq("role", "assistant").eq("metadata->>build_id", edit.id);
+  const editDone = (editChat || []).find((m) => m.metadata?.kind === "build_complete");
+  check("a completed edit gets a completion reply naming the change and files", Boolean(editDone) && editDone!.content.startsWith("Your change is live in the preview:") && /Updated: .*App\.tsx/.test(editDone!.content) && !/proposed change|before I write code/.test(editDone!.content), editDone?.content.split("\n\n").slice(0, 2).join(" / "));
+  check("the edit's proposal stays as its own entry", (editChat || []).some((m) => m.metadata?.kind === "plan_proposal" && /proposed change/.test(m.content)));
   const briefed = editLog.filter((entry) => ["nynz_manifest", "nynz_edit"].includes(entry.schema) && !entry.body.includes("Fix these production compiler errors"));
   check("planning and every edit step carried the original brief", briefed.length >= 2 && briefed.every((entry) => entry.brief), `${briefed.length} requests`);
   check("a compile error was repaired from the compiler output", editLog.some((entry) => entry.body.includes("Fix these production compiler errors")));
@@ -255,7 +268,7 @@ async function main() {
   const unsure = page.locator("section[role=status]").filter({ hasText: "Couldn't confirm automatically" }).first();
   const unsureShown = await unsure.isVisible().catch(() => false);
   if (unsureShown) await unsure.screenshot({ path: `${process.env.E2E_ARTIFACTS || "/tmp"}/couldnt-confirm.png` });
-  const { data: reply } = await admin.from("messages").select("content").eq("metadata->>build_id", edit.id).maybeSingle();
+  const { data: reply } = await admin.from("messages").select("content").eq("metadata->>build_id", edit.id).eq("metadata->>kind", "build_complete").maybeSingle();
   check("an unverifiable step is shown as Couldn't confirm, not Not built yet", unsureShown && /Couldn't confirm automatically/.test(reply?.content || "") && !/Not built yet/.test(reply?.content || "") && !(await page.locator("text=Not built yet from your approved plan").count()), (reply?.content || "").split("\n").find((line: string) => /Couldn't confirm/.test(line)) || "");
   check("the brief records the change as applied", projectV2?.brief?.changes?.some((change: { request: string; status: string }) => change.request === EDIT_REQUEST && change.status === "applied"));
 
@@ -271,6 +284,8 @@ async function main() {
   check("no new provider request started after Stop was accepted", fake.log.filter((entry) => entry.at > stopAccepted + 250).length === 0, `${fake.log.filter((entry) => entry.at > stopAccepted).length} request(s) after`);
   check("Stop explains the final charge", /credits? (was|were) used for steps that had already started/.test(stopped.error_message || ""), stopped.error_message || "");
   const { data: projectAfterStop } = await admin.from("projects").select("active_version_id,status").eq("id", projectId).single();
+  const { data: stopChat } = await admin.from("messages").select("content,metadata").eq("role", "assistant").eq("metadata->>build_id", stopping.id);
+  check("a stopped build shows no success message", !(stopChat || []).some((m) => m.metadata?.kind === "build_complete" || /built and running|live in the preview/.test(m.content)), `${(stopChat || []).length} message(s): ${(stopChat || []).map((m) => m.metadata?.kind).join(", ")}`);
   check("the last working version stayed live after Stop", projectAfterStop?.active_version_id === projectV2?.active_version_id && projectAfterStop?.status === "ready");
   fake.control.delayMs = 0;
 

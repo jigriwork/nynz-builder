@@ -42,7 +42,15 @@ Branch: `feat/nynz-platform`.
 Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
 Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
-## 0.4.1 (local, branch fix/0.4.1, not deployed)
+## 0.4.2 (local, branch fix/0.4.2, not deployed)
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Build-complete reply | Fixed, verified locally | Saffron Loom reply reproduced; unit tests; local e2e: proposal kept as its own entry, completion reply only for the published build and edit, none for failed or stopped builds (43/43) |
+| Trial credits | Decision pending | 25-credit trial blocks every real build at approval (smallest hold 29) and at first preview |
+| Preview billing | Decision pending | Recorded sessions charged 15 credits each for 904–1,206 s of runtime (₹3.95–5.27) |
+
+## 0.4.1 (deployed 2026-11-05 at 891a495)
 
 | Area | State | Evidence |
 | --- | --- | --- |

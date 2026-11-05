@@ -3,6 +3,13 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.4.2: honest build-complete replies (committed on branch fix/0.4.2, not deployed)
+
+- A finished build or edit no longer posts the plan's proposal ("Here is the proposed plan… before I write code") as its completion reply (seen on Kesari Threads and Saffron Loom). The reply is written from the completed result: the app's name and the approved steps for a new app, the change summary and the files updated for an edit, coverage notes, and a pointer to the Preview tab.
+- The proposal is posted as its own chat entry when the plan is ready, so it keeps its earlier place next to the plan card.
+- Only a published build gets a completion reply; failed, stopped and still-running builds never show one.
+- Evidence: tests/fixtures/saffron-loom/completion.json, tests/unit/completion-message.test.ts, StudioMark local proof (43 checks).
+
 ## 0.4.1: styling, honest plan checks and credit labels (committed on branch fix/0.4.1, not deployed)
 
 Findings from the approved 0.4.0 production validation (Kesari Threads, project 2ea4dcd1):

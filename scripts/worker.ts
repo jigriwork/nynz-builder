@@ -11,7 +11,7 @@ import { getPreviewOrigin } from "../lib/preview/session";
 import { removePreviewDomain } from "../lib/preview/registration";
 import { redact } from "../lib/platform/redact";
 import { planApplication, reviewCoverage } from "../lib/platform/openrouter";
-import { StepFailedError, buildReply, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
+import { StepFailedError, appNameFrom, completionMessage, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
 import { RESERVE } from "../lib/billing/entitlements";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
@@ -273,6 +273,10 @@ async function processJob(job: Job) {
         const { error } = await db.from("build_jobs").update({ plan, status: "planning", locked_at: null, locked_by: null, progress: [...job.progress, { at: new Date().toISOString(), message: "Plan ready for your approval. No code generation has started.", percent: 18 }] }).eq("id", job.id).eq("locked_by", lockOwner);
         if (error) throw error;
         await db.from("projects").update({ status: "planning", last_error: null }).eq("id", job.project_id);
+        // The proposal stays in the conversation as its own entry, before any code is written.
+        if (job.conversation_id && planned.manifest.message.trim()) {
+          await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: planned.manifest.message.trim(), metadata: { build_id: job.id, kind: "plan_proposal", revision: plan.revision } });
+        }
         awaitingApproval = true;
         return;
       }
@@ -370,9 +374,13 @@ async function processJob(job: Job) {
     const { error: promoteError } = await db.rpc("promote_build", { p_build: job.id, p_lock_owner: lockOwner, p_sandbox: sandbox.sandboxId, p_preview_url: getPreviewOrigin(job.project_id), p_label: label });
     if (promoteError) throw new Error(promoteError.message);
     outcome = "succeeded";
-    if (job.conversation_id && (output || job.plan)) {
-      const { data: posted } = await db.from("messages").select("id").eq("conversation_id", job.conversation_id).eq("metadata->>build_id", job.id).limit(1);
-      if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: buildReply(output?.result.message || "", output ? job.mode : "edit", job.plan?.coverage || {}), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
+    // Posted only after promotion: written from the completed result, not the proposal.
+    if (job.conversation_id && output && (job.mode === "create" || job.mode === "edit")) {
+      const { data: posted } = await db.from("messages").select("id").eq("conversation_id", job.conversation_id).eq("metadata->>build_id", job.id).eq("metadata->>kind", "build_complete").limit(1);
+      if (!posted?.length) {
+        const content = completionMessage({ mode: job.mode, appName: appNameFrom(working), plan: job.plan, changed: job.mode === "edit" ? output.result.files.map((file) => file.path) : undefined, coverage: job.plan?.coverage || {} });
+        await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content, metadata: { build_id: job.id, kind: "build_complete", plan: { summary: job.plan?.summary, steps: job.plan?.steps } } });
+      }
     }
   } catch (error) {
     if (control?.signal.aborted) error = control.signal.reason;
