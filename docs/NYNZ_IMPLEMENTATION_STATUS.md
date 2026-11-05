@@ -42,6 +42,23 @@ Branch: `feat/nynz-platform`.
 Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
 Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
+## Resumable builds (unreleased, branch fix/build-recovery)
+
+Not deployed. Migration `20261105100000_resumable_builds.sql` is not applied to production.
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| StudioMark root cause | Identified | Production records (read-only): builds 5120d4b5 and 1872988b stopped at batch 4 of 4 after three identical requests, each returning exactly 12,000 output tokens; worker log "OpenRouter response reached its output limit"; edit 4aa57eed hit the same cap. 261 credits went through the ledger for the project, about 144 of them on cut-off responses. |
+| Step checkpoints, Resume, Start over | Implemented, verified locally | tests/db/resumable-builds.test.ts (10), tests/unit/build-recovery.test.ts, tests/e2e/studiomark/run.ts (30/30) |
+| Worker restart mid-build | Verified locally | e2e: worker killed after 4 saved files; recovered build requested none of them again |
+| Follow-ups keep the brief | Verified locally | e2e: plan and edit requests carry ORIGINAL PRODUCT BRIEF; all eight screens unchanged after the edit |
+| Compile repair, last working version | Verified locally | e2e: compiler error repaired from its output; Stop and failures left the live version unchanged |
+| Credits | Verified locally | e2e: estimate and hold shown before approval; refusal before any code; mid-build shortfall stopped before the next paid step; no response charged twice; holds released |
+| Chained Resume (resume fails again) | Verified locally | DB chain test; generator test (every file produced and paid once across three runs); e2e: 13 → 14 → 16 files, the last Resume requested only Reports.tsx |
+| Migration on existing data | Rehearsed locally | tests/db/resumable-upgrade.test.ts and scripts/rehearse-resumable-migration.sh (PostgreSQL 17.11, 62 builds, 79 ledger rows, 4 ms): builds, projects, ledger, reservations and balances unchanged; previous worker still works |
+| Deployment | Not done | Order: database, worker, web; see docs/DEPLOY_0.4_RESUMABLE_BUILDS.md |
+| Real provider and E2B behaviour | Not verified | Local runs used a scripted provider and a local sandbox stand-in; paid live test deferred |
+
 ## Release disposition
 
 The existing 0.3 implementation was retained and checked. This increment closes additional isolation, runtime-budget, cleanup, cancellation, restore-concurrency and publishing-transaction gaps, and adds working file search and generation identity validation.

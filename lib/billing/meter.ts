@@ -18,6 +18,9 @@ type Pending = { spendId: number | null; eventKey: string; model: string };
 export class BuildMeter {
   private pending: Pending[] = [];
   private sandboxSpend: { id: number; seconds: number } | null = null;
+  private step: string | null = null;
+  /** Labels the following charges in the credit history (for example "Writing Orders.tsx"). */
+  setStep(label: string | null) { this.step = label ? label.slice(0, 120) : null; }
   constructor(private readonly db: SupabaseClient, private readonly job: Job, private readonly env: Record<string, string | undefined> = process.env) {}
 
   private async hasReservation() {
@@ -65,7 +68,7 @@ export class BuildMeter {
     if (await this.hasReservation()) {
       const { error } = await this.db.rpc("consume_credits", {
         p_build: this.job.id, p_amount: creditsForPaise(cost.paise, this.env), p_event_key: eventKey, p_provider: "openrouter", p_model: event.model,
-        p_cost_paise: cost.paise, p_cost_source: cost.source, p_metadata: { input_tokens: event.prompt_tokens, output_tokens: event.completion_tokens, provider_spend_id: call?.spendId, paise_per_credit: paisePerCredit(this.env) },
+        p_cost_paise: cost.paise, p_cost_source: cost.source, p_metadata: { input_tokens: event.prompt_tokens, output_tokens: event.completion_tokens, provider_spend_id: call?.spendId, paise_per_credit: paisePerCredit(this.env), ...(this.step ? { step: this.step } : {}) },
       });
       if (error) throw error;
     }
@@ -111,5 +114,6 @@ export class BuildMeter {
   async settle(reason: string) {
     const settled = await this.db.rpc("settle_reservation", { p_build: this.job.id, p_reason: reason });
     if (settled.error) throw settled.error;
+    return (settled.data || {}) as { settled?: boolean; consumed?: number; released?: number };
   }
 }

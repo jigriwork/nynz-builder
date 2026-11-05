@@ -13,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { id } = await params;
   const auth = await requireProject(id);
   if ("error" in auth) return auth.error;
-  const { data, error } = await auth.supabase.from("build_jobs").select("id,status,prompt,mode,progress,plan,error_code,error_message,created_at,finished_at,cancel_requested_at").eq("project_id", id).order("created_at", { ascending: false }).limit(20);
+  const { data, error } = await auth.supabase.from("build_jobs").select("id,status,prompt,request,mode,progress,plan,error_code,error_message,created_at,finished_at,cancel_requested_at,resumable,resume_of,checkpoint,generation_complete").eq("project_id", id).order("created_at", { ascending: false }).limit(20);
   if (error) return apiError("INTERNAL", "Could not load builds", { cause: error, scope: "builds" });
   return json({ builds: data || [] });
 }
@@ -51,7 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (refused) return refused;
   const { data: conversation } = await auth.supabase.from("conversations").select("id").eq("project_id", id).order("created_at").limit(1).maybeSingle();
   const { data, error } = await admin.from("build_jobs").insert({
-    id: buildId, project_id: id, requested_by: auth.user.id, conversation_id: conversation?.id, prompt: parsed.data.prompt, mode: parsed.data.mode,
+    id: buildId, project_id: id, requested_by: auth.user.id, conversation_id: conversation?.id, prompt: parsed.data.prompt, request: parsed.data.prompt, mode: parsed.data.mode,
     idempotency_key: parsed.data.idempotencyKey, plan: { approval: "required", revision: 1 },
   }).select().single();
   if (error) {
@@ -85,10 +85,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   let update: Record<string, unknown>;
   const now = new Date().toISOString();
   if (input.action === "approve") {
-    // Hold enough for the first generation steps before any code is written.
-    const { data: ok, error } = await admin.rpc("ensure_reservation_headroom", { p_build: job.id, p_needed: RESERVE.generate() });
+    // Hold the estimated cost shown with the plan before any code is written.
+    // Later steps extend the hold only from available credits; if they cannot,
+    // the build stops with its finished steps saved for Resume.
+    const hold = Math.max(1, Number(job.plan?.estimate?.reserve) || RESERVE.generate());
+    const { data: ok, error } = await admin.rpc("ensure_reservation_headroom", { p_build: job.id, p_needed: hold });
     if (error) return apiError("SERVICE_UNAVAILABLE", "Could not check your credits", { cause: error, scope: "builds" });
-    if (!ok) return apiError("INSUFFICIENT_CREDITS", "You do not have enough credits to build this plan. Add credits or upgrade your plan.");
+    if (!ok) return apiError("INSUFFICIENT_CREDITS", `This plan needs about ${hold} credits held before building starts. Add credits or upgrade your plan, then approve again.`);
     const reviewed = { summary: input.summary, steps: input.steps };
     update = { status: "queued", locked_at: null, locked_by: null, attempt_count: 0, plan: { ...job.plan, ...reviewed, approval: "approved", approved_at: now, manifest: { ...job.plan.manifest, plan: reviewed } }, prompt: `${job.prompt}\n\nUSER APPROVED PLAN (follow this scope):\n${input.summary}\n${input.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`, progress: [...(job.progress || []), { at: now, message: "Plan approved. Application build queued.", percent: 20 }] };
   } else if (input.action === "revise") {
@@ -100,6 +103,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { data, error } = await admin.from("build_jobs").update(update).eq("id", job.id).eq("project_id", id).eq("status", "planning").eq("plan->>approval", "awaiting").eq("plan->>revision", String(input.revision)).is("locked_by", null).is("cancel_requested_at", null).select().maybeSingle();
   if (error || !data) return apiError("CONFLICT", "Plan already reviewed or changed. Refresh to continue.");
   if (input.action === "cancel") await admin.rpc("settle_reservation", { p_build: job.id, p_reason: "plan cancelled" });
+  // The brief and every approved change are kept with the project, so later
+  // requests are built against the full requirements.
+  if (input.action === "approve") {
+    const recorded = await admin.rpc("record_approved_request", { p_build: job.id });
+    if (recorded.error) console.error(`[builds] could not record the approved request for ${job.id}`);
+  }
   await admin.from("projects").update({ status: input.action === "cancel" ? (auth.project.active_sandbox_id ? "ready" : "draft") : "queued", last_error: null }).eq("id", id);
   if (input.action === "revise" && job.conversation_id) await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: input.changes });
   return json({ build: data }, { status: input.action === "cancel" ? 200 : 202 });

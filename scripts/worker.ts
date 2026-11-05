@@ -4,12 +4,15 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { generateApplication, generationReadiness } from "../lib/platform/generation";
 import { buildArtifactInE2B, listNynzSandboxes, runInE2B, stopE2B } from "../lib/platform/e2b";
+import { localFixtureSandboxEnabled, runLocalFixtureSandbox } from "../lib/platform/local-sandbox";
 import { createHash } from "node:crypto";
 import { MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FILES, contentType, validateArtifact } from "../preview-host/lib/sites";
 import { getPreviewOrigin } from "../lib/preview/session";
 import { removePreviewDomain } from "../lib/preview/registration";
 import { redact } from "../lib/platform/redact";
-import { planApplication } from "../lib/platform/openrouter";
+import { planApplication, reviewCoverage } from "../lib/platform/openrouter";
+import { StepFailedError, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
+import { RESERVE } from "../lib/billing/entitlements";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
@@ -32,7 +35,8 @@ let currentBuildId: string | null = null;
 let heartbeatBusy = false;
 
 type SourceFile = { path: string; content: string };
-type Job = { id: string; project_id: string; requested_by: string; conversation_id: string | null; prompt: string; mode: "create" | "edit" | "restart" | "publish"; plan: any; progress: any[]; generation_complete?: boolean; cancel_requested_at?: string | null };
+type Checkpoint = { done?: string[]; base_staged?: boolean; failed_step?: { paths: string[]; reason: string; label: string }; resumed_from?: string };
+type Job = { id: string; project_id: string; requested_by: string; conversation_id: string | null; prompt: string; request?: string | null; mode: "create" | "edit" | "restart" | "publish"; plan: any; progress: any[]; generation_complete?: boolean; cancel_requested_at?: string | null; checkpoint?: Checkpoint | null; resume_of?: string | null };
 
 function safeError(error: unknown) {
   const raw = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message: unknown }).message) : String(error);
@@ -55,19 +59,24 @@ function capabilities() {
   };
 }
 const caps = capabilities();
+// The local fixture stand-in never runs in production or against a remote database.
+const localSandbox = localFixtureSandboxEnabled();
+if (localSandbox) caps.sandbox = true;
+const runPreview: typeof runInE2B = localSandbox ? (runLocalFixtureSandbox as typeof runInE2B) : runInE2B;
 
 export function publicFailure(error: unknown) {
   if (error instanceof BudgetError) {
     if (error.code === "SPEND_LIMIT") return { code: "SPEND_LIMIT", message: "NYNZ is very busy right now, so this build couldn't start. Your previous working version is unchanged. Please try again in a few minutes." };
-    return { code: "INSUFFICIENT_CREDITS", message: "This build ran out of credits before it could finish. Your previous working version is unchanged. Add credits and try again." };
+    return { code: "INSUFFICIENT_CREDITS", message: "This build needs more credits to continue. Everything finished so far is saved and your previous working version is unchanged. Add credits, then Resume to continue from the next step." };
   }
   const message = safeError(error);
   if (/SOURCE_CHANGED/.test(message)) return { code: "SOURCE_CHANGED", message: "Your files changed while this build was running, so it was not applied. Your edits are preserved. Ask NYNZ again to continue." };
   if (/GENERATOR_NOT_CONFIGURED/.test(message)) return { code: "GENERATOR_UNAVAILABLE", message: "The application generator is not available right now. No credits were used for generation." };
-  if (/spending limit/i.test(message)) return { code: "MODEL_BUDGET_REACHED", message: "This request needed more work than one build allows. Try a smaller step, then build again." };
+  if (/spending limit/i.test(message)) return { code: "MODEL_BUDGET_REACHED", message: "This build reached its AI allowance. Everything finished so far is saved and your previous working version is unchanged. Resume continues with a fresh allowance." };
   if (/request rejected \((401|402|429)\)/i.test(message)) return { code: "GENERATOR_UNAVAILABLE", message: "The application generator is temporarily unavailable. Please try again shortly." };
   if (/production build failed|missing dependencies|invalid syntax/i.test(message)) return { code: "BUILD_VALIDATION_FAILED", message: "The generated changes did not pass production validation, so they were not applied. Your previous working version is unchanged." };
-  if (/wrong files|incomplete|output limit|truncated|application plan|complete enough/i.test(message)) return { code: "GENERATION_INCOMPLETE", message: "The generator returned an incomplete result, so nothing was changed. Please try again." };
+  if (error instanceof StepFailedError) return { code: "GENERATION_INCOMPLETE", message: `NYNZ couldn't finish ${error.step.label} automatically. Every finished step is saved and your previous working version is unchanged. Resume continues from this step without redoing the rest.` };
+  if (/wrong files|incomplete|output limit|truncated|application plan|complete enough/i.test(message)) return { code: "GENERATION_INCOMPLETE", message: "The AI returned an incomplete result. Every finished step is saved and your previous working version is unchanged. Resume continues from the first unfinished step." };
   return { code: "BUILD_FAILED", message: "We couldn't complete this build. Your previous working version is unchanged. Please try again." };
 }
 
@@ -103,6 +112,12 @@ async function cancelled(job: Job) {
   return true;
 }
 
+/** Throws when the customer has asked to stop; checked before every paid request. */
+async function assertNotCancelled(job: Job) {
+  const { data } = await db.from("build_jobs").select("cancel_requested_at,status").eq("id", job.id).single();
+  if (data?.cancel_requested_at || data?.status === "cancelled") throw new Error("CANCELLED");
+}
+
 async function projectAssets(projectId: string) {
   const { data } = await db.storage.from("project-assets").list(projectId, { limit: 100 });
   const names = (data || []).filter((item) => item.id).map((item) => item.name);
@@ -129,7 +144,26 @@ async function stageFiles(job: Job, files: SourceFile[], replace: boolean) {
   }
 }
 
-function assistantReply(message: string, mode: string) {
+/** Records a finished step and its files in one transaction (see record_build_step). */
+async function recordStep(job: Job, done: string[], files: SourceFile[], note: Record<string, unknown>) {
+  const { data, error } = await db.rpc("record_build_step", { p_build: job.id, p_lock_owner: lockOwner, p_done: done, p_files: files, p_note: { ...note, at: new Date().toISOString() } });
+  if (error) throw new Error(/LEASE_LOST/.test(error.message) ? "LEASE_LOST" : error.message);
+  job.checkpoint = data as Checkpoint;
+}
+
+/** The project's durable brief; older projects fall back to their first approved build. */
+async function projectBrief(projectId: string, stored: ProjectBrief | null): Promise<ProjectBrief | null> {
+  if (stored?.original) return stored;
+  const { data } = await db.from("build_jobs").select("request,prompt,plan").eq("project_id", projectId).eq("mode", "create").eq("plan->>approval", "approved").order("created_at").limit(1).maybeSingle();
+  if (!data) return null;
+  return { original: data.request || String(data.prompt).split("\n\nUSER APPROVED PLAN")[0], plan: { summary: data.plan?.summary, steps: data.plan?.steps || [] }, changes: [] };
+}
+
+function assistantReply(message: string, mode: string, missing: string[] = []) {
+  if (missing.length) {
+    const base = message.trim() || "Your application is ready and running in the preview.";
+    return `${base}\n\nNot built yet (from the approved plan):\n${missing.map((item) => `- ${item}`).join("\n")}\n\nAsk NYNZ to add these and it will build them on top of this version.`;
+  }
   const base = message.trim() || (mode === "edit" ? "Your requested changes are now live." : "Your application is ready and running in the preview.");
   return /\?\s*$/.test(base) ? base : `${base}\n\nWhat would you like to change, add, or improve next?`;
 }
@@ -231,13 +265,19 @@ async function processJob(job: Job) {
       const backendContext = backend ? "A Supabase backend is connected to this generated application. Use VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY from the runtime environment for requested database or authentication features. Put every schema change in a new file under supabase/migrations/ (for example supabase/migrations/0001_notes.sql) with row-level security enabled and owner-scoped policies using auth.uid(); the customer reviews and applies it. Never request or embed a service-role key." : "";
       const assetContext = assets.length ? `The user uploaded these project assets. They are available in the generated app at these exact public paths:\n${assets.map((asset) => `- /uploads/${asset.name}`).join("\n")}\nUse the relevant uploaded assets when the request mentions a logo, image, document or brand file.` : "";
       const references = [importedReferences, backendContext, assetContext].filter(Boolean).join("\n\n");
-      const hooks = { signal, onUsage: (event: Parameters<BuildMeter["afterModelCall"]>[0]) => meter.afterModelCall(event), beforeRequest: async (event: { models: string[]; estimatedPaise: number }) => { signal.throwIfAborted(); await meter.beforeModelCall(event); } };
+      // Stop is checked against the database before every paid request, so no
+      // new provider work starts once a cancellation has been accepted.
+      const hooks = { signal, onUsage: (event: Parameters<BuildMeter["afterModelCall"]>[0]) => meter.afterModelCall(event), beforeRequest: async (event: { models: string[]; estimatedPaise: number }) => { signal.throwIfAborted(); await assertNotCancelled(job); await meter.beforeModelCall(event); } };
+      const brief = job.mode === "edit" ? await projectBrief(job.project_id, project.brief as ProjectBrief | null) : null;
+      const context = briefContext(brief, job.id);
+      const requestText = context ? `${context}\n\nREQUESTED CHANGE (apply this while keeping everything above):\n${job.prompt}` : job.prompt;
 
       if (job.plan?.approval === "required") {
         await progress(job, "Planning the screens, design and functionality for your approval", "planning", 12);
-        const planned = await planApplication({ prompt: job.prompt, files: working, mode: job.mode === "edit" ? "edit" : "create", references, ...hooks });
+        const planned = await planApplication({ prompt: requestText, files: working, mode: job.mode === "edit" ? "edit" : "create", references, ...hooks });
         if (await cancelled(job)) { outcome = "cancelled"; return; }
-        const plan = { ...planned.manifest.plan, manifest: planned.manifest, approval: "awaiting", revision: job.plan.revision || 1 };
+        const estimate = estimateBuildCredits({ files: planned.manifest.files, mode: job.mode === "edit" ? "edit" : "create", existing: working, briefChars: requestText.length, minimumHold: RESERVE.generate() });
+        const plan = { ...planned.manifest.plan, manifest: planned.manifest, estimate, approval: "awaiting", revision: job.plan.revision || 1 };
         const { error } = await db.from("build_jobs").update({ plan, status: "planning", locked_at: null, locked_by: null, progress: [...job.progress, { at: new Date().toISOString(), message: "Plan ready for your approval. No code generation has started.", percent: 18 }] }).eq("id", job.id).eq("locked_by", lockOwner);
         if (error) throw error;
         await db.from("projects").update({ status: "planning", last_error: null }).eq("id", job.project_id);
@@ -247,27 +287,48 @@ async function processJob(job: Job) {
 
       const { error: beginError } = await db.rpc("begin_build_generation", { p_build: job.id, p_lock_owner: lockOwner });
       if (beginError) throw beginError;
+      const { data: fresh } = await db.from("build_jobs").select("checkpoint").eq("id", job.id).single();
+      job.checkpoint = (fresh?.checkpoint || null) as Checkpoint | null;
       if (job.generation_complete) {
         const { data: staged } = await db.from("build_staged_files").select("path,content").eq("build_id", job.id);
         if (!staged?.length) throw new Error("Recovered build has no staged files");
         working = staged;
         await progress(job, "Resuming from the generated files after a restart", "installing", 66);
       } else {
-        await progress(job, "Writing the approved application", "generating", 22);
-        const generationFiles = job.mode === "create" ? [] : working;
+        const done = job.checkpoint?.done || [];
+        const { data: staged } = await db.from("build_staged_files").select("path,content").eq("build_id", job.id);
+        if (job.mode === "edit") {
+          // An edit first stages the current project as its base, so finished
+          // steps can be saved one at a time and survive a restart.
+          if (job.checkpoint?.base_staged && staged?.length) working = staged;
+          else await recordStep(job, [], working, { base: true, label: "current project files" });
+        }
+        const completed = job.mode === "create" ? (staged || []).filter((file) => done.includes(file.path)) : [];
+        await progress(job, done.length ? `Continuing from ${done.length} finished file(s); finished work is reused, not regenerated` : "Writing the approved application", "generating", 22);
         output = await generateApplication({
-          prompt: job.prompt, files: generationFiles, references, mode: job.mode === "create" ? "create" : "edit",
-          approvedManifest: job.plan?.approval === "approved" ? job.plan.manifest : undefined, ...hooks,
-          onAttempt: async (attempt) => progress(job, job.mode === "create" && attempt > 1 ? `Building application files · batch ${attempt - 1}` : attempt > 1 ? `Refining the requested changes · pass ${attempt}` : "Generating your application", "generating"),
+          prompt: job.mode === "create" ? job.prompt : requestText, files: job.mode === "create" ? [] : working, references, mode: job.mode === "create" ? "create" : "edit",
+          approvedManifest: job.plan?.approval === "approved" ? job.plan.manifest : undefined, completed, completedPaths: job.mode === "edit" ? done : undefined, ...hooks,
           onProgress: async (event) => progress(job, event.message || `Building application files · ${event.current} of ${event.total}`, "generating", event.percent),
-          // Progressive batches go to staging only; canonical source is untouched until promotion.
-          onFiles: async (next) => stageFiles(job, next, false),
+          // Each finished step is saved with its files in one transaction.
+          // Canonical source is untouched until promotion.
+          onStep: async (step) => { meter.setStep(step.label); await recordStep(job, step.done, step.files, { label: step.label }); },
         });
         const merged = new Map((job.mode === "create" ? [] : working).map((file) => [file.path, file.content]));
         output.result.files.forEach((file) => merged.set(file.path, file.content));
         working = [...merged].map(([path, content]) => ({ path, content }));
+        // Check the result against the approved plan before calling it complete.
+        const steps: string[] = job.plan?.approval === "approved" ? (job.plan.steps || []) : [];
+        const coverage = deterministicCoverage({ planned: (job.plan?.manifest?.files || []).map((file: { path: string }) => file.path), files: working, previous: job.mode === "edit" ? (files || []).map((file) => file.path) : [] });
+        let missing = [...coverage.missingFiles.map((path) => `Planned file ${path} was not created`), ...coverage.removedFiles.map((path) => `Existing file ${path} was removed`)];
+        if (steps.length && process.env.NYNZ_COVERAGE_REVIEW !== "0") {
+          meter.setStep("Checking the result against the approved plan");
+          await progress(job, "Checking the result against the approved plan", "generating", 64);
+          try { missing = [...missing, ...(await reviewCoverage({ steps, files: working, request: job.request || undefined, ...hooks })).missing]; }
+          catch (error) { if (signal.aborted || /CANCELLED/.test(safeError(error))) throw error; console.error(`[NYNZ worker] coverage review skipped for ${job.id}: ${safeError(error)}`); }
+        }
         await stageFiles(job, working, true);
-        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan }, generation_complete: true }).eq("id", job.id).eq("locked_by", lockOwner);
+        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan, coverage: { missing, checked_at: new Date().toISOString() } }, generation_complete: true }).eq("id", job.id).eq("locked_by", lockOwner);
+        job.plan = { ...job.plan, coverage: { missing } };
       }
     } else {
       await db.rpc("begin_build_generation", { p_build: job.id, p_lock_owner: lockOwner });
@@ -276,7 +337,7 @@ async function processJob(job: Job) {
     if (await cancelled(job)) { outcome = "cancelled"; return; }
     await progress(job, "Preparing a secure preview environment", "installing");
     sandboxStarted = Date.now();
-    const sandbox = await runInE2B(working, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
+    const sandbox = await runPreview(working, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
       signal, beforeCreate: (seconds) => meter.beforeSandbox(seconds),
       owner: { projectId: job.project_id, buildId: job.id },
       onCreated: async (id) => {
@@ -291,8 +352,8 @@ async function processJob(job: Job) {
         const repair = await generateApplication({
           signal,
           prompt: `Fix these production compiler errors. Add any missing helper files. Preserve the product and all working functionality. Make the smallest necessary corrections.\n\n${detail.slice(0, 6000)}`,
-          files: workingFiles, mode: "edit",
-          onUsage: (event) => meter.afterModelCall(event), beforeRequest: (event) => meter.beforeModelCall(event),
+          files: workingFiles, mode: "edit", targets: pathsInMessage(detail, workingFiles),
+          onUsage: (event) => meter.afterModelCall(event), beforeRequest: async (event) => { await assertNotCancelled(job); await meter.beforeModelCall(event); },
         });
         if (repair.result.files.length) await stageFiles(job, repair.result.files, false);
         return repair.result.files;
@@ -307,14 +368,17 @@ async function processJob(job: Job) {
     outcome = "succeeded";
     if (job.conversation_id && (output || job.plan)) {
       const { data: posted } = await db.from("messages").select("id").eq("conversation_id", job.conversation_id).eq("metadata->>build_id", job.id).limit(1);
-      if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: assistantReply(output?.result.message || "", output ? job.mode : "edit"), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
+      if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: assistantReply(output?.result.message || "", output ? job.mode : "edit", job.plan?.coverage?.missing || []), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
     }
   } catch (error) {
     if (control?.signal.aborted) error = control.signal.reason;
     console.error(`[NYNZ worker] build ${job.id} failed: ${safeError(error)}`);
     if (/LEASE_LOST/.test(safeError(error))) { outcome = "lease_lost"; }
     else if (/CANCELLED/.test(safeError(error))) { outcome = "cancelled"; await finish(job, "cancelled", "CANCELLED", "Cancelled. Your previous working version is unchanged."); }
-    else { const failure = publicFailure(error); await finish(job, "failed", failure.code, failure.message); }
+    else {
+      if (error instanceof StepFailedError) await db.rpc("note_build_failure_step", { p_build: job.id, p_lock_owner: lockOwner, p_step: error.step });
+      const failure = publicFailure(error); await finish(job, "failed", failure.code, failure.message);
+    }
   } finally {
     control?.stop();
     if (sandboxId) {
@@ -325,7 +389,16 @@ async function processJob(job: Job) {
         await stopE2B(sandboxId).then(() => db.from("platform_resources").update({ state: "terminated", terminated_at: new Date().toISOString() }).eq("kind", "e2b_sandbox").eq("provider_ref", sandboxId!)).catch(() => undefined);
       }
     }
-    if (!awaitingApproval && outcome !== "lease_lost") await meter.settle(outcome).catch((error) => console.error(`[NYNZ worker] reservation settlement failed: ${safeError(error)}`));
+    if (!awaitingApproval && outcome !== "lease_lost") {
+      const settled = await meter.settle(outcome).catch((error) => { console.error(`[NYNZ worker] reservation settlement failed: ${safeError(error)}`); return null; });
+      if (outcome === "cancelled" && settled) {
+        // Explain the final charge: only work that had already started is charged.
+        const used = Number(settled.consumed || 0);
+        const released = Number(settled.released || 0);
+        const { data: row } = await db.from("build_jobs").select("resumable").eq("id", job.id).single();
+        await db.from("build_jobs").update({ error_message: `Stopped. ${used} credit${used === 1 ? " was" : "s were"} used for steps that had already started${released ? `; ${released} held credit${released === 1 ? " was" : "s were"} released` : ""}. Nothing more will be charged. ${row?.resumable ? "Finished steps are saved, so Resume continues where it stopped." : "Your previous working version is unchanged."}` }).eq("id", job.id).eq("status", "cancelled");
+      }
+    }
   }
 }
 
@@ -359,8 +432,8 @@ async function main() {
   let lastRecovery = 0;
   let lastMaintenance = 0;
   while (!shuttingDown) {
-    if (Date.now() - lastRecovery > 60000) {
-      const recovery = await db.rpc("recover_stale_build_jobs", { stale_after_seconds: 120 });
+    if (Date.now() - lastRecovery > Number(process.env.WORKER_RECOVERY_INTERVAL_MS || 60000)) {
+      const recovery = await db.rpc("recover_stale_build_jobs", { stale_after_seconds: Math.max(60, Number(process.env.WORKER_STALE_AFTER_SECONDS || 120)) });
       if (recovery.error) console.error(`[NYNZ worker] recovery check failed: ${safeError(recovery.error)}`);
       lastRecovery = Date.now();
     }

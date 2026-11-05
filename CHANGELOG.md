@@ -3,6 +3,18 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.4.0: resumable builds (committed on branch fix/build-recovery, not deployed)
+
+- Root cause of the StudioMark failures (2026-11-04): a late step asked for four full screens in one response with a 12,000-token cap; every attempt was cut off at exactly 12,000 tokens and the identical request was sent three times. A failed build then deleted its finished files, and "Try again" replanned and regenerated everything.
+- Builds run in steps sized to the output limit (20,000 tokens, about two screens per step). Each finished step is saved with its files in one transaction (record_build_step). Complete files are kept from a cut-off response; only missing files are retried, split into smaller requests, then given a larger allowance; identical requests are never resent and attempts are capped.
+- Failed or stopped builds keep finished steps and offer Resume, which continues from the first unfinished step at most once per failed build (resume_build). Start over is a separate, confirmed action. Worker restarts continue from saved steps.
+- Edits run file by file, so large changes no longer have to fit in one response. Follow-ups carry the original brief, approved plan and applied changes (projects.brief).
+- The result is checked against the approved plan before it is marked complete; anything missing is listed as "Not built yet".
+- Plans show an estimated credit range and the amount held at approval. A credit shortfall stops before the next paid step with work saved. Stop is checked before every paid request and explains the final charge. Credit history separates credits used (with the build step), unused holds released and credits restored, without provider names or costs.
+- A resumed build that fails again resumes from its newest checkpoint; across chained Resumes every finished file is produced and charged once.
+- Migration rehearsed on production-shaped builds and credits (in-process Postgres and PostgreSQL 17): existing builds, projects, ledger, reservations and balances unchanged; the previous worker keeps working. Deployment order and rollback: docs/DEPLOY_0.4_RESUMABLE_BUILDS.md.
+- Local proof: tests/e2e/studiomark/run.ts (34 checks) against a local Supabase stack with a scripted provider.
+
 ## 0.3.18
 
 - Fix the admin Credits page crashing on retained ledger entries for deleted accounts. Show "Deleted account" without a broken user link and preserve all credit history.

@@ -25,7 +25,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null };
+type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -149,6 +149,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   const current = files.find((file) => file.path === selected);
   const pendingPlan = builds.find(build => build.status === "planning" && build.plan?.approval === "awaiting");
+  const latestFinished = builds.find(build => ["succeeded", "failed", "cancelled"].includes(build.status));
+  const stoppedBuild = latestFinished && latestFinished.status !== "succeeded" ? latestFinished : undefined;
+  const plannedTotal = stoppedBuild?.plan?.manifest?.files?.length || 0;
+  const resumeInfo = stoppedBuild?.resumable ? { saved: stoppedBuild.checkpoint?.done?.length || 0, total: plannedTotal, failedStep: stoppedBuild.checkpoint?.failed_step?.label || null, message: stoppedBuild.status === "cancelled" ? stoppedBuild.error_message : null } : null;
+  const coverageGaps = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.missing || [] : [];
   const running = mounted ? builds.find((build) => active.has(build.status) && build.plan?.approval !== "awaiting") : undefined;
   const runningId = running?.id;
   const runningStatus = running?.status;
@@ -307,14 +312,26 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     await refresh();
   }
 
+  /** Start over: a new request that is planned and written from the beginning. */
   async function retryFailedBuild() {
-    const failedBuild = builds.find((item) => item.status === "failed");
+    const failedBuild = stoppedBuild;
     if (!failedBuild?.prompt || !failedBuild.mode || running) return;
-    setNotice("Retrying the original request.");
+    setNotice("Starting over with the original request. Review the new plan before it builds.");
     if (failedBuild.mode === "restart") { await restart(); return; }
-    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: failedBuild.prompt, mode: failedBuild.mode, idempotencyKey: crypto.randomUUID() }) });
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: failedBuild.request || failedBuild.prompt, mode: failedBuild.mode, idempotencyKey: `start-over:${failedBuild.id}` }) });
     const body = await response.json();
-    if (response.ok) setBuilds((value) => [body.build, ...value]); else setNotice(body.error);
+    if (response.ok) setBuilds((value) => [body.build, ...value.filter((item) => item.id !== body.build.id)]); else setNotice(body.error);
+  }
+
+  /** Resume: continue from the first unfinished step, reusing saved work. Safe to click repeatedly. */
+  async function resumeBuild() {
+    if (!stoppedBuild?.resumable || running) return;
+    const response = await fetch(`/api/builds/${stoppedBuild.id}/resume`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { setNotice(body.error || "Could not resume this build"); return; }
+    setNotice("Resuming from the first unfinished step. Finished steps are reused.");
+    setBuilds((value) => [body.build, ...value.filter((item) => item.id !== body.build.id)]);
+    await refresh();
   }
 
   function onComposerKey(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -510,7 +527,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <AnimatePresence mode="wait"><motion.p key={lastProgress || "wait"} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-3 border-t border-white/[.06] pt-3 font-mono text-[10px] leading-4 text-white/50">→ {lastProgress || "Preparing the next step…"}</motion.p></AnimatePresence>
             </motion.section>}</AnimatePresence>
 
-            {project.last_error && !running && <BuildIssueCard code={builds.find((item) => item.status === "failed" || item.status === "cancelled")?.error_code} hasPreview={Boolean(project.has_preview)} onRetry={retryFailedBuild} onLogs={() => setTab("logs")} />}
+            {(project.last_error || resumeInfo) && stoppedBuild && !running && <BuildIssueCard code={stoppedBuild.error_code} hasPreview={Boolean(project.has_preview)} resume={resumeInfo} onResume={resumeBuild} onStartOver={retryFailedBuild} onLogs={() => setTab("logs")} />}
+            {coverageGaps.length > 0 && !running && <section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/[.05] p-4"><p className="text-[12px] font-medium text-amber-200">Not built yet from your approved plan</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageGaps.map((item) => <li key={item}>{item}</li>)}</ul><button type="button" onClick={() => applyPrompt(`Add the parts of the approved plan that are not built yet:\n${coverageGaps.map((item) => `- ${item}`).join("\n")}`)} className="mt-3 rounded-lg bg-white/[.08] px-3 py-1.5 text-[11px] text-white/85 hover:bg-white/[.12]">Ask NYNZ to add these</button></section>}
           </div>
         </div>
 
@@ -605,6 +623,7 @@ function PlanReview({ plan, onReview }: { plan: NonNullable<Build["plan"]>; onRe
   return <section aria-label="Review build plan" className="rounded-2xl border border-[#c7ff4a]/20 bg-[#101a23] p-4">
     <div className="flex items-center gap-2"><NynzIcon className="h-5 w-5" /><h2 className="text-[13px] font-medium">Review your build plan</h2><span className="ml-auto rounded-full bg-[#c7ff4a]/10 px-2 py-1 text-[9px] text-[#c7ff4a]">Your approval needed</span></div>
     <p className="mt-2 text-[11px] leading-5 text-white/45">Check the scope below. Edit the plan directly or ask for changes. Code generation starts after you approve.</p>
+    {plan.estimate && <p className="mt-2 rounded-lg bg-white/[.04] px-3 py-2 text-[11px] leading-5 text-white/70">Estimated cost: <strong className="text-white">{plan.estimate.low}–{plan.estimate.high} credits</strong>. Approving holds <strong className="text-white">{plan.estimate.reserve}</strong>; unused credits are released when the build ends. If it needs more and your balance is short, NYNZ stops before the next step, keeps finished work and asks you first.</p>}
     {editing ? <div className="mt-3 space-y-3"><label className="block text-[10px] text-white/55">Summary<textarea aria-label="Plan summary" value={summary} onChange={event => setSummary(event.target.value)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label><label className="block text-[10px] text-white/55">Steps, one per line<textarea aria-label="Plan steps" value={steps} onChange={event => setSteps(event.target.value)} rows={6} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label></div> : <><p className="mt-3 text-[12px] leading-5 text-white/80">{summary}</p><ol className="mt-3 space-y-2">{steps.split("\n").filter(Boolean).map((step, index) => <li key={index} className="flex gap-2 text-[11px] leading-5 text-white/60"><span className="font-mono text-[#c7ff4a]/70">{index + 1}.</span><span>{step}</span></li>)}</ol></>}
     <button type="button" disabled={busy} onClick={() => setEditing(value => !value)} className="mt-3 flex items-center gap-1.5 text-[11px] text-white/55 hover:text-white"><Pencil className="h-3 w-3" />{editing ? "Done editing" : "Edit plan"}</button>
     <label className="mt-4 block text-[10px] text-white/45">Anything to add or remove?<textarea aria-label="Requested plan changes" value={changes} onChange={event => setChanges(event.target.value)} rows={2} placeholder="For example: remove history and add a light theme" className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2.5 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-[#c7ff4a]/40" /></label>

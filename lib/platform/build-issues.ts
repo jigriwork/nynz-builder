@@ -8,16 +8,16 @@ export type BuildIssue = { title: string; body: string; tone: IssueTone; action:
 
 const ISSUES: Record<string, BuildIssue> = {
   SPEND_LIMIT: { tone: "paused", action: "wait", title: "NYNZ is very busy right now", body: "So many apps are being built at the moment that yours couldn't start. Nothing in your project changed. Please try again in a few minutes." },
-  MODEL_BUDGET_REACHED: { tone: "paused", action: "ask", title: "This request was too large for one build", body: "It needed more work than one build allows. Try a smaller step, for example one screen or feature at a time." },
-  INSUFFICIENT_CREDITS: { tone: "credits", action: "billing", title: "You're out of credits for this step", body: "Builds and previews use credits for the AI and cloud time they need. Add credits or choose a plan, then try again." },
+  MODEL_BUDGET_REACHED: { tone: "paused", action: "ask", title: "This build reached its AI allowance", body: "A single build has a cap on AI usage. Everything finished so far is saved. Resume continues with a fresh allowance, or ask for a smaller step." },
+  INSUFFICIENT_CREDITS: { tone: "credits", action: "billing", title: "More credits are needed to continue", body: "NYNZ stopped before starting the next step, so nothing more was charged. Everything finished so far is saved. Add credits, then Resume." },
   CONCURRENCY_LIMIT: { tone: "credits", action: "billing", title: "Another build is already running", body: "Your plan runs one build at a time. Wait for the current one to finish, or upgrade to run more at once." },
   GENERATOR_UNAVAILABLE: { tone: "retry", action: "retry", title: "The AI builder is briefly unavailable", body: "Our AI provider didn't respond. Nothing was changed and you weren't charged for an unfinished step. Try again in a minute." },
   BUILD_VALIDATION_FAILED: { tone: "fixable", action: "ask", title: "The new code didn't pass its checks", body: "NYNZ tested the changes before publishing them and found errors, so it kept your previous version. Ask NYNZ to fix the build, or try rewording the request." },
-  GENERATION_INCOMPLETE: { tone: "retry", action: "retry", title: "The AI returned an incomplete result", body: "Nothing was changed. Trying again usually works." },
+  GENERATION_INCOMPLETE: { tone: "retry", action: "retry", title: "One step couldn't be finished automatically", body: "NYNZ repaired what it could. Every finished step is saved and your live version is unchanged. Resume continues from the unfinished step without redoing or recharging the rest." },
   SOURCE_CHANGED: { tone: "fixable", action: "retry", title: "Your files changed during the build", body: "You edited files while NYNZ was building, so it didn't overwrite your edits. Send the request again to build on top of them." },
-  WORKER_INTERRUPTED: { tone: "retry", action: "retry", title: "The build was interrupted", body: "The build server restarted part-way through. Nothing was changed; try again." },
+  WORKER_INTERRUPTED: { tone: "retry", action: "retry", title: "The build was interrupted", body: "The build server restarted part-way through. Finished steps are saved and your live version is unchanged. Resume continues from where it stopped." },
   RECOVERED_BY_STAFF: { tone: "stopped", action: "retry", title: "Stopped by NYNZ support", body: "A stuck build was stopped by our team. Your previous version is unchanged." },
-  CANCELLED: { tone: "stopped", action: "none", title: "Build cancelled", body: "You stopped this build. Nothing was changed." },
+  CANCELLED: { tone: "stopped", action: "none", title: "Build stopped", body: "You stopped this build. Your live version is unchanged." },
   ACCOUNT_SUSPENDED: { tone: "stopped", action: "none", title: "This account is paused", body: "Builds and previews are paused for this account. Contact NYNZ support for help." },
 };
 const DEFAULT: BuildIssue = { tone: "retry", action: "retry", title: "This build didn't finish", body: "Something went wrong on our side. Your previous version is unchanged; please try again." };

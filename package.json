@@ -1,6 +1,6 @@
 {
   "name": "nynz-builder",
-  "version": "0.3.18",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -27,7 +27,8 @@
     "verify:workspace": "tsx scripts/verify-workspace.ts",
     "stamp": "tsx scripts/stamp-build.ts",
     "deploy:web": "tsx scripts/stamp-build.ts && vercel --prod --yes",
-    "test:concurrency": "bash scripts/test-concurrency.sh"
+    "test:concurrency": "bash scripts/test-concurrency.sh",
+    "rehearse:resumable-migration": "bash scripts/rehearse-resumable-migration.sh"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.9.0",

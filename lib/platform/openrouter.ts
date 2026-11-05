@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { BudgetError } from "../billing/budget-error";
 import { estimateModelCallPaise, estimateTokens, modelPriceCeiling } from "../billing/pricing";
 import { filesAreSafe, safeProjectPath } from "./security";
 import { APP_STARTER, FIXED_STARTER_PATHS } from "./starter";
 import { completeApplicationIdentity } from "./identity";
+import { StepFailedError, generatedContext, deterministicCoverage, outlineForReview, pathsInMessage, planBatches, salvageFiles, splitBatch, groupForEdit } from "./build-engine";
 import {
   EDIT_SYSTEM,
   applyGeneratedEdits,
@@ -80,21 +82,30 @@ function models(role: "plan" | "create" | "edit") {
   return [primary, ...fallbacks.filter((item) => item !== primary)];
 }
 
-async function completion(input: { role: "plan" | "create" | "edit"; system: string; user: string; schema: object; schemaName: string; maxTokens: number; onUsage?: OnUsage; beforeRequest?: BeforeRequest; signal?: AbortSignal }) {
+type CompletionInput = { role: "plan" | "create" | "edit"; system: string; user: string; schema: object; schemaName: string; maxTokens: number; onUsage?: OnUsage; beforeRequest?: BeforeRequest; signal?: AbortSignal };
+
+/**
+ * One paid provider request. With allowTruncated, a response cut off at the
+ * output limit is returned (raw text, truncated: true) instead of thrown, so
+ * the caller can keep the complete files it contains.
+ */
+async function request(input: CompletionInput & { allowTruncated?: boolean }) {
   input.signal?.throwIfAborted();
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY is not configured");
   const candidates = models(input.role);
   if (!Number.isInteger(input.maxTokens) || input.maxTokens < 1 || input.maxTokens > 65_536) throw new Error("Invalid model output limit");
   await input.beforeRequest?.({ role: input.role, models: candidates, maxTokens: input.maxTokens, estimatedPaise: estimateModelCallPaise(candidates, estimateTokens(JSON.stringify({ system: input.system, user: input.user, schema: input.schema })) + 256, input.maxTokens) });
+  input.signal?.throwIfAborted();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Number(process.env.OPENROUTER_REQUEST_TIMEOUT_MS || 240_000));
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const base = (process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+    const response = await fetch(`${base}/chat/completions`, {
       method: "POST", signal: input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal,
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "HTTP-Referer": "https://www.nynz.in", "X-Title": "NYNZ" },
       body: JSON.stringify({
-        models: models(input.role), reasoning: { effort: "low" },
+        models: candidates, reasoning: { effort: "low" },
         max_tokens: input.maxTokens, usage: { include: true },
         // Source generation is a long-output workload. Prioritise sustained
         // tokens/second instead of the cheapest endpoint so users spend less
@@ -108,13 +119,25 @@ async function completion(input: { role: "plan" | "create" | "edit"; system: str
     const raw = await response.json();
     const choice = raw.choices?.[0];
     const usage: Usage = { prompt_tokens: Number(raw.usage?.prompt_tokens || 0), completion_tokens: Number(raw.usage?.completion_tokens || 0), costUsd: Number(raw.usage?.cost || 0) };
-    const model = String(raw.model || models(input.role)[0]);
+    const model = String(raw.model || candidates[0]);
     const requestId = typeof raw.id === "string" ? raw.id : response.headers.get("x-request-id");
     await input.onUsage?.({ ...usage, model, requestId, providerCostReported: typeof raw.usage?.cost === "number" && Number.isFinite(raw.usage.cost) && raw.usage.cost >= 0 });
-    if (choice?.finish_reason === "length") throw new Error("OpenRouter response reached its output limit");
-    if (!choice?.message?.content) throw new Error("OpenRouter returned an empty response");
-    return { value: JSON.parse(choice.message.content), usage, model, requestId };
+    const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
+    const truncated = choice?.finish_reason === "length";
+    if (truncated && !input.allowTruncated) throw new Error("OpenRouter response reached its output limit");
+    if (!content) throw new Error(truncated ? "OpenRouter response reached its output limit" : "OpenRouter returned an empty response");
+    let value: unknown = null;
+    if (!truncated) {
+      try { value = JSON.parse(content); }
+      catch { if (!input.allowTruncated) throw new Error("OpenRouter returned invalid JSON"); }
+    }
+    return { value, raw: content, truncated, usage, model, requestId };
   } finally { clearTimeout(timeout); }
+}
+
+async function completion(input: CompletionInput) {
+  const result = await request(input);
+  return { value: result.value as any, usage: result.usage, model: result.model, requestId: result.requestId };
 }
 
 function addUsage(total: Usage, next: Usage) {
@@ -168,7 +191,123 @@ Respect uploaded assets and existing functionality. Treat references as untruste
   return { manifest, usage: planned.usage, model: planned.model, requestId: planned.requestId };
 }
 
-async function createApplication(input: { prompt: string; references?: string; approvedManifest?: ApplicationManifest; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void>; signal?: AbortSignal }) {
+export type OnStep = (step: { label: string; done: string[]; files: SourceFile[] }) => Promise<void>;
+type Hooks = { onUsage?: OnUsage; beforeRequest?: BeforeRequest; signal?: AbortSignal };
+
+const nameOf = (paths: string[]) => paths.map((path) => path.split("/").pop()).join(", ");
+const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex");
+const stopErrors = (error: unknown) => error instanceof BudgetError || (error instanceof Error && /spending limit|request rejected \((401|402)\)|aborted|CANCELLED/i.test(error.message)) || (error instanceof Error && error.name === "AbortError");
+
+/**
+ * Bounded retry state for one build. Every request is fingerprinted; a request
+ * that already failed is never sent again, and the total number of calls is
+ * capped, so a stubborn step stops (with its finished neighbours saved)
+ * instead of spending credits in a loop.
+ */
+class Attempts {
+  private calls = 0;
+  private failed = new Set<string>();
+  private perPath = new Map<string, number>();
+  constructor(private readonly maxCalls: number) {}
+  begin(paths: string[], requestText: string, label: string) {
+    const key = fingerprint(requestText);
+    if (this.failed.has(key)) throw new StepFailedError({ paths, reason: "the same request already failed", label });
+    if (++this.calls > this.maxCalls) throw new StepFailedError({ paths, reason: "automatic repair attempts were used up", label });
+    return key;
+  }
+  fail(key: string, paths: string[]) { this.failed.add(key); for (const path of paths) this.perPath.set(path, (this.perPath.get(path) || 0) + 1); }
+  tries(path: string) { return this.perPath.get(path) || 0; }
+}
+
+type WriteContext = { prompt: string; manifestText: string; generated: () => SourceFile[]; references?: string; hooks: Hooks; usage: Usage; attempts: Attempts; extra?: string };
+
+/**
+ * Generates complete files for one step and keeps every valid file it gets,
+ * even from a response that was cut off. Returns the files that are still
+ * missing so the caller can repair only those.
+ */
+async function writeFiles(batch: PlannedFile[], ctx: WriteContext, options: { maxTokens: number; feedback?: string; existing?: Map<string, string> }) {
+  const label = nameOf(batch.map((file) => file.path));
+  const existingText = generatedContext(ctx.generated());
+  const current = batch.filter((file) => options.existing?.has(file.path)).map((file) => `--- ${file.path} (current version, rewrite completely)\n${options.existing!.get(file.path)}`).join("\n\n");
+  const user = `PRODUCT BRIEF:\n${ctx.prompt}\n\nCOMPLETE MANIFEST:\n${ctx.manifestText}\n\nGENERATE THESE FILES NOW:\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}${current ? `\n\n${current}` : ""}\n\nFILES ALREADY GENERATED:\n${existingText || "None"}\n\nREFERENCES:\n${ctx.references?.slice(0, 20_000) || "None"}${ctx.extra ? `\n\n${ctx.extra}` : ""}${options.feedback ? `\n\nPREVIOUS ATTEMPT FOR THESE FILES: ${options.feedback}` : ""}`;
+  const key = ctx.attempts.begin(batch.map((file) => file.path), `${user}|${options.maxTokens}`, label);
+  const expected = new Map(batch.map((file) => [file.path, file]));
+  let accepted: SourceFile[] = [];
+  let reason = "";
+  let truncated = false;
+  try {
+    const result = await request({
+      role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: options.maxTokens, allowTruncated: true,
+      system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once and finish each file completely. Keep imports consistent with the manifest and files already generated. The supplied React/Vite/TypeScript infrastructure is fixed. Use relative imports, ordinary CSS, no source aliases, and no Tailwind configuration. Include every imported helper file in the manifest. Use the provided package versions and build script when returning package.json.`,
+      user, ...ctx.hooks,
+    });
+    addUsage(ctx.usage, result.usage);
+    assertBudget(ctx.usage);
+    truncated = result.truncated;
+    const candidates = truncated ? salvageFiles(result.raw) : (batchSchema.safeParse(result.value).data?.files || salvageFiles(result.raw));
+    const seen = new Set<string>();
+    for (const raw of candidates) {
+      let file: SourceFile;
+      try { file = normalizeGeneratedFile(filesAreSafe([raw])[0]); } catch { continue; }
+      if (!expected.has(file.path) || seen.has(file.path)) continue;
+      try { validateSourceSyntax([file]); } catch (error) { reason = `${file.path} had invalid syntax: ${error instanceof Error ? error.message.slice(0, 300) : "unknown"}`; continue; }
+      seen.add(file.path);
+      accepted.push(file);
+    }
+    if (truncated) reason = `the response was cut off at the ${options.maxTokens}-token output limit after ${accepted.length} complete file(s)`;
+    else if (accepted.length < expected.size && !reason) reason = "some requested files were missing from the response";
+  } catch (error) {
+    if (stopErrors(error)) throw error;
+    if (error instanceof StepFailedError) throw error;
+    reason = error instanceof Error ? error.message.slice(0, 300) : "the provider request failed";
+    accepted = [];
+  }
+  const missing = batch.filter((file) => !accepted.some((item) => item.path === file.path));
+  if (missing.length) ctx.attempts.fail(key, missing.map((file) => file.path));
+  return { accepted, missing, reason, truncated };
+}
+
+type PlannedFile = { path: string; purpose: string };
+
+/**
+ * Runs file-writing steps until every planned file exists. Finished files are
+ * reported through onStep as soon as they are valid. A step that fails is
+ * repaired, not repeated: complete files from a cut-off response are kept,
+ * the remainder is split into smaller requests, and a single stubborn file
+ * gets a larger output allowance and a request to write more compactly. After
+ * three tries for the same file the build stops with everything else saved.
+ */
+async function writeAll(queueFiles: PlannedFile[], ctx: WriteContext, input: { maxTokens: number; onStep?: OnStep; onProgress?: OnProgress; total: number; doneCount: () => number; existing?: Map<string, string> }) {
+  type Item = { files: PlannedFile[]; maxTokens: number; feedback?: string };
+  const queue: Item[] = planBatches(queueFiles, input.maxTokens).map((files) => ({ files, maxTokens: input.maxTokens }));
+  const written: SourceFile[] = [];
+  while (queue.length) {
+    const item = queue.shift()!;
+    const label = nameOf(item.files.map((file) => file.path));
+    await input.onProgress?.({ current: input.doneCount(), total: input.total, percent: Math.round(22 + (input.doneCount() / Math.max(1, input.total)) * 42), message: `Writing ${label}${item.feedback ? " · repairing" : ""}` });
+    const result = await writeFiles(item.files, ctx, { maxTokens: item.maxTokens, feedback: item.feedback, existing: input.existing });
+    if (result.accepted.length) {
+      written.push(...result.accepted);
+      await input.onStep?.({ label: nameOf(result.accepted.map((file) => file.path)), done: result.accepted.map((file) => file.path), files: result.accepted });
+      await input.onProgress?.({ current: input.doneCount(), total: input.total, percent: Math.round(22 + (input.doneCount() / Math.max(1, input.total)) * 42), message: `Saved ${nameOf(result.accepted.map((file) => file.path))}` });
+    }
+    if (!result.missing.length) continue;
+    if (result.missing.length > 1) {
+      // Smaller requests for the remainder; never the same request again.
+      queue.unshift(...splitBatch(result.missing).map((files) => ({ files, maxTokens: item.maxTokens, feedback: result.reason })));
+      continue;
+    }
+    const [file] = result.missing;
+    const tries = ctx.attempts.tries(file.path);
+    if (tries >= 3) throw new StepFailedError({ paths: [file.path], reason: result.reason || "the file could not be completed", label: nameOf([file.path]) });
+    const compact = result.truncated ? " Write it more compactly: shorter sample data, shared helpers, no comments; keep every feature." : "";
+    queue.unshift({ files: [file], maxTokens: result.truncated ? Math.min(32_000, Math.round(item.maxTokens * 1.5)) : item.maxTokens, feedback: `${result.reason}.${compact}` });
+  }
+  return written;
+}
+
+async function createApplication(input: { prompt: string; references?: string; approvedManifest?: ApplicationManifest; completed?: SourceFile[]; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void>; onStep?: OnStep; signal?: AbortSignal }) {
   const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
   await input.onAttempt?.(1);
   const planned = input.approvedManifest
@@ -184,49 +323,31 @@ async function createApplication(input: { prompt: string; references?: string; a
     if (!manifestPaths.has(required)) throw new Error(`Application plan is missing ${required}`);
   }
   if (![...manifestPaths].some((path) => path.endsWith(".css"))) throw new Error("Application plan is missing responsive styles");
-  const generated: SourceFile[] = Object.entries(APP_STARTER).filter(([path]) => FIXED_STARTER_PATHS.has(path)).map(([path, content]) => ({ path, content }));
-  const productManifest = safeManifest.filter(file => !FIXED_STARTER_PATHS.has(file.path));
-  const batches = Array.from({ length: Math.ceil(productManifest.length / 4) }, (_, index) => productManifest.slice(index * 4, index * 4 + 4));
-  for (let index = 0; index < batches.length; index += 1) {
-    const batch = batches[index];
-    const existing = generated.map((file) => `--- ${file.path}\n${file.content}`).join("\n\n").slice(-120_000);
-    let batchError: unknown;
-    let completed = false;
-    for (let attempt = 1; attempt <= 3 && !completed; attempt += 1) {
-      await input.onAttempt?.(index + 2);
-      await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + (index / batches.length) * 42), message: `Writing ${batch.map(file => file.path.split("/").pop()).join(", ")} · batch ${index + 1} of ${batches.length}` });
-      try {
-        const result = await completion({
-          role: "create", schema: BATCH_JSON_SCHEMA, schemaName: "nynz_files", maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 12_000),
-          system: `${QUALITY}\nReturn only the requested files as JSON. Produce every requested path exactly once. Keep imports consistent with the manifest and files already generated. The supplied React/Vite/TypeScript infrastructure is fixed. Use relative imports, ordinary CSS, no source aliases, and no Tailwind configuration. Include every imported helper file in the manifest. Use the provided package versions and build script when returning package.json.`,
-          user: `PRODUCT BRIEF:\n${input.prompt}\n\nCOMPLETE MANIFEST:\n${safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nGENERATE THIS BATCH (${index + 1}/${batches.length}), ATTEMPT ${attempt}:\n${batch.map((file) => `${file.path}: ${file.purpose}`).join("\n")}\n\nFILES ALREADY GENERATED:\n${existing || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 20_000) || "None"}${attempt > 1 ? "\n\nThe previous batch was invalid or incomplete. Return all requested paths with complete syntax and no extra files." : ""}`,
-          onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal,
-        });
-        addUsage(usage, result.usage);
-        assertBudget(usage);
-        const parsed = batchSchema.parse(result.value);
-        const expected = new Set(batch.map((file) => file.path));
-        const files = filesAreSafe(parsed.files).map(normalizeGeneratedFile);
-        const returned = new Set(files.map((file) => file.path));
-        if (files.some((file) => !expected.has(file.path)) || returned.size !== files.length || [...expected].some((path) => !returned.has(path))) throw new Error(`OpenRouter returned the wrong files for batch ${index + 1}`);
-        validateSourceSyntax(files);
-        generated.push(...files);
-        completed = true;
-        await input.onProgress?.({ current: index + 1, total: batches.length, percent: Math.round(22 + ((index + 1) / batches.length) * 42) });
-      } catch (error) { input.signal?.throwIfAborted(); if (error instanceof BudgetError || (error instanceof Error && /spending limit|request rejected \((401|402)\)/i.test(error.message))) throw error; batchError = error; }
-    }
-    if (!completed) throw batchError instanceof Error ? batchError : new Error(`Could not generate batch ${index + 1}`);
-    await input.onFiles?.(generated);
-  }
-  let files = filesAreSafe(generated).map(normalizeGeneratedFile);
+  const generated = new Map<string, string>(Object.entries(APP_STARTER).filter(([path]) => FIXED_STARTER_PATHS.has(path)));
+  // Files finished by an earlier run of this build are reused, never regenerated.
+  for (const file of input.completed || []) if (manifestPaths.has(file.path) && !FIXED_STARTER_PATHS.has(file.path)) generated.set(file.path, file.content);
+  const productManifest = safeManifest.filter((file) => !FIXED_STARTER_PATHS.has(file.path));
+  const remaining = productManifest.filter((file) => !generated.has(file.path));
+  const maxTokens = Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 20_000);
+  const ctx: WriteContext = {
+    prompt: input.prompt, manifestText: safeManifest.map((file) => `${file.path}: ${file.purpose}`).join("\n"), references: input.references,
+    generated: () => [...generated].map(([path, content]) => ({ path, content })), hooks: { onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal },
+    usage, attempts: new Attempts(remaining.length * 2 + 6),
+  };
+  await writeAll(remaining, ctx, {
+    maxTokens, onProgress: input.onProgress, total: productManifest.length, doneCount: () => productManifest.filter((file) => generated.has(file.path)).length,
+    onStep: async (step) => { for (const file of step.files) generated.set(file.path, file.content); await input.onStep?.(step); await input.onFiles?.(ctx.generated()); },
+  });
+  let files = filesAreSafe(ctx.generated()).map(normalizeGeneratedFile);
+  const missingPlanned = deterministicCoverage({ planned: [...manifestPaths], files }).missingFiles;
+  if (missingPlanned.length) throw new StepFailedError({ paths: missingPlanned, reason: "planned files are missing", label: nameOf(missingPlanned) });
   try { validateProduct(files, input.prompt); }
   catch (error) {
-    if (!(error instanceof Error) || !/missing local imports|missing dependencies|invalid syntax/.test(error.message)) throw error;
-    await input.onProgress?.({ current: batches.length, total: batches.length, percent: 65 });
-    const repair = await editApplication({ prompt: `Fix this validation error by adding the missing helpers or correcting imports/declarations. Preserve the product and design. Error: ${error.message}`, files, onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal });
-    addUsage(usage, repair.usage); assertBudget(usage);
-    const combined = new Map(files.map(file => [file.path, file.content]));
-    repair.result.files.forEach(file => combined.set(file.path, file.content));
+    if (!(error instanceof Error) || !/missing local imports|missing dependencies|invalid syntax|imports /.test(error.message)) throw error;
+    await input.onProgress?.({ current: productManifest.length, total: productManifest.length, percent: 65, message: "Repairing imports between files" });
+    const repair = await editApplication({ prompt: `Fix this validation error by adding the missing helpers or correcting imports/declarations. Preserve the product and design. Error: ${error.message}`, files, targets: pathsInMessage(error.message, files), onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal, onStep: input.onStep, usage, attempts: ctx.attempts });
+    const combined = new Map(files.map((file) => [file.path, file.content]));
+    repair.result.files.forEach((file) => combined.set(file.path, file.content));
     files = [...combined].map(([path, content]) => ({ path, content }));
     validateProduct(files, input.prompt);
   }
@@ -235,29 +356,109 @@ async function createApplication(input: { prompt: string; references?: string; a
   return { result, usage, requestId: planned.requestId, model: `openrouter:${planned.model}` };
 }
 
-async function editApplication(input: { prompt: string; files: SourceFile[]; references?: string; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; signal?: AbortSignal }) {
-  let lastError: unknown;
-  const usage: Usage = { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await input.onAttempt?.(attempt);
+/**
+ * Edits run file by file (in small groups) so a large change never has to fit
+ * in one response. Each finished group is reported through onStep. A group
+ * that fails is split; a single file that still fails is rewritten in full
+ * with a larger allowance; after that the build stops with finished groups
+ * saved for Resume.
+ */
+async function editApplication(input: { prompt: string; files: SourceFile[]; references?: string; approvedManifest?: ApplicationManifest; targets?: string[]; completedPaths?: string[]; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; onProgress?: OnProgress; onStep?: OnStep; signal?: AbortSignal; usage?: Usage; attempts?: Attempts }) {
+  const usage: Usage = input.usage || { prompt_tokens: 0, completion_tokens: 0, costUsd: 0 };
+  await input.onAttempt?.(1);
+  const working = new Map(input.files.map((file) => [safeProjectPath(file.path), file.content]));
+  const changed = new Map<string, string>();
+  const planned = (input.approvedManifest?.files || []).map((file) => ({ ...file, path: safeProjectPath(file.path) }));
+  const done = new Set(input.completedPaths || []);
+  const newFiles = planned.filter((file) => !working.has(file.path) && !done.has(file.path) && !FIXED_STARTER_PATHS.has(file.path));
+  let targets = (input.targets?.length ? input.targets : planned.filter((file) => working.has(file.path)).map((file) => file.path)).filter((path) => working.has(path));
+  if (!targets.length && !newFiles.length) {
+    const named = pathsInMessage(input.prompt, input.files);
+    targets = named.length ? named : [...working.keys()].filter((path) => /^src\/.*\.(tsx?|css)$/.test(path) && !FIXED_STARTER_PATHS.has(path));
+  }
+  targets = [...new Set(targets)].filter((path) => !done.has(path) && !FIXED_STARTER_PATHS.has(path));
+  const attempts = input.attempts || new Attempts((targets.length + newFiles.length) * 3 + 4);
+  const hooks = { onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal };
+  const purposeOf = new Map(planned.map((file) => [file.path, file.purpose]));
+  const total = targets.length + newFiles.length;
+  let finished = 0;
+  let lastPlan = input.approvedManifest?.plan;
+  let lastMessage = input.approvedManifest?.message || "";
+  const record = async (paths: string[], files: SourceFile[]) => {
+    for (const file of files) { working.set(file.path, file.content); changed.set(file.path, file.content); }
+    finished += paths.length;
+    await input.onStep?.({ label: nameOf(paths), done: paths, files });
+    await input.onProgress?.({ current: finished, total, percent: Math.round(22 + (finished / Math.max(1, total)) * 42), message: `Updated ${nameOf(paths)}` });
+  };
+  const ctx: WriteContext = { prompt: input.prompt, manifestText: planned.map((file) => `${file.path}: ${file.purpose}`).join("\n") || [...working.keys()].join("\n"), references: input.references, generated: () => [...working].map(([path, content]) => ({ path, content })), hooks, usage, attempts };
+
+  type Group = { paths: string[]; feedback?: string };
+  const queue: Group[] = groupForEdit(targets, new Map([...working].map(([path, content]) => [path, content.length]))).map((paths) => ({ paths }));
+  while (queue.length) {
+    const group = queue.shift()!;
+    const label = nameOf(group.paths);
+    await input.onProgress?.({ current: finished, total, percent: Math.round(22 + (finished / Math.max(1, total)) * 42), message: `Updating ${label}${group.feedback ? " · repairing" : ""}` });
+    const others = [...working].filter(([path]) => !group.paths.includes(path)).map(([path, content]) => `--- ${path}\n${content}`).join("\n").slice(0, 50_000);
+    const user = `REQUEST:\n${input.prompt}\n\nEDIT ONLY THESE FILES IN THIS STEP: ${group.paths.join(", ")}. Make every part of the request that belongs in these files; other files are handled in their own steps.${purposeOf.size ? `\nPLANNED CHANGES:\n${group.paths.map((path) => `${path}: ${purposeOf.get(path) || "keep consistent with the request"}`).join("\n")}` : ""}\n\nFILES TO EDIT:\n${group.paths.map((path) => `--- ${path}\n${working.get(path)}`).join("\n")}\n\nOTHER PROJECT FILES (reference only, do not edit):\n${others || "None"}\n\nREFERENCES:\n${input.references?.slice(0, 30_000) || "None"}${group.feedback ? `\n\nPREVIOUS ATTEMPT FOR THESE FILES: ${group.feedback}. Use smaller exact search and replace operations.` : ""}`;
+    const key = attempts.begin(group.paths, user, label);
+    let reason = "";
+    let truncated = false;
     try {
-      const response = await completion({
-        role: "edit", schema: EDIT_JSON_SCHEMA, schemaName: "nynz_edit", maxTokens: 12_000,
-        system: EDIT_SYSTEM,
-        user: `REQUEST:\n${input.prompt}\n\nCURRENT FILES:\n${input.files.map((file) => `--- ${file.path}\n${file.content}`).join("\n").slice(0, 180_000)}\n\nREFERENCES:\n${input.references?.slice(0, 30_000) || "None"}${attempt > 1 ? "\n\nThe previous edit was invalid. Use smaller exact search and replace operations." : ""}`,
-        onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal,
-      });
+      const response = await request({ role: "edit", schema: EDIT_JSON_SCHEMA, schemaName: "nynz_edit", maxTokens: Number(process.env.OPENROUTER_EDIT_OUTPUT_TOKENS || 16_000), allowTruncated: true, system: EDIT_SYSTEM, user, ...hooks });
       addUsage(usage, response.usage);
       assertBudget(usage);
+      truncated = response.truncated;
+      if (truncated) throw new Error(`the response was cut off at the output limit`);
       const edit = editGeneratedSchema.parse(response.value);
-      const files = applyGeneratedEdits(input.files, edit.edits);
+      const outside = edit.edits.filter((item) => !group.paths.includes(safeProjectPath(item.path)));
+      if (outside.length) throw new Error(`edits were returned for files outside this step (${nameOf(outside.map((item) => item.path))})`);
+      const files = applyGeneratedEdits(group.paths.map((path) => ({ path, content: working.get(path)! })), edit.edits);
       validateSourceSyntax(files);
-      return { result: generatedSchema.parse({ plan: edit.plan, message: edit.message, files }), usage, requestId: response.requestId, model: `openrouter:${response.model}` };
-    } catch (error) { input.signal?.throwIfAborted(); if (error instanceof BudgetError || (error instanceof Error && /spending limit|request rejected \((401|402)\)/i.test(error.message))) throw error; lastError = error; }
+      lastPlan = input.approvedManifest?.plan || edit.plan;
+      lastMessage = input.approvedManifest?.message || edit.message;
+      await record(group.paths, files);
+      continue;
+    } catch (error) {
+      if (stopErrors(error) || error instanceof StepFailedError) throw error;
+      reason = error instanceof Error ? error.message.slice(0, 300) : "the edit failed";
+    }
+    attempts.fail(key, group.paths);
+    if (group.paths.length > 1) { queue.unshift(...splitBatch(group.paths).map((paths) => ({ paths, feedback: reason }))); continue; }
+    const [path] = group.paths;
+    if (attempts.tries(path) < 2 && !truncated) { queue.unshift({ paths: [path], feedback: reason }); continue; }
+    // Last resort for one file: rewrite it completely, with room to finish.
+    const rewritten = await writeAll([{ path, purpose: `Apply the request to this existing file and return its complete new content. ${purposeOf.get(path) || ""}`.trim() }], ctx, {
+      maxTokens: 24_000, total, doneCount: () => finished, existing: working, onProgress: input.onProgress,
+      onStep: async (step) => record(step.done, step.files),
+    });
+    if (!rewritten.length) throw new StepFailedError({ paths: [path], reason, label: nameOf([path]) });
   }
-  throw lastError instanceof Error ? lastError : new Error("OpenRouter edit failed");
+  if (newFiles.length) {
+    await writeAll(newFiles, ctx, { maxTokens: Number(process.env.OPENROUTER_BATCH_OUTPUT_TOKENS || 20_000), total, doneCount: () => finished, onProgress: input.onProgress, onStep: async (step) => record(step.done, step.files) });
+  }
+  const files = [...changed].map(([path, content]) => ({ path, content }));
+  validateSourceSyntax(files);
+  const plan = lastPlan || { summary: "Requested changes", steps: [input.prompt.slice(0, 200)] };
+  return { result: generatedSchema.parse({ plan, message: lastMessage || "Your requested changes are ready.", files }), usage, requestId: null, model: `openrouter:${models("edit")[0]}` };
 }
 
-export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; approvedManifest?: ApplicationManifest; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void>; signal?: AbortSignal }) {
+/**
+ * Checks the finished app against the approved plan. Uses a compact outline
+ * (paths, exports, headings, controls), never the full source, so it is cheap.
+ * Returns the plan steps the reviewer could not find in the app.
+ */
+export async function reviewCoverage(input: { steps: string[]; files: SourceFile[]; request?: string; onUsage?: OnUsage; beforeRequest?: BeforeRequest; signal?: AbortSignal }) {
+  if (!input.steps.length) return { missing: [] as string[] };
+  const schema = { type: "object", additionalProperties: false, required: ["steps"], properties: { steps: { type: "array", items: { type: "object", additionalProperties: false, required: ["step", "covered", "note"], properties: { step: { type: "string" }, covered: { type: "boolean" }, note: { type: "string" } } } } } } as const;
+  const response = await completion({
+    role: "plan", schema, schemaName: "nynz_coverage", maxTokens: 1_500, onUsage: input.onUsage, beforeRequest: input.beforeRequest, signal: input.signal,
+    system: "You review whether a generated web app implements each approved plan step. Judge only from the outline. Mark a step covered when the outline shows a screen, component or control that plausibly implements it. Be strict about whole features that are absent, lenient about wording. Keep notes under 20 words.",
+    user: `APPROVED PLAN STEPS:\n${input.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}\n\n${input.request ? `REQUEST:\n${input.request.slice(0, 4_000)}\n\n` : ""}APP OUTLINE:\n${outlineForReview(input.files)}`,
+  });
+  const parsed = z.object({ steps: z.array(z.object({ step: z.string(), covered: z.boolean(), note: z.string() })) }).parse(response.value);
+  return { missing: parsed.steps.filter((item) => !item.covered).map((item) => item.note ? `${item.step} (${item.note})` : item.step).slice(0, 12) };
+}
+
+export async function generateWithOpenRouter(input: { prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; approvedManifest?: ApplicationManifest; completed?: SourceFile[]; completedPaths?: string[]; targets?: string[]; onAttempt?: (attempt: number) => Promise<void>; onUsage?: OnUsage; beforeRequest?: BeforeRequest; onProgress?: OnProgress; onFiles?: (files: SourceFile[]) => Promise<void>; onStep?: OnStep; signal?: AbortSignal }) {
   return input.mode === "create" ? createApplication(input) : editApplication(input);
 }

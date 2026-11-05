@@ -1,8 +1,11 @@
-import { generateWithOpenRouter, type ApplicationManifest, type BeforeRequest } from "./openrouter";
+import { generateWithOpenRouter, type ApplicationManifest, type BeforeRequest, type OnStep } from "./openrouter";
 
 type SourceFile = { path: string; content: string };
 type Input = {
   prompt: string; files: SourceFile[]; references?: string; mode?: "create" | "edit"; approvedManifest?: ApplicationManifest;
+  /** Files finished by an earlier run of this build (create) and paths already handled (edit). */
+  completed?: SourceFile[]; completedPaths?: string[]; targets?: string[];
+  onStep?: OnStep;
   onAttempt?: (attempt: number) => Promise<void>;
   onFiles?: (files: SourceFile[]) => Promise<void>;
   onUsage?: (event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null }) => Promise<void>;
