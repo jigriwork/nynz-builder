@@ -42,6 +42,7 @@ export class BuildMeter {
       p_build: this.job.id, p_user: this.job.requested_by, p_event_key: eventKey,
     });
     if (error) {
+      if (/TRIAL_BUDGET/.test(error.message)) throw new BudgetError("TRIAL_BUDGET", "Today's free trial allowance is used up.");
       if (/SPEND_LIMIT/.test(error.message)) throw new BudgetError("SPEND_LIMIT", "A platform spending limit was reached.");
       throw error;
     }
@@ -74,6 +75,23 @@ export class BuildMeter {
     }
   }
 
+  /**
+   * Before a preview sandbox is created: the customer must be able to hold its
+   * first runtime and (for trials) today's trial allowance must be open. The
+   * hold itself is placed by open_sandbox_session once the sandbox exists, and
+   * its time is charged by that session, never by the build.
+   */
+  async beforePreviewSandbox(seconds: number) {
+    const credits = creditsForPaise(sandboxSecondsPaise(seconds, this.env), this.env);
+    const [{ data: balance, error }, { data: open, error: trialError }] = await Promise.all([
+      this.db.rpc("credit_balance", { p_user: this.job.requested_by }),
+      this.db.rpc("trial_budget_open", { p_user: this.job.requested_by }),
+    ]);
+    if (error || trialError) throw error || trialError;
+    if (open === false) throw new BudgetError("TRIAL_BUDGET", "Today's free trial allowance is used up.");
+    if (Number(balance?.available ?? 0) < credits) throw new BudgetError("INSUFFICIENT_CREDITS", "Not enough credits to start a preview.");
+  }
+
   /** Reserve both customer allowance and the shared provider budget before allocation. */
   async beforeSandbox(seconds: number) {
     const estimate = sandboxSecondsPaise(seconds, this.env);
@@ -93,6 +111,11 @@ export class BuildMeter {
   /** Sandbox time is billed by E2B per second; NYNZ records an estimate. */
   async recordSandbox(sandboxId: string, seconds: number, outcome: string) {
     if (seconds <= 0) return;
+    if (outcome !== "publish") {
+      // Preview sandboxes are billed by their session (build time and preview time once).
+      await this.db.from("usage_events").insert({ owner_id: this.job.requested_by, project_id: this.job.project_id, build_id: this.job.id, kind: "sandbox_seconds", quantity: seconds, provider: "e2b", metadata: { outcome, billed_by: "sandbox_session", event_key: `e2b:${sandboxId}:build` } });
+      return;
+    }
     // Keep the full allocated lifetime counted for a preview still running or
     // whose termination is uncertain. Releasing it at build completion would
     // let unmetered idle runtime exceed a combined verification cap.

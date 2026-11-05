@@ -80,6 +80,13 @@ export function creditsForPaise(paise: number, env: Record<string, string | unde
   return Math.max(0, Math.ceil(paise / paisePerCredit(env)));
 }
 
+/** Paise per sandbox-second at the configured E2B rate (used by preview billing sessions). */
+export function sandboxPaisePerSecond(env: Record<string, string | undefined> = process.env) {
+  const rate = Number(env.E2B_COST_USD_PER_SECOND || 0.000046);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("Invalid sandbox pricing configuration");
+  return rate * usdToInrRate(env) * 100;
+}
+
 /** E2B and Firecrawl have no per-call price in their responses; these are labelled estimates. */
 export function sandboxSecondsPaise(seconds: number, env: Record<string, string | undefined> = process.env) {
   // Published default 2 vCPU ($0.000028/s) + 4 GiB ($0.000018/s),

@@ -16,6 +16,8 @@ import { RESERVE } from "../lib/billing/entitlements";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
+import { e2bSandboxInfo, reconcileEstimatedSessions, settleSandboxSessions } from "../lib/billing/sessions";
+import { paisePerCredit, sandboxPaisePerSecond } from "../lib/billing/pricing";
 import { readFileSync } from "node:fs";
 import { watchBuild } from "../lib/platform/build-control";
 
@@ -66,6 +68,7 @@ const runPreview: typeof runInE2B = localSandbox ? (runLocalFixtureSandbox as ty
 
 export function publicFailure(error: unknown) {
   if (error instanceof BudgetError) {
+    if (error.code === "TRIAL_BUDGET") return { code: "TRIAL_BUDGET", message: "Free trial building is paused for today because today's shared trial allowance is used up. Everything finished so far is saved. Try again tomorrow, or choose a plan to continue now." };
     if (error.code === "SPEND_LIMIT") return { code: "SPEND_LIMIT", message: "NYNZ is very busy right now, so this build couldn't start. Your previous working version is unchanged. Please try again in a few minutes." };
     return { code: "INSUFFICIENT_CREDITS", message: "This build needs more credits to continue. Everything finished so far is saved and your previous working version is unchanged. Add credits, then Resume to continue from the next step." };
   }
@@ -222,6 +225,7 @@ async function processJob(job: Job) {
   const meter = new BuildMeter(db, job);
   let sandboxId: string | null = null;
   let sandboxStarted = 0;
+  let sandboxTimeout = 600;
   let awaitingApproval = false;
   let outcome = "failed";
   let control: Awaited<ReturnType<typeof watchBuild>> | undefined;
@@ -345,12 +349,20 @@ async function processJob(job: Job) {
     await progress(job, "Preparing a secure preview environment", "installing");
     sandboxStarted = Date.now();
     const sandbox = await runPreview(working, backend ? { projectUrl: backend.project_url, publishableKey: backend.publishable_key } : undefined, assets, {
-      signal, beforeCreate: (seconds) => meter.beforeSandbox(seconds),
+      signal, beforeCreate: async (seconds) => { sandboxTimeout = seconds; await meter.beforePreviewSandbox(seconds); },
       owner: { projectId: job.project_id, buildId: job.id },
       onCreated: async (id) => {
         sandboxId = id;
         const { error } = await db.rpc("register_sandbox", { p_sandbox: id, p_project: job.project_id, p_build: job.id, p_purpose: "preview" });
         if (error) throw error;
+        // One billing session for this sandbox: its build time and later preview time are charged once.
+        const opened = await db.rpc("open_sandbox_session", { p_sandbox: id, p_project: job.project_id, p_user: job.requested_by, p_build: job.id, p_timeout: sandboxTimeout, p_pps: sandboxPaisePerSecond(), p_ppc: paisePerCredit() });
+        if (opened.error) {
+          if (/TRIAL_BUDGET/.test(opened.error.message)) throw new BudgetError("TRIAL_BUDGET", "Today's free trial allowance is used up.");
+          if (/INSUFFICIENT_CREDITS/.test(opened.error.message)) throw new BudgetError("INSUFFICIENT_CREDITS", "Not enough credits to start a preview.");
+          if (/SPEND_LIMIT/.test(opened.error.message)) throw new BudgetError("SPEND_LIMIT", "A platform spending limit was reached.");
+          throw opened.error;
+        }
         await db.from("build_jobs").update({ sandbox_id: id }).eq("id", job.id).eq("locked_by", lockOwner);
       },
       onStage: async (message, percent) => progress(job, message, percent >= 80 ? "validating" : "installing", percent),
@@ -399,6 +411,9 @@ async function processJob(job: Job) {
       if (outcome !== "succeeded") {
         await db.rpc("request_resource_termination", { p_kind: "e2b_sandbox", p_ref: sandboxId, p_reason: `build ${outcome}` });
         await stopE2B(sandboxId).then(() => db.from("platform_resources").update({ state: "terminated", terminated_at: new Date().toISOString() }).eq("kind", "e2b_sandbox").eq("provider_ref", sandboxId!)).catch(() => undefined);
+        // Charge the shut-down sandbox's actual time now and release the rest of its hold.
+        const { data: open } = await db.from("sandbox_sessions").select("id").eq("sandbox_id", sandboxId).eq("status", "open").maybeSingle();
+        if (open) await db.rpc("settle_sandbox_session", { p_session: open.id, p_ended_at: new Date().toISOString(), p_source: "shutdown" }).then(() => undefined, () => undefined);
       }
     }
     if (!awaitingApproval && outcome !== "lease_lost") {
@@ -417,7 +432,12 @@ async function processJob(job: Job) {
 async function maintenance(requestedBy: string | null = null) {
   const { data: run } = await db.from("maintenance_runs").insert({ kind: "reconcile", requested_by: requestedBy }).select("id").single();
   try {
-    const summary = await reconcileResources({ db, killSandbox: stopE2B, removePreviewDomain, listSandboxes: listNynzSandboxes, idleDays: Number(process.env.PREVIEW_IDLE_DAYS || 7) });
+    const summary = await reconcileResources({ db, killSandbox: stopE2B, removePreviewDomain, listSandboxes: listNynzSandboxes, idleDays: Number(process.env.PREVIEW_IDLE_DAYS || 7) }).catch((error) => ({ error: safeError(error) }));
+    // Preview billing: settle stopped sessions and correct earlier estimates.
+    const sandboxInfo = (id: string) => localSandbox && id.startsWith("local-fixture-") ? Promise.resolve({ state: "gone" as const }) : e2bSandboxInfo(id, process.env.E2B_API_KEY);
+    const sessions = await settleSandboxSessions({ db, sandboxInfo }).catch((error) => ({ error: safeError(error) }));
+    const corrected = await reconcileEstimatedSessions({ db, sandboxInfo }).catch(() => 0);
+    Object.assign(summary as object, { sessions, corrected });
     await db.from("maintenance_runs").update({ finished_at: new Date().toISOString(), summary }).eq("id", run?.id);
     return run?.id;
   } catch (error) {

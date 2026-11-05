@@ -6,6 +6,7 @@ import { NYNZ_ICON_DATA_URI } from "./brand-icon.js";
 
 const COPY: Record<string, { title: string; body: string }> = {
   SPEND_LIMIT: { title: "NYNZ is very busy right now", body: "Your app is safe. Previews are in high demand at the moment, so please reload in a few minutes." },
+  TRIAL_BUDGET: { title: "Free trial previews are paused for today", body: "Free trials share a daily allowance, and today's is used up. Your app is safe. Previews reopen tomorrow, or choose a plan in NYNZ to continue now." },
   INSUFFICIENT_CREDITS: { title: "Not enough credits to wake this preview", body: "Waking a preview uses a few credits for cloud time. Add credits from Plan and billing in NYNZ, then reload." },
   NO_PREVIEW: { title: "This app isn't running right now", body: "Open the project in NYNZ and press Restart preview to start it again." },
   AUTH: { title: "Open this preview from NYNZ", body: "For your privacy, previews only open from your NYNZ project. Go back to the project and open the preview again." },
@@ -15,7 +16,7 @@ const COPY: Record<string, { title: string; body: string }> = {
 
 export function previewErrorCode(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("SPEND_LIMIT") ? "SPEND_LIMIT" : message.includes("INSUFFICIENT_CREDITS") ? "INSUFFICIENT_CREDITS" : "DEFAULT";
+  return message.includes("TRIAL_BUDGET") ? "TRIAL_BUDGET" : message.includes("SPEND_LIMIT") ? "SPEND_LIMIT" : message.includes("INSUFFICIENT_CREDITS") ? "INSUFFICIENT_CREDITS" : "DEFAULT";
 }
 
 export function codeForStatus(status: number) {

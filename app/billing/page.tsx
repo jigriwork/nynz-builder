@@ -27,6 +27,11 @@ function ledgerRow(l: LedgerRow) {
   }
   if (l.entry_type === "release") return [ENTRY_LABEL.release, "0", `${Number(meta.released || 0).toLocaleString()} held credits returned; ${Number(meta.consumed || 0).toLocaleString()} used by this build`];
   if (l.entry_type === "overrun_absorbed") return [ENTRY_LABEL.overrun_absorbed, `${Number(meta.uncharged_credits || 0).toLocaleString()} not charged`, "NYNZ covered the difference"];
+  if (l.entry_type === "consume" && meta.step === "Preview time") {
+    const seconds = Number((l.metadata as { seconds?: number })?.seconds || 0);
+    const duration = seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`;
+    return ["Used", Number(l.amount).toLocaleString(), `Preview time: ${duration} running${(l.metadata as { estimate?: boolean })?.estimate ? " (estimate, corrected automatically if the provider reports less)" : ""}`];
+  }
   if (l.entry_type === "consume") return ["Used", Number(l.amount).toLocaleString(), meta.step ? `Build step: ${meta.step}` : "Build or preview"];
   return [ENTRY_LABEL[l.entry_type] || l.entry_type, Number(l.amount).toLocaleString(), l.reason || ""];
 }

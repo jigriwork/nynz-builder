@@ -33,7 +33,8 @@ function compile(files: SourceFile[]) {
 export async function runLocalFixtureSandbox(input: SourceFile[], _backend?: unknown, _assets: unknown[] = [], options: Options = {}) {
   if (!localFixtureSandboxEnabled()) throw new Error("Local fixture sandbox is disabled");
   options.signal?.throwIfAborted();
-  await options.beforeCreate?.(60);
+  // Same allocation as a real E2B sandbox, so billing behaves as in production.
+  await options.beforeCreate?.(Math.ceil(Number(process.env.E2B_SANDBOX_TIMEOUT_MS || 600_000) / 1000));
   const sandboxId = `local-fixture-${randomUUID().slice(0, 8)}`;
   await options.onCreated?.(sandboxId);
   const merged = new Map(input.map((file) => [file.path, file.content]));

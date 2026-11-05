@@ -14,7 +14,7 @@ describe("20261105100000_resumable_builds on existing builds and credits", () =>
         before = await snapshot(exec);
       },
     });
-    expect(migrationFiles().map((m) => m.name).at(-1)).toBe(MIGRATION);
+    expect(migrationFiles().map((m) => m.name)).toContain(MIGRATION);
     const exec: Exec = async (sql, params) => (await db.query<Record<string, any>>(sql, params)).rows;
     const results = [...await verify(exec, before!), ...await exercise(exec)];
     for (const result of results) expect({ check: result.name, ok: result.ok, detail: result.detail }).toMatchObject({ ok: true });

@@ -12,11 +12,14 @@ export async function entitlementsFor(admin: SupabaseClient, userId: string) {
 
 /**
  * New accounts receive a one-time, expiring trial grant (TRIAL_CREDITS,
- * default 25; 0 disables it). It is an explicit, labelled promotional grant,
- * never a conversion of historical usage.
+ * default 60; TRIAL_DAYS, default 7; 0 credits disables it), enough for one
+ * useful app and its first preview. It is an explicit, labelled trial grant,
+ * never a conversion of historical usage. Spending by trial-only accounts also
+ * counts against a separate daily trial limit (spend_limits scope "trial").
  */
 export async function ensureTrialCredits(admin: SupabaseClient, userId: string) {
-  const amount = Number(process.env.TRIAL_CREDITS ?? 25);
+  const amount = Number(process.env.TRIAL_CREDITS ?? 60);
+  const days = Number(process.env.TRIAL_DAYS ?? 7);
   if (!Number.isInteger(amount) || amount <= 0) return;
   // Owners use an explicit, audited testing allowance; a first build must not
   // silently add customer trial credits outside that allowance.
@@ -24,7 +27,7 @@ export async function ensureTrialCredits(admin: SupabaseClient, userId: string) 
   if(error)throw error;
   if(staff?.role==="owner")return;
   await admin.rpc("grant_credits", {
-    p_user: userId, p_source: "promotional", p_amount: amount, p_expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
+    p_user: userId, p_source: "trial", p_amount: amount, p_expires_at: new Date(Date.now() + (Number.isFinite(days) && days > 0 ? days : 7) * 86400_000).toISOString(),
     p_reason: "Welcome trial credits", p_actor: null, p_idempotency: `trial:${userId}`,
   });
 }
@@ -49,6 +52,10 @@ export async function admitPaidWork(admin: SupabaseClient, input: { userId: stri
   catch (error) { return apiError("SERVICE_UNAVAILABLE", "Your secure preview is being prepared. Please try again shortly. You have not been charged.", { cause: error, scope: "preview-registration" }); }
   const entitlements = await entitlementsFor(admin, input.userId);
   await ensureTrialCredits(admin, input.userId);
+  // Tell trial customers before any work starts when today's trial allowance is used up.
+  const { data: open, error: trialError } = await admin.rpc("trial_budget_open", { p_user: input.userId });
+  if (trialError) return apiError("SERVICE_UNAVAILABLE", "Building is temporarily unavailable.", { cause: trialError, scope: "admission" });
+  if (open === false) return apiError("TRIAL_BUDGET", "Free trial building is paused for today because today's shared trial allowance is used up. Your projects are safe. Try again tomorrow, or choose a plan to continue now.");
   const { error } = await admin.rpc("reserve_credits", { p_user: input.userId, p_project: input.projectId, p_build: input.buildId, p_amount: input.credits, p_max_concurrent: entitlements.max_concurrent_builds });
   if (error) return dbError(error, "admission");
   return null;

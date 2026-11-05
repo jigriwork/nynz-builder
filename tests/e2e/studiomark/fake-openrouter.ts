@@ -6,14 +6,14 @@
  * 2026-11-04), to slow down, or to report a higher cost.
  */
 import { createServer } from "node:http";
-import { EDIT_MANIFEST, MANIFEST, fileContent } from "./fixture";
+import { EDIT_MANIFEST, MANIFEST, SMALL_MANIFEST, SMALL_SCREENS, fileContent } from "./fixture";
 import { classesFromStylesRequest, heuristicCss } from "../../fixtures/heuristic-css";
 
-export type Control = { cutOff: string[]; delayMs: number; costUsd: number; compileErrorOnce: boolean; coverageUnclear: boolean };
+export type Control = { cutOff: string[]; delayMs: number; costUsd: number; compileErrorOnce: boolean; coverageUnclear: boolean; app: "studiomark" | "small" };
 export type Logged = { n: number; at: number; schema: string; paths: string[]; group: string[]; maxTokens: number; truncated: boolean; id: string; brief: boolean; body: string };
 
 export function startFakeOpenRouter(port: number) {
-  const control: Control = { cutOff: [], delayMs: 0, costUsd: 0.02, compileErrorOnce: false, coverageUnclear: false };
+  const control: Control = { cutOff: [], delayMs: 0, costUsd: 0.02, compileErrorOnce: false, coverageUnclear: false, app: "studiomark" };
   const log: Logged[] = [];
   let n = 0;
   const runId = Date.now().toString(36);
@@ -34,7 +34,7 @@ export function startFakeOpenRouter(port: number) {
     let value: unknown;
     let truncated = false;
     let cutPath: string | null = null;
-    if (schema === "nynz_manifest") value = /TASK MODE: edit/.test(user) ? EDIT_MANIFEST : MANIFEST;
+    if (schema === "nynz_manifest") value = /TASK MODE: edit/.test(user) ? EDIT_MANIFEST : control.app === "small" ? SMALL_MANIFEST : MANIFEST;
     else if (schema === "nynz_coverage") value = { steps: (user.split("APPROVED PLAN STEPS:\n")[1]?.split("\n\n")[0] || "").split("\n").filter(Boolean).map((line, index) => ({ step: line.replace(/^\d+\.\s*/, ""), status: control.coverageUnclear && index === 0 ? "unclear" : "built", evidence: "src/App.tsx", note: control.coverageUnclear && index === 0 ? "toggle wiring not shown" : "" })) };
     else if (schema === "nynz_styles") value = { files: [{ path: "src/index.css", content: heuristicCss(classesFromStylesRequest(user)) }] };
     else if (schema === "nynz_edit") {
@@ -48,7 +48,7 @@ export function startFakeOpenRouter(port: number) {
       if (control.compileErrorOnce && !repair) control.compileErrorOnce = false;
       value = { plan: EDIT_MANIFEST.plan, message: EDIT_MANIFEST.message, edits };
     } else {
-      const files = paths.map((path) => ({ path, content: fileContent(path) }));
+      const files = paths.map((path) => ({ path, content: fileContent(path, control.app === "small" ? SMALL_SCREENS : undefined) }));
       value = { files };
       cutPath = paths.find((path) => control.cutOff.includes(path)) || null;
       truncated = Boolean(cutPath);

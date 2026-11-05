@@ -34,6 +34,17 @@ export const MANIFEST = {
   ].map(([path, purpose]) => ({ path, purpose })),
 };
 
+/** A small two-screen app for the new-customer journey (comparable to Saffron Loom). */
+export const SMALL_SCREENS = ["Landing", "Orders"];
+export const SMALL_MANIFEST = {
+  plan: { summary: "Saffron Loom: a small boutique orders app with a landing page and an orders workspace.", steps: ["Landing page with navigation and a hero", "Orders workspace with a grid of order cards"] },
+  message: "Here is the proposed plan for Saffron Loom. Please review it before I write code.",
+  files: [
+    ["package.json", "Dependencies"], ["index.html", "Document"], ["src/main.tsx", "Entry"], ["src/App.tsx", "Routing"], ["src/index.css", "Styles"],
+    ["src/types.ts", "Types"], ["src/seed.ts", "Seed data"], ["src/store.tsx", "Store"], ["src/pages/Landing.tsx", "Landing"], ["src/pages/Orders.tsx", "Orders"],
+  ].map(([path, purpose]) => ({ path, purpose })),
+};
+
 /** Follow-up edit: add a dark theme; touches App and styles only. */
 export const EDIT_REQUEST = "Add a dark theme toggle to the workspace header.";
 export const EDIT_MANIFEST = {
@@ -47,11 +58,11 @@ function page(name: string) {
   return `import { useStore } from "../store";\n\nexport default function ${name}() {\n  const store = useStore();\n  return <section className="page page-${name.toLowerCase()}" aria-label="${name}"><h1>${name}</h1><p className="meta">{store.products.length} products in the catalogue</p>${rows}</section>;\n}\n`;
 }
 
-export function fileContent(path: string): string {
+export function fileContent(path: string, screens: string[] = SCREENS): string {
   switch (path) {
     case "package.json": return JSON.stringify({ name: "studiomark", private: true, type: "module", scripts: { dev: "vite", build: "tsc --noEmit && vite build" }, dependencies: { react: "^19.1.0", "react-dom": "^19.1.0" }, devDependencies: { vite: "^6.1.0", "@vitejs/plugin-react": "^4.4.1", typescript: "^5.8.3", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0" } }, null, 2);
     case "index.html": return '<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>StudioMark</title><meta name="description" content="StudioMark retail workspace demo"/></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>';
-    case "src/App.tsx": return `${SCREENS.map((name) => `import ${name} from "./pages/${name}";`).join("\n")}\n\nexport default function App() {\n  return <main className="app"><header className="topbar"><strong>StudioMark</strong></header>${SCREENS.map((name) => `<${name} />`).join("")}</main>;\n}\n`;
+    case "src/App.tsx": return `${screens.map((name) => `import ${name} from "./pages/${name}";`).join("\n")}\n\nexport default function App() {\n  return <main className="app"><header className="topbar"><strong>StudioMark</strong></header>${screens.map((name) => `<${name} />`).join("")}</main>;\n}\n`;
     case "src/index.css": return `*{box-sizing:border-box}body{margin:0;font-family:Georgia,serif;background:#faf6ee;color:#1f1b3a}.app{min-height:100vh}.topbar{display:flex;gap:1rem;padding:1rem 2rem;background:#1f1b3a;color:#faf6ee}.page{padding:2rem}.card{padding:1rem;margin:.5rem 0;border:1px solid #e6dcc8;border-radius:12px;background:#fff}.btn{background:#f59e0b;border:0;padding:.5rem 1rem;border-radius:999px}.meta{color:#6b6280}${SCREENS.map((name) => `.page-${name.toLowerCase()}{display:grid;gap:1rem}${Array.from({ length: 8 }, (_, i) => `.${name.toLowerCase()}-row-${i}{order:${i}}`).join("")}`).join("")}@media(max-width:720px){.page{padding:1rem}.topbar{padding:1rem}}`;
     case "src/types.ts": return "export type Variant = { size: string; colour: string; stock: number };\nexport type Product = { id: string; name: string; category: string; price: number; variants: Variant[] };\nexport type Customer = { id: string; name: string; phone: string };\nexport type Order = { id: string; customerId: string; total: number };\n";
     case "src/seed.ts": return `import type { Product } from "./types";\n\nexport const seedProducts: Product[] = [${Array.from({ length: 20 }, (_, i) => `{ id: "p${i + 1}", name: "Kurta ${i + 1}", category: "${["Kurtas", "Sarees", "Denim", "Accessories"][i % 4]}", price: ${1499 + i * 100}, variants: [{ size: "M", colour: "Indigo", stock: ${i % 6} }] }`).join(",\n  ")}];\n`;

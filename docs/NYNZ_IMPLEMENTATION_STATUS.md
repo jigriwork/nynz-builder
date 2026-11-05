@@ -42,11 +42,19 @@ Branch: `feat/nynz-platform`.
 Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
 Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
-## 0.4.2 (local, branch fix/0.4.2, not deployed)
+## 0.5.0 (for review, branch feat/preview-sessions-trial, not deployed)
 
 | Area | State | Evidence |
 | --- | --- | --- |
-| Build-complete reply | Fixed, verified locally | Saffron Loom reply reproduced; unit tests; local e2e: proposal kept as its own entry, completion reply only for the published build and edit, none for failed or stopped builds (43/43) |
+| Preview billing sessions | Implemented locally | Replays of Saffron Loom, Kesari Threads (both sandboxes) and StudioMark; clock-boundary reopen, pause/resume, duplicates, refusal before extension, estimate and refund-only reconciliation (13 DB tests, 4 unit tests) |
+| Trial 60 credits / 7 days, ₹300 trial budget | Implemented locally | New-customer journey 12/12 (signup → plan → approval → build → first preview → settlement; budget exhausted message); paid accounts unaffected |
+| Rollout | Not started | Needs the migration, worker and the preview host (Vercel) together; see the review report |
+
+## 0.4.2 (deployed 2026-11-05 at d1a0492)
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Build-complete reply | Fixed, deployed | Saffron Loom reply reproduced; unit tests; local e2e: proposal kept as its own entry, completion reply only for the published build and edit, none for failed or stopped builds (43/43) |
 | Trial credits | Decision pending | 25-credit trial blocks every real build at approval (smallest hold 29) and at first preview |
 | Preview billing | Decision pending | Recorded sessions charged 15 credits each for 904–1,206 s of runtime (₹3.95–5.27) |
 

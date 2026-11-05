@@ -10,11 +10,11 @@ import { redactPreviewUrl } from "@/lib/preview/token";
  */
 export type ApiErrorCode =
   | "AUTH_REQUIRED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID_INPUT" | "CONFLICT" | "RATE_LIMITED" | "ACCOUNT_SUSPENDED"
-  | "INSUFFICIENT_CREDITS" | "CONCURRENCY_LIMIT" | "SPEND_LIMIT" | "SERVICE_UNAVAILABLE" | "REAUTH_REQUIRED" | "MFA_REQUIRED" | "INTERNAL";
+  | "INSUFFICIENT_CREDITS" | "CONCURRENCY_LIMIT" | "SPEND_LIMIT" | "TRIAL_BUDGET" | "SERVICE_UNAVAILABLE" | "REAUTH_REQUIRED" | "MFA_REQUIRED" | "INTERNAL";
 
 const STATUS: Record<ApiErrorCode, number> = {
   AUTH_REQUIRED: 401, FORBIDDEN: 403, NOT_FOUND: 404, INVALID_INPUT: 400, CONFLICT: 409, RATE_LIMITED: 429, ACCOUNT_SUSPENDED: 403,
-  INSUFFICIENT_CREDITS: 402, CONCURRENCY_LIMIT: 429, SPEND_LIMIT: 503, SERVICE_UNAVAILABLE: 503, REAUTH_REQUIRED: 401, MFA_REQUIRED: 401, INTERNAL: 500,
+  INSUFFICIENT_CREDITS: 402, CONCURRENCY_LIMIT: 429, SPEND_LIMIT: 503, TRIAL_BUDGET: 429, SERVICE_UNAVAILABLE: 503, REAUTH_REQUIRED: 401, MFA_REQUIRED: 401, INTERNAL: 500,
 };
 
 export function correlationId() {
@@ -44,6 +44,7 @@ const DB_CODES: Record<string, [ApiErrorCode, string]> = {
   ACCOUNT_SUSPENDED: ["ACCOUNT_SUSPENDED", "This account is suspended. Contact support for help."],
   INSUFFICIENT_CREDITS: ["INSUFFICIENT_CREDITS", "You do not have enough credits for this request. Add credits or upgrade your plan."],
   CONCURRENCY_LIMIT: ["CONCURRENCY_LIMIT", "You have reached the number of builds that can run at once on your plan."],
+  TRIAL_BUDGET: ["TRIAL_BUDGET", "Free trial building is paused for today because today's shared trial allowance is used up. Your projects are safe. Try again tomorrow, or choose a plan to continue now."],
   SPEND_LIMIT: ["SPEND_LIMIT", "Generation is paused because a platform spending limit was reached. Please try again later."],
   PERMISSION_DENIED: ["FORBIDDEN", "You do not have permission to do that."],
   REAUTH_REQUIRED: ["REAUTH_REQUIRED", "Confirm your password to continue."],

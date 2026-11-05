@@ -10,7 +10,7 @@ import http from "node:http";
 import { createClient } from "@supabase/supabase-js";
 import { e2bConnector, handlePreview } from "../preview-host/lib/core";
 import { redactPreviewUrl } from "../lib/preview/token";
-import { runtimeAdmissionArgs } from "../preview-host/lib/runtime";
+import { sessionExtensionArgs } from "../preview-host/lib/runtime";
 
 config({ path: ".env.local", quiet: true });
 
@@ -24,7 +24,7 @@ const port = Number(process.env.PREVIEW_GATEWAY_PORT || 3001);
 const appOrigin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const activeSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
 const connectSandbox = e2bConnector(e2bApiKey, activeSeconds, async (sandbox, project, user) => {
-  const admitted = await db.rpc("authorize_sandbox_runtime", runtimeAdmissionArgs(sandbox, project, user, activeSeconds));
+  const admitted = await db.rpc("extend_sandbox_session", sessionExtensionArgs(sandbox, project, user, activeSeconds));
   if (admitted.error) throw new Error("Preview runtime is unavailable or its allowance has been reached");
 });
 

@@ -4,7 +4,7 @@ import { e2bConnector, handlePreview } from "../lib/core.js";
 import { redactPreviewUrl } from "../lib/token.js";
 import { handleSite } from "../lib/site-host.js";
 import { codeForStatus, previewErrorCode, previewErrorPage } from "../lib/error-page.js";
-import { runtimeAdmissionArgs } from "../lib/runtime.js";
+import { sessionExtensionArgs } from "../lib/runtime.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,8 +22,9 @@ const sitesSuffix = (process.env.PUBLISH_SITES_SUFFIX || "").toLowerCase();
 const isPreviewHost = (host: string) => host === previewSuffix || host.endsWith(`.${previewSuffix}`);
 const activeSeconds = Math.max(60, Math.min(Number(process.env.E2B_PREVIEW_ACTIVE_SECONDS || 600), 3_600));
 const connectSandbox = e2bConnector(e2bKey, activeSeconds, async (sandbox, project, user) => {
-  const admitted = await db.rpc("authorize_sandbox_runtime", runtimeAdmissionArgs(sandbox, project, user, activeSeconds));
-  // Keep the database's reason (SPEND_LIMIT, INSUFFICIENT_CREDITS) so the page can explain it.
+  // Hold the extension before E2B extends the runtime; settled later against recorded running time.
+  const admitted = await db.rpc("extend_sandbox_session", sessionExtensionArgs(sandbox, project, user, activeSeconds));
+  // Keep the database's reason (SPEND_LIMIT, TRIAL_BUDGET, INSUFFICIENT_CREDITS) so the page can explain it.
   if (admitted.error) throw new Error(`Preview runtime is unavailable or its allowance has been reached: ${String(admitted.error.message || "").split(/\s/)[0]}`);
 });
 

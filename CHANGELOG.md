@@ -3,7 +3,14 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
-## 0.4.2: honest build-complete replies (committed on branch fix/0.4.2, not deployed)
+## 0.5.0 (for review): preview billing sessions and the revised trial (branch feat/preview-sessions-trial, not deployed)
+
+- One billing session per sandbox: the build's sandbox and its later preview are the same runtime and are charged once. The first 600 s are held when the sandbox is created; every preview or terminal visit tops up the hold before runtime is extended (refused if the account cannot cover it); the actual running time is charged once when the sandbox stops (shutdown record, provider pause time, or NYNZ's visit record) and the rest of the hold is released. A visit after a pause opens a new segment. Duplicate visits and settlements do not double-charge. Missing evidence is charged as a labelled estimate and later reconciled with refunds only. Replaces the fixed 10-minute clock windows and the separate 600 s build-sandbox charge.
+- Recorded sessions replayed: Saffron Loom 15 → 4 credits (904 s), Kesari Threads 15 + 15 → 5 + 5 (936 s, 1,059 s), StudioMark 15 → 6 (1,206 s).
+- Trial: 60 credits for 7 days (TRIAL_CREDITS, TRIAL_DAYS), granted as source "trial". A separate daily trial spending limit (spend_limits scope "trial", ₹300 to start) counts only trial-only accounts; paid accounts keep the rest of the ₹1,000 platform cap. New trial requests are refused upfront with a clear message when the day's trial allowance is used up. Preview holds never occupy a build-concurrency slot.
+- Evidence: tests/db/preview-sessions.test.ts, tests/unit/preview-sessions.test.ts, tests/e2e/trial-journey/run.ts (12 checks), StudioMark local proof (43 checks).
+
+## 0.4.2: honest build-complete replies (deployed 2026-11-05 at d1a0492)
 
 - A finished build or edit no longer posts the plan's proposal ("Here is the proposed plan… before I write code") as its completion reply (seen on Kesari Threads and Saffron Loom). The reply is written from the completed result: the app's name and the approved steps for a new app, the change summary and the files updated for an edit, coverage notes, and a pointer to the Preview tab.
 - The proposal is posted as its own chat entry when the plan is ready, so it keeps its earlier place next to the plan card.
