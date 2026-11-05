@@ -42,7 +42,17 @@ Branch: `feat/nynz-platform`.
 Implementation commits: `a49753b` (runtime/isolation/recovery/product checks) and `0105025` (admin page MFA and reported zero-cost accounting).
 Starting implementation: `97db14a`; both historical audits describe `e24612b`.
 
-## Resumable builds (unreleased, branch fix/build-recovery)
+## 0.4.1 (local, branch fix/0.4.1, not deployed)
+
+| Area | State | Evidence |
+| --- | --- | --- |
+| Missing layout styling | Fixed, verified locally | Kesari Threads fixture: 61 unstyled class names before, 0 after; browser screenshots at 1440 and 390 px (landing, navigation, mobile menu, Orders). Real-model CSS quality not yet verified (paid run deferred). |
+| Misleading "Not built yet" | Fixed, verified locally | The three false flags reproduced from the Kesari edit; evidence now contains the return action, filters and dashboard cards; unverifiable steps shown as "Couldn't confirm" (unit test and local e2e) |
+| Credit step labels | Fixed, verified locally | Local e2e: all 14 model charges labelled with their own step |
+| Validation credit reconciliation | Explained | 300 granted + 25 automatic welcome trial credits = 325; 111 used (build 47, edit 40, preview 24); 214 remaining |
+| Build recovery | Still passing | StudioMark local proof 36/36 |
+
+## Resumable builds (0.4.0, deployed 2026-11-05)
 
 Not deployed. Migration `20261105100000_resumable_builds.sql` is not applied to production.
 

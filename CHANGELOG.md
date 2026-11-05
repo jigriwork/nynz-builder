@@ -3,6 +3,15 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.4.1: styling, honest plan checks and credit labels (committed on branch fix/0.4.1, not deployed)
+
+Findings from the approved 0.4.0 production validation (Kesari Threads, project 2ea4dcd1):
+
+- Styling: the stylesheet was written in the last step while screens were only visible as import/export lines, so 61 class names (38 of 45 on the landing page) had no styles. A stylesheet step now receives the class names every screen uses and a compact markup outline. After every build and every edit, class names used in markup but defined nowhere are found and filled by one bounded, resumable styles step (edits check only the files they changed). Class names inside template literals and conditionals are detected.
+- Plan check: it now reads focused source evidence (changed files first, ranked lines with controls, labels and options) instead of an outline, and answers built, missing or unclear. Anything it cannot verify is shown as "Couldn't confirm" (please check in the preview), never as "Not built yet". Reproduced on the Kesari Threads edit, where the return form, the Returns filters and the dashboard cards were wrongly flagged.
+- Credit history: each charge now names the step it paid for (the label is set before each request; 0.4.0 showed the previous step). Planning, compile repairs and the preview environment have their own labels.
+- Evidence: tests/fixtures/kesari-threads (generated fictional app, both versions, and the edit's plan check), tests/unit/styles-and-coverage.test.ts, tests/e2e/kesari-styles/run.ts (before/after screenshots), and the StudioMark recovery proof (36 checks).
+
 ## 0.4.0: resumable builds (committed on branch fix/build-recovery, not deployed)
 
 - Root cause of the StudioMark failures (2026-11-04): a late step asked for four full screens in one response with a 12,000-token cap; every attempt was cut off at exactly 12,000 tokens and the identical request was sent three times. A failed build then deleted its finished files, and "Try again" replanned and regenerated everything.

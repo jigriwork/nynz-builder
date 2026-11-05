@@ -25,7 +25,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
+type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -154,6 +154,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const plannedTotal = stoppedBuild?.plan?.manifest?.files?.length || 0;
   const resumeInfo = stoppedBuild?.resumable ? { saved: stoppedBuild.checkpoint?.done?.length || 0, total: plannedTotal, failedStep: stoppedBuild.checkpoint?.failed_step?.label || null, message: stoppedBuild.status === "cancelled" ? stoppedBuild.error_message : null } : null;
   const coverageGaps = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.missing || [] : [];
+  const coverageUnconfirmed = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.unconfirmed || [] : [];
   const running = mounted ? builds.find((build) => active.has(build.status) && build.plan?.approval !== "awaiting") : undefined;
   const runningId = running?.id;
   const runningStatus = running?.status;
@@ -529,6 +530,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
             {(project.last_error || resumeInfo) && stoppedBuild && !running && <BuildIssueCard code={stoppedBuild.error_code} hasPreview={Boolean(project.has_preview)} resume={resumeInfo} onResume={resumeBuild} onStartOver={retryFailedBuild} onLogs={() => setTab("logs")} />}
             {coverageGaps.length > 0 && !running && <section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/[.05] p-4"><p className="text-[12px] font-medium text-amber-200">Not built yet from your approved plan</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageGaps.map((item) => <li key={item}>{item}</li>)}</ul><button type="button" onClick={() => applyPrompt(`Add the parts of the approved plan that are not built yet:\n${coverageGaps.map((item) => `- ${item}`).join("\n")}`)} className="mt-3 rounded-lg bg-white/[.08] px-3 py-1.5 text-[11px] text-white/85 hover:bg-white/[.12]">Ask NYNZ to add these</button></section>}
+            {coverageUnconfirmed.length > 0 && !running && <section role="status" className="rounded-2xl border border-sky-300/20 bg-sky-300/[.04] p-4"><p className="text-[12px] font-medium text-sky-200">Couldn&apos;t confirm automatically</p><p className="mt-1 text-[11px] leading-5 text-white/55">These may well be built. NYNZ couldn&apos;t verify them from the code, so please check them in the preview.</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageUnconfirmed.map((item) => <li key={item}>{item}</li>)}</ul></section>}
           </div>
         </div>
 

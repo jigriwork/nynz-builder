@@ -11,7 +11,7 @@ import { getPreviewOrigin } from "../lib/preview/session";
 import { removePreviewDomain } from "../lib/preview/registration";
 import { redact } from "../lib/platform/redact";
 import { planApplication, reviewCoverage } from "../lib/platform/openrouter";
-import { StepFailedError, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
+import { StepFailedError, buildReply, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
 import { RESERVE } from "../lib/billing/entitlements";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
@@ -159,15 +159,6 @@ async function projectBrief(projectId: string, stored: ProjectBrief | null): Pro
   return { original: data.request || String(data.prompt).split("\n\nUSER APPROVED PLAN")[0], plan: { summary: data.plan?.summary, steps: data.plan?.steps || [] }, changes: [] };
 }
 
-function assistantReply(message: string, mode: string, missing: string[] = []) {
-  if (missing.length) {
-    const base = message.trim() || "Your application is ready and running in the preview.";
-    return `${base}\n\nNot built yet (from the approved plan):\n${missing.map((item) => `- ${item}`).join("\n")}\n\nAsk NYNZ to add these and it will build them on top of this version.`;
-  }
-  const base = message.trim() || (mode === "edit" ? "Your requested changes are now live." : "Your application is ready and running in the preview.");
-  return /\?\s*$/.test(base) ? base : `${base}\n\nWhat would you like to change, add, or improve next?`;
-}
-
 /**
  * Publish: build the project's current source in a fresh sandbox, validate the
  * static output, upload it to an immutable per-deployment prefix and activate
@@ -274,6 +265,7 @@ async function processJob(job: Job) {
 
       if (job.plan?.approval === "required") {
         await progress(job, "Planning the screens, design and functionality for your approval", "planning", 12);
+        meter.setStep("Planning the build");
         const planned = await planApplication({ prompt: requestText, files: working, mode: job.mode === "edit" ? "edit" : "create", references, ...hooks });
         if (await cancelled(job)) { outcome = "cancelled"; return; }
         const estimate = estimateBuildCredits({ files: planned.manifest.files, mode: job.mode === "edit" ? "edit" : "create", existing: working, briefChars: requestText.length, minimumHold: RESERVE.generate() });
@@ -311,7 +303,9 @@ async function processJob(job: Job) {
           onProgress: async (event) => progress(job, event.message || `Building application files · ${event.current} of ${event.total}`, "generating", event.percent),
           // Each finished step is saved with its files in one transaction.
           // Canonical source is untouched until promotion.
-          onStep: async (step) => { meter.setStep(step.label); await recordStep(job, step.done, step.files, { label: step.label }); },
+          onStep: async (step) => { await recordStep(job, step.done, step.files, { label: step.label }); },
+          // The label is set before each paid request, so every charge names the step it paid for.
+          onLabel: (label) => meter.setStep(label),
         });
         const merged = new Map((job.mode === "create" ? [] : working).map((file) => [file.path, file.content]));
         output.result.files.forEach((file) => merged.set(file.path, file.content));
@@ -320,15 +314,24 @@ async function processJob(job: Job) {
         const steps: string[] = job.plan?.approval === "approved" ? (job.plan.steps || []) : [];
         const coverage = deterministicCoverage({ planned: (job.plan?.manifest?.files || []).map((file: { path: string }) => file.path), files: working, previous: job.mode === "edit" ? (files || []).map((file) => file.path) : [] });
         let missing = [...coverage.missingFiles.map((path) => `Planned file ${path} was not created`), ...coverage.removedFiles.map((path) => `Existing file ${path} was removed`)];
+        const unstyled: string[] = (output as { unstyled?: string[] }).unstyled || [];
+        let unconfirmed: string[] = unstyled.length ? [`Styling for ${unstyled.length} class name${unstyled.length === 1 ? "" : "s"} (${unstyled.slice(0, 6).join(", ")}${unstyled.length > 6 ? ", …" : ""})`] : [];
         if (steps.length && process.env.NYNZ_COVERAGE_REVIEW !== "0") {
           meter.setStep("Checking the result against the approved plan");
           await progress(job, "Checking the result against the approved plan", "generating", 64);
-          try { missing = [...missing, ...(await reviewCoverage({ steps, files: working, request: job.request || undefined, ...hooks })).missing]; }
-          catch (error) { if (signal.aborted || /CANCELLED/.test(safeError(error))) throw error; console.error(`[NYNZ worker] coverage review skipped for ${job.id}: ${safeError(error)}`); }
+          try {
+            const review = await reviewCoverage({ steps, files: working, changed: job.mode === "edit" ? output.result.files.map((file) => file.path) : undefined, request: job.request || undefined, ...hooks });
+            missing = [...missing, ...review.missing];
+            unconfirmed = [...unconfirmed, ...review.unconfirmed];
+          } catch (error) {
+            if (signal.aborted || /CANCELLED/.test(safeError(error))) throw error;
+            console.error(`[NYNZ worker] coverage review skipped for ${job.id}: ${safeError(error)}`);
+            unconfirmed.push("The automatic check against the approved plan could not run");
+          }
         }
         await stageFiles(job, working, true);
-        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan, coverage: { missing, checked_at: new Date().toISOString() } }, generation_complete: true }).eq("id", job.id).eq("locked_by", lockOwner);
-        job.plan = { ...job.plan, coverage: { missing } };
+        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan, coverage: { missing, unconfirmed, checked_at: new Date().toISOString() } }, generation_complete: true }).eq("id", job.id).eq("locked_by", lockOwner);
+        job.plan = { ...job.plan, coverage: { missing, unconfirmed } };
       }
     } else {
       await db.rpc("begin_build_generation", { p_build: job.id, p_lock_owner: lockOwner });
@@ -349,6 +352,7 @@ async function processJob(job: Job) {
       onStage: async (message, percent) => progress(job, message, percent >= 80 ? "validating" : "installing", percent),
       onBuildFailure: job.mode === "restart" ? undefined : async (detail, workingFiles, attempt) => {
         await progress(job, `Repairing a compiler issue · pass ${attempt} of 2`, "generating", 78);
+        meter.setStep(`Repairing compiler errors (pass ${attempt})`);
         const repair = await generateApplication({
           signal,
           prompt: `Fix these production compiler errors. Add any missing helper files. Preserve the product and all working functionality. Make the smallest necessary corrections.\n\n${detail.slice(0, 6000)}`,
@@ -368,7 +372,7 @@ async function processJob(job: Job) {
     outcome = "succeeded";
     if (job.conversation_id && (output || job.plan)) {
       const { data: posted } = await db.from("messages").select("id").eq("conversation_id", job.conversation_id).eq("metadata->>build_id", job.id).limit(1);
-      if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: assistantReply(output?.result.message || "", output ? job.mode : "edit", job.plan?.coverage?.missing || []), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
+      if (!posted?.length) await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: buildReply(output?.result.message || "", output ? job.mode : "edit", job.plan?.coverage || {}), metadata: { build_id: job.id, plan: output?.result.plan || job.plan } });
     }
   } catch (error) {
     if (control?.signal.aborted) error = control.signal.reason;

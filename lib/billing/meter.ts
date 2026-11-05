@@ -105,7 +105,7 @@ export class BuildMeter {
       : await this.db.rpc("record_provider_spend", { p_provider: "e2b", p_kind: "sandbox", p_model: null, p_actual: paise, p_source: "estimate", p_build: this.job.id, p_user: this.job.requested_by, p_event_key: eventKey });
     if (recorded.error) throw recorded.error;
     if (await this.hasReservation()) {
-      const consumed = await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "allocated_runtime_estimate", p_metadata: { seconds, allocated_seconds: budgetSeconds, outcome, provider_spend_id: this.sandboxSpend?.id, paise_per_credit: paisePerCredit(this.env), provisional: true } });
+      const consumed = await this.db.rpc("consume_credits", { p_build: this.job.id, p_amount: creditsForPaise(paise, this.env), p_event_key: eventKey, p_provider: "e2b", p_model: null, p_cost_paise: paise, p_cost_source: "allocated_runtime_estimate", p_metadata: { seconds, allocated_seconds: budgetSeconds, outcome, provider_spend_id: this.sandboxSpend?.id, paise_per_credit: paisePerCredit(this.env), provisional: true, step: outcome === "publish" ? "Publishing build" : "Preview environment (build and checks)" } });
       if (consumed.error) throw consumed.error;
     }
   }

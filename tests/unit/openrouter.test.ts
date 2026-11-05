@@ -26,7 +26,7 @@ describe("OpenRouter staged generation", () => {
         { path: "src/index.css", purpose: "Responsive styling" }, { path: "src/data.ts", purpose: "Demo data" },
       ],
     };
-    const appSections = Array.from({ length: 45 }, (_, index) => `<section className="card card-${index}"><h2>Collection ${index}</h2><p>Thoughtfully written product information for a complete shopping experience.</p><button type="button">Explore</button></section>`).join("");
+    const appSections = Array.from({ length: 45 }, (_, index) => `<section className="card"><h2>Collection ${index}</h2><p>Thoughtfully written product information for a complete shopping experience.</p><button type="button">Explore</button></section>`).join("");
     const batches = [
       { files: [
         { path: "package.json", content: JSON.stringify({ scripts: { build: "tsc && vite build" }, dependencies: { "@vitejs/plugin-react": "latest", vite: "latest", typescript: "latest", react: "latest", "react-dom": "latest" }, devDependencies: {} }) },

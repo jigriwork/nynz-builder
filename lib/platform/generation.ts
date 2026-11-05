@@ -1,4 +1,4 @@
-import { generateWithOpenRouter, type ApplicationManifest, type BeforeRequest, type OnStep } from "./openrouter";
+import { generateWithOpenRouter, type ApplicationManifest, type BeforeRequest, type OnLabel, type OnStep } from "./openrouter";
 
 type SourceFile = { path: string; content: string };
 type Input = {
@@ -6,6 +6,8 @@ type Input = {
   /** Files finished by an earlier run of this build (create) and paths already handled (edit). */
   completed?: SourceFile[]; completedPaths?: string[]; targets?: string[];
   onStep?: OnStep;
+  /** Called with the step name before each paid request (credit history labels). */
+  onLabel?: OnLabel;
   onAttempt?: (attempt: number) => Promise<void>;
   onFiles?: (files: SourceFile[]) => Promise<void>;
   onUsage?: (event: { prompt_tokens: number; completion_tokens: number; costUsd: number; model: string; requestId: string | null }) => Promise<void>;

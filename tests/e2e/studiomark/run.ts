@@ -221,6 +221,12 @@ async function main() {
   const { data: consumes } = await admin.from("credit_ledger").select("event_key,amount,build_id").eq("entry_type", "consume").in("build_id", buildIds);
   const modelKeys = (consumes || []).map((row) => row.event_key).filter((key) => key?.startsWith("openrouter:"));
   check("no provider response was charged twice", new Set(modelKeys).size === modelKeys.length && modelKeys.every((key) => fake.log.some((entry) => `openrouter:${entry.id}` === key)), `${modelKeys.length} charged responses`);
+  // Every model charge names the step it paid for (0.4.0 labelled each charge with the previous step).
+  const { data: labelled } = await admin.from("credit_ledger").select("event_key,metadata").eq("entry_type", "consume").in("build_id", buildIds).like("event_key", "openrouter:%");
+  const base = (paths: string[]) => paths.map((path) => path.split("/").pop()).join(", ");
+  const expectedLabel = (entry: Logged) => entry.schema === "nynz_files" ? base(entry.paths) : entry.schema === "nynz_manifest" ? "Planning the build" : entry.schema === "nynz_coverage" ? "Checking the result against the approved plan" : entry.schema === "nynz_edit" ? base(entry.group) : entry.schema === "nynz_styles" ? "styles" : null;
+  const mislabelled = (labelled || []).filter((row) => { const entry = fake.log.find((item) => `openrouter:${item.id}` === row.event_key); const want = entry && expectedLabel(entry); return want && (want === "styles" ? !/^Styles for/.test(row.metadata?.step || "") : row.metadata?.step !== want); });
+  check("each charge is labelled with the step it paid for", (labelled || []).length > 0 && mislabelled.length === 0, mislabelled.slice(0, 3).map((row) => row.metadata?.step).join(" | ") || `${(labelled || []).length} labelled charges`);
   const { data: releases } = await admin.from("credit_ledger").select("metadata").eq("entry_type", "release").in("build_id", buildIds);
   check("unused holds were released for every finished build", (releases || []).length >= 2);
   await page.goto(`${APP}/billing`, { waitUntil: "domcontentloaded" });
@@ -229,6 +235,7 @@ async function main() {
 
   // 4. Follow-up edit keeps the original features and repairs a compile error.
   fake.control.compileErrorOnce = true;
+  fake.control.coverageUnclear = true;
   const editAt = Date.now();
   await page.goto(`${APP}/projects/${projectId}`, { waitUntil: "networkidle", timeout: 120_000 });
   await ask(page, EDIT_REQUEST);
@@ -243,6 +250,13 @@ async function main() {
   check("all original screens are still present after the edit", SCREENS.every((name) => filesV2.has(`src/pages/${name}.tsx`) && filesV2.get(`src/pages/${name}.tsx`) === filesV1.get(`src/pages/${name}.tsx`)));
   check("the requested change was applied and the repair removed the error", (filesV2.get("src/App.tsx") || "").includes("theme-toggle") && !(filesV2.get("src/App.tsx") || "").includes("NYNZ_FIXTURE_COMPILE_ERROR"));
   const { data: projectV2 } = await admin.from("projects").select("active_version_id,brief").eq("id", projectId).single();
+  fake.control.coverageUnclear = false;
+  await page.reload({ waitUntil: "networkidle" });
+  const unsure = page.locator("section[role=status]").filter({ hasText: "Couldn't confirm automatically" }).first();
+  const unsureShown = await unsure.isVisible().catch(() => false);
+  if (unsureShown) await unsure.screenshot({ path: `${process.env.E2E_ARTIFACTS || "/tmp"}/couldnt-confirm.png` });
+  const { data: reply } = await admin.from("messages").select("content").eq("metadata->>build_id", edit.id).maybeSingle();
+  check("an unverifiable step is shown as Couldn't confirm, not Not built yet", unsureShown && /Couldn't confirm automatically/.test(reply?.content || "") && !/Not built yet/.test(reply?.content || "") && !(await page.locator("text=Not built yet from your approved plan").count()), (reply?.content || "").split("\n").find((line: string) => /Couldn't confirm/.test(line)) || "");
   check("the brief records the change as applied", projectV2?.brief?.changes?.some((change: { request: string; status: string }) => change.request === EDIT_REQUEST && change.status === "applied"));
 
   // 5. Stop during a build.

@@ -7,12 +7,13 @@
  */
 import { createServer } from "node:http";
 import { EDIT_MANIFEST, MANIFEST, fileContent } from "./fixture";
+import { classesFromStylesRequest, heuristicCss } from "../../fixtures/heuristic-css";
 
-export type Control = { cutOff: string[]; delayMs: number; costUsd: number; compileErrorOnce: boolean };
+export type Control = { cutOff: string[]; delayMs: number; costUsd: number; compileErrorOnce: boolean; coverageUnclear: boolean };
 export type Logged = { n: number; at: number; schema: string; paths: string[]; group: string[]; maxTokens: number; truncated: boolean; id: string; brief: boolean; body: string };
 
 export function startFakeOpenRouter(port: number) {
-  const control: Control = { cutOff: [], delayMs: 0, costUsd: 0.02, compileErrorOnce: false };
+  const control: Control = { cutOff: [], delayMs: 0, costUsd: 0.02, compileErrorOnce: false, coverageUnclear: false };
   const log: Logged[] = [];
   let n = 0;
   const runId = Date.now().toString(36);
@@ -34,7 +35,8 @@ export function startFakeOpenRouter(port: number) {
     let truncated = false;
     let cutPath: string | null = null;
     if (schema === "nynz_manifest") value = /TASK MODE: edit/.test(user) ? EDIT_MANIFEST : MANIFEST;
-    else if (schema === "nynz_coverage") value = { steps: (user.split("APPROVED PLAN STEPS:\n")[1]?.split("\n\n")[0] || "").split("\n").filter(Boolean).map((line) => ({ step: line.replace(/^\d+\.\s*/, ""), covered: true, note: "" })) };
+    else if (schema === "nynz_coverage") value = { steps: (user.split("APPROVED PLAN STEPS:\n")[1]?.split("\n\n")[0] || "").split("\n").filter(Boolean).map((line, index) => ({ step: line.replace(/^\d+\.\s*/, ""), status: control.coverageUnclear && index === 0 ? "unclear" : "built", evidence: "src/App.tsx", note: control.coverageUnclear && index === 0 ? "toggle wiring not shown" : "" })) };
+    else if (schema === "nynz_styles") value = { files: [{ path: "src/index.css", content: heuristicCss(classesFromStylesRequest(user)) }] };
     else if (schema === "nynz_edit") {
       const repair = /Fix these production compiler errors/.test(user);
       const edits = group.map((path) => {

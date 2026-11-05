@@ -234,3 +234,187 @@ export function outlineForReview(files: SourceFile[], maxChars = 24_000) {
   }
   return lines.join("\n").slice(0, maxChars);
 }
+
+// ---------------------------------------------------------------------------
+// Styling coverage. Screens are sent to later steps as imports/exports only,
+// so a stylesheet written after them must be given the class names (and a
+// compact outline of the markup) it has to style. After generation and after
+// every edit, class names used in markup but defined nowhere are found and
+// filled with a small, targeted styles step.
+
+const CLASS_TOKEN = /^-?[_a-zA-Z][\w-]*$/;
+
+/** Class names a JSX/TSX file uses: className strings, template literals and string literals inside className expressions (cn, clsx, conditionals). */
+export function classNamesIn(content: string): string[] {
+  const found = new Set<string>();
+  const add = (text: string) => { for (const token of text.replace(/\$\{[^}]*\}/g, " ").split(/\s+/)) if (CLASS_TOKEN.test(token)) found.add(token); };
+  for (const match of content.matchAll(/className\s*=\s*"([^"]*)"|className\s*=\s*'([^']*)'/g)) add(match[1] ?? match[2] ?? "");
+  let index = 0;
+  while ((index = content.indexOf("className={", index)) >= 0) {
+    let depth = 0;
+    let end = index + "className=".length;
+    for (; end < content.length; end += 1) {
+      if (content[end] === "{") depth += 1;
+      else if (content[end] === "}" && --depth === 0) break;
+    }
+    const expression = content.slice(index + "className={".length, end);
+    // Template literals contribute their static text and any strings inside ${…}.
+    const withoutTemplates = expression.replace(/`([^`]*)`/g, (_whole, body: string) => {
+      add(body);
+      for (const inner of body.matchAll(/\$\{([^}]*)\}/g)) for (const literal of inner[1].matchAll(/"([^"]*)"|'([^']*)'/g)) add(literal[1] ?? literal[2] ?? "");
+      return " ";
+    });
+    for (const literal of withoutTemplates.matchAll(/"([^"]*)"|'([^']*)'/g)) add(literal[1] ?? literal[2] ?? "");
+    index = end;
+  }
+  return [...found];
+}
+
+/** Class selectors a stylesheet defines (comments and url() contents ignored). */
+export function cssSelectorsIn(css: string): Set<string> {
+  const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/url\([^)]*\)/g, " ");
+  return new Set([...cleaned.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)].map((match) => match[1]));
+}
+
+const markupFile = (path: string) => /\.(tsx|jsx)$/.test(path);
+
+/**
+ * Class names used in markup that no stylesheet defines. Skipped for apps
+ * that use Tailwind, where class names are utilities rather than selectors.
+ */
+export function styleGaps(files: SourceFile[], scope?: string[]) {
+  const pkg = files.find((file) => file.path === "package.json")?.content || "";
+  const css = files.filter((file) => file.path.endsWith(".css"));
+  if (/"tailwindcss"/.test(pkg) || /@tailwind\b|@import\s+["']tailwindcss/.test(css.map((file) => file.content).join("\n"))) return { missing: [] as string[], used: 0, byFile: {} as Record<string, string[]>, skipped: "tailwind" as const };
+  const defined = cssSelectorsIn(css.map((file) => file.content).join("\n"));
+  const byFile: Record<string, string[]> = {};
+  const used = new Set<string>();
+  for (const file of files.filter((item) => markupFile(item.path) && (!scope || scope.includes(item.path)))) {
+    const names = classNamesIn(file.content);
+    names.forEach((name) => used.add(name));
+    const missing = names.filter((name) => !defined.has(name));
+    if (missing.length) byFile[file.path] = missing;
+  }
+  const missing = [...new Set(Object.values(byFile).flat())];
+  return { missing, used: used.size, byFile, skipped: null };
+}
+
+/** Whether the gaps are big enough to need a styles step (a few unstyled hooks are normal). */
+export function needsStyles(gaps: ReturnType<typeof styleGaps>, scoped = false) {
+  // For an edit, any new unstyled markup in the changed files needs styles.
+  if (scoped) return gaps.missing.length >= 2;
+  return gaps.missing.length >= 3 && gaps.missing.length >= Math.ceil(gaps.used * 0.1);
+}
+
+/** Compact outline of the markup: one line per element that carries a className. */
+export function markupOutline(files: SourceFile[], options: { only?: Set<string>; maxPerFile?: number; maxChars?: number } = {}) {
+  const lines: string[] = [];
+  for (const file of files.filter((item) => markupFile(item.path))) {
+    const rows: string[] = [];
+    for (const match of file.content.matchAll(/<([A-Za-z][\w.]*)\b[^<>]*?className\s*=\s*("[^"]*"|'[^']*'|\{[^<>]*?\})/g)) {
+      const names = classNamesIn(`className=${match[2]}`);
+      if (!names.length || (options.only && !names.some((name) => options.only!.has(name)))) continue;
+      rows.push(`<${match[1]} class="${names.join(" ")}">`);
+      if (rows.length >= (options.maxPerFile ?? 70)) break;
+    }
+    if (rows.length) lines.push(`--- ${file.path}\n${rows.join("\n")}`);
+  }
+  return lines.join("\n").slice(0, options.maxChars ?? 22_000);
+}
+
+/** Context for a step that writes a stylesheet after screens exist. */
+export function styleContext(files: SourceFile[], maxChars = 26_000) {
+  const screens = files.filter((file) => markupFile(file.path));
+  if (!screens.length) return "";
+  const inventory = screens.map((file) => { const names = classNamesIn(file.content); return names.length ? `${file.path}: ${names.join(" ")}` : ""; }).filter(Boolean).join("\n");
+  return `CLASS NAMES THE SCREENS USE (the stylesheet must style every one of these; do not invent different names):\n${inventory}\n\nMARKUP OUTLINE (element and classes, in order):\n${markupOutline(screens, { maxChars: Math.max(4_000, maxChars - inventory.length) })}`.slice(0, maxChars);
+}
+
+/** Keeps only complete CSS rules from a response that may have been cut off. */
+export function completeCss(css: string) {
+  let depth = 0;
+  let lastComplete = 0;
+  for (let i = 0; i < css.length; i += 1) {
+    if (css[i] === "{") depth += 1;
+    else if (css[i] === "}") { depth -= 1; if (depth === 0) lastComplete = i + 1; }
+  }
+  return css.slice(0, lastComplete).trim();
+}
+
+// ---------------------------------------------------------------------------
+// Plan coverage evidence: for each approved step, the files most likely to
+// implement it (changed files first, then files sharing its words), sent as
+// source excerpts rather than an outline, so features built from data (for
+// example labels in arrays or options) are visible to the checker.
+
+const STOP = new Set(["with", "that", "this", "from", "have", "each", "their", "they", "them", "when", "also", "into", "every", "only", "both", "plus", "about", "which", "while", "after", "before", "stays", "shows", "show", "page", "user", "users", "can", "and", "the", "for", "are", "all"]);
+function words(text: string) { return [...new Set(text.toLowerCase().match(/[a-z][a-z-]{3,}/g) || [])].filter((word) => !STOP.has(word)); }
+
+/**
+ * Focused excerpt of a long file: its opening (imports, types, constants) and
+ * every line that matches a plan word or carries visible text (JSX text,
+ * labels, placeholders, option and string arrays), in source order.
+ */
+function excerpt(content: string, terms: string[], max: number) {
+  const lines = content.split("\n");
+  // Rank lines: controls and visible labels first, then visible text, then plan words, then the file's opening.
+  const score = (line: string, i: number) => {
+    const lower = line.toLowerCase();
+    let value = 0;
+    if (/<(button|option|select|label|h[1-4]|th|input|textarea)\b|aria-label=|placeholder=/.test(line)) value += 4;
+    if (/["'`][A-Z][^"'`]{5,}["'`]/.test(line) || />[^<>{}]{3,}</.test(line) || /\[\s*["'][^"']{3,}["']\s*,/.test(line)) value += 2;
+    value += Math.min(3, terms.filter((term) => lower.includes(term)).length);
+    if (i < 20) value += 1;
+    return value;
+  };
+  const ranked = lines.map((line, i) => ({ i, line: line.trimEnd(), value: score(line, i) })).filter((item) => item.value > 0 && item.line.trim()).sort((a, b) => b.value - a.value || a.i - b.i);
+  const keep: typeof ranked = [];
+  let used = 0;
+  for (const item of ranked) { if (used + item.line.length + 1 > max) continue; keep.push(item); used += item.line.length + 1; }
+  keep.sort((a, b) => a.i - b.i);
+  const out: string[] = [];
+  let previous = -1;
+  for (const item of keep) { if (item.i !== previous + 1) out.push("…"); out.push(item.line); previous = item.i; }
+  return out.join("\n");
+}
+
+export function coverageEvidence(input: { steps: string[]; files: SourceFile[]; changed?: string[]; maxChars?: number }) {
+  const max = input.maxChars ?? 48_000;
+  const source = input.files.filter((file) => /\.(tsx?|jsx?)$/.test(file.path) && !file.path.endsWith(".d.ts") && !/(^|\/)(main|vite-env)\./.test(file.path));
+  const changed = new Set(input.changed || []);
+  const chosen = new Map<string, number>();
+  for (const step of input.steps) {
+    const terms = words(step);
+    const ranked = source.map((file) => {
+      const text = `${file.path} ${file.content}`.toLowerCase();
+      const score = terms.reduce((sum, term) => sum + Math.min(5, text.split(term).length - 1), 0) + (changed.has(file.path) ? 6 : 0);
+      return { path: file.path, score };
+    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+    for (const item of ranked) chosen.set(item.path, Math.max(chosen.get(item.path) || 0, item.score));
+  }
+  const ordered = [...chosen].sort((a, b) => b[1] - a[1]).map(([path]) => source.find((file) => file.path === path)!);
+  const perFile = Math.max(3_000, Math.floor(max / Math.max(1, ordered.length)));
+  const allTerms = words(input.steps.join(" "));
+  const parts = ordered.map((file) => `--- ${file.path}${changed.has(file.path) ? " (changed in this build)" : ""}\n${file.content.length > perFile ? excerpt(file.content, allTerms, perFile) : file.content}`);
+  const others = source.filter((file) => !chosen.has(file.path)).map((file) => file.path);
+  return `${parts.join("\n\n")}${others.length ? `\n\nOTHER FILES (not shown): ${others.join(", ")}` : ""}`.slice(0, max);
+}
+
+/**
+ * The assistant message after a build. "Not built yet" is used only for
+ * features known to be missing; anything the check could not verify is listed
+ * as "Couldn't confirm" so customers are not told working features are absent.
+ */
+export function buildReply(message: string, mode: string, coverage: { missing?: string[]; unconfirmed?: string[] } = {}) {
+  const missing = coverage.missing || [];
+  const unconfirmed = coverage.unconfirmed || [];
+  if (missing.length || unconfirmed.length) {
+    const base = message.trim() || "Your application is ready and running in the preview.";
+    const parts = [base];
+    if (missing.length) parts.push(`Not built yet (from the approved plan):\n${missing.map((item) => `- ${item}`).join("\n")}\n\nAsk NYNZ to add these and it will build them on top of this version.`);
+    if (unconfirmed.length) parts.push(`Couldn't confirm automatically (please check these in the preview):\n${unconfirmed.map((item) => `- ${item}`).join("\n")}`);
+    return parts.join("\n\n");
+  }
+  const base = message.trim() || (mode === "edit" ? "Your requested changes are now live." : "Your application is ready and running in the preview.");
+  return /\?\s*$/.test(base) ? base : `${base}\n\nWhat would you like to change, add, or improve next?`;
+}
