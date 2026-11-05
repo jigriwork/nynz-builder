@@ -3,7 +3,7 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
-## 0.5.0: preview billing sessions and the revised trial
+## 0.5.0: preview billing sessions and the revised trial (deployed 2026-11-05 at 557df2e; switchover 17:10:59 UTC)
 
 - One billing session per sandbox: the build's sandbox and its later preview are the same runtime and are charged once. The first 600 s are held when the sandbox is created; every preview or terminal visit tops up the hold before runtime is extended (refused if the account cannot cover it); the actual running time is charged once when the sandbox stops (shutdown record, provider pause time, or NYNZ's visit record) and the rest of the hold is released. A visit after a pause opens a new segment. Duplicate visits and settlements do not double-charge. Missing evidence is charged as a labelled estimate and later reconciled with refunds only. Replaces the fixed 10-minute clock windows and the separate 600 s build-sandbox charge.
 - Recorded sessions replayed: Saffron Loom 15 → 4 credits (904 s), Kesari Threads 15 + 15 → 5 + 5 (936 s, 1,059 s), StudioMark 15 → 6 (1,206 s).
