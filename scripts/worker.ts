@@ -11,14 +11,14 @@ import { getPreviewOrigin } from "../lib/preview/session";
 import { removePreviewDomain } from "../lib/preview/registration";
 import { redact } from "../lib/platform/redact";
 import { planApplication, reviewCoverage } from "../lib/platform/openrouter";
-import { StepFailedError, appNameFrom, completionMessage, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, type ProjectBrief } from "../lib/platform/build-engine";
+import { StepFailedError, appNameFrom, completionMessage, pathsInMessage, briefContext, deterministicCoverage, estimateBuildCredits, missingLocalAssetReferences, type ProjectBrief } from "../lib/platform/build-engine";
 import { RESERVE } from "../lib/billing/entitlements";
 import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
 import { e2bSandboxInfo, reconcileEstimatedSessions, settleSandboxSessions } from "../lib/billing/sessions";
 import { listProjectAssets } from "../lib/platform/project-assets";
-import { assetReferenceContext } from "../lib/platform/asset-context";
+import { assetReferenceContext, extractPdfImageAssets, type ProjectAsset } from "../lib/platform/asset-context";
 import { paisePerCredit, sandboxPaisePerSecond } from "../lib/billing/pricing";
 import { readFileSync } from "node:fs";
 import { watchBuild } from "../lib/platform/build-control";
@@ -124,12 +124,19 @@ async function assertNotCancelled(job: Job) {
 }
 
 async function projectAssets(projectId: string) {
-  const names = (await listProjectAssets(db, projectId)).map((item) => item.name);
-  return Promise.all(names.map(async (name) => {
+  const stored = await listProjectAssets(db, projectId);
+  const assets: ProjectAsset[] = await Promise.all(stored.map(async ({ name }) => {
     const { data: file, error } = await db.storage.from("project-assets").download(`${projectId}/${name}`);
     if (error || !file) throw error || new Error(`Could not download asset ${name}`);
     return { name, data: await file.arrayBuffer() };
   }));
+  const used = stored.reduce((sum, item) => sum + item.size, 0);
+  const derived = await extractPdfImageAssets(assets, { maxBytes: Math.max(0, 50 * 1024 * 1024 - used), maxImages: 60 });
+  for (const asset of derived) {
+    const { error } = await db.storage.from("project-assets").upload(`${projectId}/${asset.name}`, asset.data, { contentType: "image/webp", upsert: false });
+    if (error && !/already exists|duplicate/i.test(error.message)) throw error;
+  }
+  return [...assets, ...derived];
 }
 
 /** Replaces the build's staged file set. Never touches canonical project files. */
@@ -342,7 +349,24 @@ async function processJob(job: Job) {
           meter.setStep("Checking the result against the approved plan");
           await progress(job, "Checking the result against the approved plan", "generating", 64);
           try {
-            const review = await reviewCoverage({ steps, files: working, changed: job.mode === "edit" ? output.result.files.map((file) => file.path) : undefined, request: job.request || undefined, ...hooks });
+            let review = await reviewCoverage({ steps, files: working, changed: job.mode === "edit" ? output.result.files.map((file) => file.path) : undefined, request: job.request || undefined, ...hooks });
+            if (review.missing.length) {
+              await progress(job, "Repairing requirements the plan check found missing", "generating", 65);
+              meter.setStep("Repairing missing approved requirements");
+              const named = pathsInMessage(review.missing.join("\n"), working);
+              const targets = (named.length ? named : output.result.files.map((file) => file.path)).slice(0, 8);
+              const repair = await generateApplication({
+                prompt: `The automatic plan check found these approved requirements clearly missing. Implement them now, using the smallest necessary changes. Preserve everything already working. Do not merely describe the fix.\n\n${review.missing.map((item) => `- ${item}`).join("\n")}`,
+                files: working, references, mode: "edit", targets, ...hooks,
+              });
+              const repaired = new Map(working.map((file) => [file.path, file.content]));
+              repair.result.files.forEach((file) => repaired.set(file.path, file.content));
+              working = [...repaired].map(([path, content]) => ({ path, content }));
+              const changed = new Map(output.result.files.map((file) => [file.path, file.content]));
+              repair.result.files.forEach((file) => changed.set(file.path, file.content));
+              output.result.files = [...changed].map(([path, content]) => ({ path, content }));
+              review = await reviewCoverage({ steps, files: working, changed: output.result.files.map((file) => file.path), request: job.request || undefined, ...hooks });
+            }
             missing = [...missing, ...review.missing];
             unconfirmed = [...unconfirmed, ...review.unconfirmed];
           } catch (error) {
@@ -351,9 +375,28 @@ async function processJob(job: Job) {
             unconfirmed.push("The automatic check against the approved plan could not run");
           }
         }
+        let brokenImages = missingLocalAssetReferences(working, assets.map((asset) => asset.name));
+        if (brokenImages.length) {
+          await progress(job, "Repairing missing image references", "generating", 65);
+          meter.setStep("Repairing missing image references");
+          const available = assets.filter((asset) => /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(asset.name)).map((asset) => `/uploads/${asset.name}`);
+          const repair = await generateApplication({
+            prompt: `Fix the broken local image references listed below. They point to files that do not exist. Use only exact available /uploads paths, an existing external URL, or a graceful non-image fallback. Do not invent another local path. Preserve every other working feature.\n\nBROKEN REFERENCES:\n${brokenImages.map((item) => `- ${item.file}: ${item.reference}`).join("\n")}\n\nAVAILABLE UPLOADED IMAGES:\n${available.join("\n") || "None"}`,
+            files: working, references, mode: "edit", targets: [...new Set(brokenImages.map((item) => item.file))], ...hooks,
+          });
+          const repaired = new Map(working.map((file) => [file.path, file.content]));
+          repair.result.files.forEach((file) => repaired.set(file.path, file.content));
+          working = [...repaired].map(([path, content]) => ({ path, content }));
+          const changed = new Map(output.result.files.map((file) => [file.path, file.content]));
+          repair.result.files.forEach((file) => changed.set(file.path, file.content));
+          output.result.files = [...changed].map(([path, content]) => ({ path, content }));
+          brokenImages = missingLocalAssetReferences(working, assets.map((asset) => asset.name));
+        }
+        if (brokenImages.length) missing.push(...brokenImages.map((item) => `${item.file} references missing image ${item.reference}`));
         await stageFiles(job, working, true);
-        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan, coverage: { missing, unconfirmed, checked_at: new Date().toISOString() } }, generation_complete: true }).eq("id", job.id).eq("locked_by", lockOwner);
+        await db.from("build_jobs").update({ plan: { ...job.plan, ...output.result.plan, coverage: { missing, unconfirmed, checked_at: new Date().toISOString() } }, generation_complete: brokenImages.length === 0 }).eq("id", job.id).eq("locked_by", lockOwner);
         job.plan = { ...job.plan, coverage: { missing, unconfirmed } };
+        if (brokenImages.length) throw new StepFailedError({ paths: [...new Set(brokenImages.map((item) => item.file))], reason: "generated code still referenced image files that do not exist", label: "Image references" });
       }
     } else {
       await db.rpc("begin_build_generation", { p_build: job.id, p_lock_owner: lockOwner });

@@ -9,7 +9,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   AlertCircle, ArrowLeft, ArrowUp, BarChart3, CheckCircle2, Code2, Coins, Database, Download, ExternalLink, Eye, FileCode2,
   FileImage, FileJson, FileText, Folder, Globe2, History, Home, LayoutGrid, LoaderCircle, Monitor, Paperclip, Pencil,
-  Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, ShoppingBag, Smartphone, Square, MessageSquareText, MessageSquare, ListChecks, Layers3, Workflow, SquareTerminal, Terminal, Users, X,
+  Palette, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings, Share2, ShoppingBag, Smartphone, Square, MessageSquareText, MessageSquare, ListChecks, Layers3, Workflow, SquareTerminal, Terminal, Users, X,
 } from "lucide-react";
 import { NynzIcon } from "@/components/nynz-brand";
 import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
@@ -143,6 +143,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [pendingAssetNames, setPendingAssetNames] = useState<string[]>([]);
   const [showProjectAssets, setShowProjectAssets] = useState(false);
   const [assetBusy, setAssetBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
   // Unsaved manual edits, keyed by path, with the hash the edit started from.
   const [dirty, setDirty] = useState<Record<string, { content: string; baseHash: string | null }>>({});
@@ -483,6 +484,21 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (response.ok) { setNotice("Preview restart queued"); refresh(); } else refuse(await response.json().catch(() => null), "Could not restart the preview");
   }
 
+  async function sharePreview() {
+    if (shareBusy || !previewSrc) return;
+    setShareBusy(true);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/preview-share`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Could not create a review link");
+      try { await navigator.clipboard.writeText(body.url); }
+      catch { window.prompt("Copy this private review link", body.url); }
+      setNotice("Private review link copied. It works for 3 hours; creating another link revokes this one.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not create a review link");
+    } finally { setShareBusy(false); }
+  }
+
   async function runTerminal(event?: FormEvent) {
     event?.preventDefault();
     const command = terminalCommand.trim();
@@ -638,6 +654,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
             {tab === "preview" && <>
               <div className="flex rounded-lg border border-white/[.07] p-0.5">{([["desktop", Monitor], ["mobile", Smartphone]] as const).map(([id, Icon]) => <button key={id} aria-label={`${id} preview`} aria-pressed={device === id} onClick={() => setDevice(id)} className={`grid h-6 w-7 place-items-center rounded-md transition ${device === id ? "bg-white/[.1] text-white" : "text-white/40 hover:text-white/75"}`}><Icon className="h-3 w-3" /></button>)}</div>
             </>}
+            {tab === "preview" && <button type="button" onClick={sharePreview} disabled={!previewSrc || shareBusy} title="Copy a private 3-hour review link" aria-label="Copy private review link" className="grid h-7 w-7 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white disabled:text-white/20">{shareBusy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}</button>}
             {tab === "preview" && (previewSrc ? <a href={`/api/projects/${project.id}/preview-session`} target="_blank" rel="noopener noreferrer" title="Open preview in a new tab" className="grid h-7 w-7 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a> : <button type="button" disabled title="Open in new tab becomes available when the preview is live" aria-label="Open preview in new tab unavailable until build completes" className="grid h-7 w-7 place-items-center rounded-lg text-white/20"><ExternalLink className="h-3.5 w-3.5" /></button>)}
             <button onClick={restart} className="group flex h-7 items-center gap-2 rounded-lg px-2 text-[10px] text-white/45 transition hover:bg-white/[.06] hover:text-white/80"><RefreshCw className="h-3.5 w-3.5 transition-transform duration-500 group-hover:rotate-180" /><span className="hidden sm:inline">Restart</span></button>
           </div>

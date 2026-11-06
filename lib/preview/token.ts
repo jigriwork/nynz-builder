@@ -17,7 +17,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export type PreviewTokenType = "x" | "s";
-export type PreviewClaims = { typ: PreviewTokenType; projectId: string; userId: string; aud: string; exp: number; jti: string; kid: string };
+export type PreviewClaims = { typ: PreviewTokenType; projectId: string; userId: string; aud: string; exp: number; jti: string; kid: string; sessionExp?: number };
 
 const CONTEXT = "nynz-preview-v2";
 export const EXCHANGE_TTL_MS = 2 * 60_000;
@@ -47,12 +47,13 @@ export function normalizeHost(host: string) {
   return host.trim().toLowerCase().replace(/\.$/, "");
 }
 
-export function issuePreviewToken(input: { typ: PreviewTokenType; projectId: string; userId: string; aud: string; now?: number }, keys: Keys = previewKeys()) {
+export function issuePreviewToken(input: { typ: PreviewTokenType; projectId: string; userId: string; aud: string; now?: number; expiresAt?: number; sessionExpiresAt?: number }, keys: Keys = previewKeys()) {
   if (!UUID.test(input.projectId) || !UUID.test(input.userId)) throw new Error("Invalid preview subject");
   const now = input.now ?? Date.now();
   const claims: PreviewClaims = {
     typ: input.typ, projectId: input.projectId.toLowerCase(), userId: input.userId.toLowerCase(), aud: normalizeHost(input.aud),
-    exp: now + (input.typ === "x" ? EXCHANGE_TTL_MS : SESSION_TTL_MS), jti: randomBytes(18).toString("base64url"), kid: keys.current.kid,
+    exp: Math.min(now + (input.typ === "x" ? EXCHANGE_TTL_MS : SESSION_TTL_MS), input.expiresAt ?? Number.POSITIVE_INFINITY), jti: randomBytes(18).toString("base64url"), kid: keys.current.kid,
+    ...(input.typ === "x" && input.sessionExpiresAt ? { sessionExp: Math.min(input.sessionExpiresAt, now + SESSION_TTL_MS) } : {}),
   };
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
   return { token: `${payload}.${sign(keys.current.secret, payload)}`, claims };
@@ -71,7 +72,7 @@ export function verifyPreviewToken(token: string, expected: { typ: PreviewTokenT
   const right = Buffer.from(sign(key.secret, payload));
   if (left.length !== right.length || !timingSafeEqual(left, right)) return { ok: false, reason: "signature" };
   if (claims.typ !== expected.typ) return { ok: false, reason: "type" };
-  if (!UUID.test(claims.projectId || "") || !UUID.test(claims.userId || "") || !Number.isFinite(claims.exp) || typeof claims.jti !== "string") return { ok: false, reason: "malformed" };
+  if (!UUID.test(claims.projectId || "") || !UUID.test(claims.userId || "") || !Number.isFinite(claims.exp) || (claims.sessionExp !== undefined && !Number.isFinite(claims.sessionExp)) || typeof claims.jti !== "string") return { ok: false, reason: "malformed" };
   if (claims.aud !== normalizeHost(expected.aud)) return { ok: false, reason: "audience" };
   return { ok: true, claims, expired: claims.exp <= (expected.now ?? Date.now()) };
 }

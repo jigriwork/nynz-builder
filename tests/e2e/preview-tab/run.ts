@@ -111,6 +111,20 @@ async function main() {
     for (let i = 0; i < 30 && !stillEmbedded; i += 1) { stillEmbedded = await served(frame.locator("body").innerText({ timeout: 2000 })); if (!stillEmbedded) await ownerPage.waitForTimeout(1000); }
     check("the same project works in both views at once (embedded preview after the new tab)", stillEmbedded && await served(tab.locator("body").innerText()));
 
+    // Explicit reviewer links are reusable bearer links. Creating a new one
+    // revokes the previous link; ordinary preview URLs remain private.
+    const firstShare = await ownerPage.evaluate(async (project) => { const r = await fetch(`/api/projects/${project}/preview-share`, { method: "POST" }); return { status: r.status, ...(await r.json()) }; }, projectId) as { status: number; url: string };
+    const secondShare = await ownerPage.evaluate(async (project) => { const r = await fetch(`/api/projects/${project}/preview-share`, { method: "POST" }); return { status: r.status, ...(await r.json()) }; }, projectId) as { status: number; url: string };
+    const reviewer = await browser.newContext();
+    const oldReview = await reviewer.newPage();
+    const oldResponse = await oldReview.goto(firstShare.url, { waitUntil: "networkidle" });
+    check("creating a new review link revokes the previous one", firstShare.status === 201 && secondShare.status === 201 && oldResponse?.status() === 410, `${firstShare.status}/${secondShare.status}/${oldResponse?.status()}`);
+    const review = await reviewer.newPage();
+    await review.goto(secondShare.url, { waitUntil: "networkidle" });
+    const reviewUrl = new URL(review.url());
+    check("a signed-out reviewer can open the explicit private review link", await served(review.locator("body").innerText()) && reviewUrl.origin === previewOrigin && !reviewUrl.searchParams.has("t"), review.url().replace(/t=[^&]+/, "t=…"));
+    await reviewer.close();
+
     // Denied: the iframe session URL without its owner session, a direct
     // preview visit, and another account.
     const connectsBefore = fake.calls.filter((c) => c.startsWith(`connect ${sandbox}`)).length;

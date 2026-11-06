@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.13: real catalogue images and private review links
+
+- Catalogue PDFs now yield compact WebP image assets before planning, including flattened page artwork. The model receives exact `/uploads` paths and may no longer claim that it exported an image that does not exist.
+- Generated code is checked for invented local image paths. NYNZ makes one focused repair attempt and refuses to promote a still-broken result instead of calling it complete.
+- The preview toolbar can copy a private three-hour reviewer link. It works without a NYNZ account, is replaced when the owner creates another link, and leaves ordinary preview-tab URLs owner-only.
+
 ## 0.5.12: keep chat follow-ups in chronological order
 
 - Sending a message now returns the conversation to its live end, even after the user has scrolled up to inspect an earlier build.

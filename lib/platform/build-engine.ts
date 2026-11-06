@@ -222,6 +222,23 @@ export function deterministicCoverage(input: { planned: string[]; files: SourceF
   };
 }
 
+const LOCAL_IMAGE_REFERENCE = /["'`](\/(?!\/)[^"'`?#\s]+\.(?:avif|gif|jpe?g|png|svg|webp))(?:[?#][^"'`]*)?["'`]/gi;
+
+/** Local image URLs in generated source must name a real uploaded asset.
+ * This catches convincing-looking but broken inventions such as
+ * /catalogue/soaps.jpg before a build can be called successful. */
+export function missingLocalAssetReferences(files: SourceFile[], assetNames: string[]) {
+  const available = new Set(assetNames.map((name) => `/uploads/${name}`));
+  const missing: Array<{ file: string; reference: string }> = [];
+  for (const file of files) {
+    for (const match of file.content.matchAll(LOCAL_IMAGE_REFERENCE)) {
+      const reference = match[1];
+      if (!available.has(reference) && !missing.some((item) => item.file === file.path && item.reference === reference)) missing.push({ file: file.path, reference });
+    }
+  }
+  return missing;
+}
+
 /** Compact outline of the generated app for the coverage review (no full source). */
 export function outlineForReview(files: SourceFile[], maxChars = 24_000) {
   const lines: string[] = [];
@@ -379,8 +396,8 @@ function excerpt(content: string, terms: string[], max: number) {
 }
 
 export function coverageEvidence(input: { steps: string[]; files: SourceFile[]; changed?: string[]; maxChars?: number }) {
-  const max = input.maxChars ?? 48_000;
-  const source = input.files.filter((file) => /\.(tsx?|jsx?)$/.test(file.path) && !file.path.endsWith(".d.ts") && !/(^|\/)(main|vite-env)\./.test(file.path));
+  const max = input.maxChars ?? 80_000;
+  const source = input.files.filter((file) => /\.(tsx?|jsx?|css|html|json)$/.test(file.path) && !file.path.endsWith(".d.ts") && !/(^|\/)(main|vite-env)\./.test(file.path));
   const changed = new Set(input.changed || []);
   const chosen = new Map<string, number>();
   for (const step of input.steps) {
@@ -392,8 +409,11 @@ export function coverageEvidence(input: { steps: string[]; files: SourceFile[]; 
     }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
     for (const item of ranked) chosen.set(item.path, Math.max(chosen.get(item.path) || 0, item.score));
   }
+  // The files this build actually changed are primary evidence even when a
+  // plan uses visual language that does not appear literally in CSS/markup.
+  for (const path of changed) if (source.some((file) => file.path === path)) chosen.set(path, Math.max(chosen.get(path) || 0, 6));
   const ordered = [...chosen].sort((a, b) => b[1] - a[1]).map(([path]) => source.find((file) => file.path === path)!);
-  const perFile = Math.max(3_000, Math.floor(max / Math.max(1, ordered.length)));
+  const perFile = Math.max(5_000, Math.floor(max / Math.max(1, ordered.length)));
   const allTerms = words(input.steps.join(" "));
   const parts = ordered.map((file) => `--- ${file.path}${changed.has(file.path) ? " (changed in this build)" : ""}\n${file.content.length > perFile ? excerpt(file.content, allTerms, perFile) : file.content}`);
   const others = source.filter((file) => !chosen.has(file.path)).map((file) => file.path);

@@ -25,9 +25,9 @@ export function previewOriginIsolated() {
 }
 
 /** Builds the one-time exchange URL that the preview proxy turns into a cookie. */
-export function createPreviewExchangeUrl(projectId: string, userId: string, nextPath = "/") {
+export function createPreviewExchangeUrl(projectId: string, userId: string, nextPath = "/", sessionExpiresAt?: number) {
   const origin = new URL(getPreviewOrigin(projectId));
-  const { token, claims } = issuePreviewToken({ typ: "x", projectId, userId, aud: origin.host });
+  const { token, claims } = issuePreviewToken({ typ: "x", projectId, userId, aud: origin.host, sessionExpiresAt });
   const url = new URL(EXCHANGE_PATH, origin);
   url.searchParams.set("t", token);
   if (nextPath !== "/") url.searchParams.set("next", nextPath);

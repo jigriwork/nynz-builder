@@ -78,7 +78,7 @@ Build a complete React, TypeScript and Vite product, not a toy, wireframe, gener
 Infer the real domain workflow, screens, navigation, data states and interactions from the brief.
 Use polished human copy, responsive layouts, accessible controls, purposeful motion and professional visual art direction.
 Every visible control must work. Use local demonstration data when a real backend was not requested.
-Use supplied assets at their exact /uploads paths. Use graceful image fallbacks.
+Use supplied assets only at their exact /uploads paths. Never invent a local image path or claim that an image was exported unless that exact path appears in the supplied asset list. Use graceful image fallbacks.
 Prefer focused components and data modules. Keep every file below 16,000 characters.
 Match architecture to the actual brief. A calculator or other single-purpose utility should normally use 7–10 files; do not split trivial UI into many tiny files. Reserve larger manifests for genuinely multi-screen products.
 Never use semantic Tailwind utilities such as bg-background, text-foreground or border-border inside @apply unless the Tailwind theme defines them. Prefer ordinary CSS for global defaults.

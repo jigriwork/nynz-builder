@@ -71,7 +71,7 @@ export async function handlePreview(request: ProxyRequest, deps: ProxyDeps): Pro
     if (hostProject && hostProject !== result.claims.projectId) return text(403, "Preview access denied");
     if (!(await deps.insertNonce(result.claims.jti, result.claims.projectId))) return text(401, "This preview link was already used. Reopen the preview from your NYNZ project.");
     if (!(await authorize(deps, result.claims.projectId, result.claims.userId))) return text(403, "Preview access denied");
-    const session = issuePreviewToken({ typ: "s", projectId: result.claims.projectId, userId: result.claims.userId, aud: host }, keys);
+    const session = issuePreviewToken({ typ: "s", projectId: result.claims.projectId, userId: result.claims.userId, aud: host, expiresAt: result.claims.sessionExp }, keys);
     return {
       status: 303,
       headers: {

@@ -36,6 +36,13 @@ describe("preview tokens", () => {
     expect(safeNextPath("/dashboard?x=1")).toBe("/dashboard?x=1");
     expect(redactPreviewUrl("https://p.nynz.in/__nynz/exchange?t=abc.def&next=/")).toBe("https://p.nynz.in/__nynz/exchange?t=[redacted]&next=/");
   });
+  it("can bind a reviewer session to a shorter link deadline", () => {
+    const now = Date.now();
+    const deadline = now + 3 * 3600_000;
+    const exchange = issuePreviewToken({ typ: "x", projectId: P1, userId: U1, aud: `${P1}.preview.nynz.in`, now, sessionExpiresAt: deadline });
+    const checked = verifyPreviewToken(exchange.token, { typ: "x", aud: `${P1}.preview.nynz.in`, now });
+    expect(checked.ok && checked.claims.sessionExp).toBe(deadline);
+  });
 });
 
 describe("preview proxy core", () => {
@@ -64,6 +71,16 @@ describe("preview proxy core", () => {
     expect(page.status).toBe(200);
     expect(String(page.body && Buffer.from(page.body as ArrayBuffer))).toBe("upstream https://5173-sbx-1111.e2b.test/app?x=1");
     expect(page.headers["content-security-policy"]).toBe("frame-ancestors https://www.nynz.in");
+  });
+
+  it("does not let a reviewer cookie outlive its share-link deadline", async () => {
+    const deadline = Date.now() + 60 * 60_000;
+    const { token } = issuePreviewToken({ typ: "x", projectId: P1, userId: U1, aud: host, sessionExpiresAt: deadline });
+    const result = await handlePreview({ method: "GET", host, url: `/__nynz/exchange?t=${token}`, headers: {} }, deps);
+    const maxAge = Number(result.headers["set-cookie"].match(/Max-Age=(\d+)/)?.[1]);
+    expect(result.status).toBe(303);
+    expect(maxAge).toBeGreaterThan(3500);
+    expect(maxAge).toBeLessThanOrEqual(3600);
   });
 
   it("rejects another project's session on this project's origin and another user's grant", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefContext, deterministicCoverage, estimateBuildCredits, estimateOutputTokens, groupForEdit, pathsInMessage, planBatches, salvageFiles, splitBatch } from "../../lib/platform/build-engine";
+import { briefContext, deterministicCoverage, estimateBuildCredits, estimateOutputTokens, groupForEdit, missingLocalAssetReferences, pathsInMessage, planBatches, salvageFiles, splitBatch } from "../../lib/platform/build-engine";
 
 // The StudioMark manifest that failed in production on 2026-11-04: batch 4
 // asked for four full screens in one 12,000-token response.
@@ -80,6 +80,11 @@ describe("coverage and targeting", () => {
   it("finds the files a compiler error names", () => {
     const files = [{ path: "src/pages/Orders.tsx", content: "" }, { path: "src/App.tsx", content: "" }];
     expect(pathsInMessage("src/pages/Orders.tsx(12,5): error TS2304: Cannot find name 'x'.", files)).toEqual(["src/pages/Orders.tsx"]);
+  });
+
+  it("rejects invented local image paths but accepts exact uploaded assets", () => {
+    const files = [{ path: "src/Home.tsx", content: `<img src="/catalogue/soap.jpg" /><img src='/uploads/real.webp' /><img src="https://images.example/x.jpg" />` }];
+    expect(missingLocalAssetReferences(files, ["real.webp"])).toEqual([{ file: "src/Home.tsx", reference: "/catalogue/soap.jpg" }]);
   });
 
   it("groups edits so each request carries bounded source", () => {
