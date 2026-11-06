@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.3: cleaner invite-only label
+
+- The signup screen's "Invite only" pill with a star icon is replaced by the plain lime uppercase label the sign-in page already uses ("NYNZ BUILDER", "CREATE YOUR WORKSPACE").
+- Account emails (invitations, password resets) now come from NYNZ <support@nynz.in> through Hostinger SMTP: `smtp.hostinger.com:465`, authenticating as hello@nynz.in, DKIM-signed for nynz.in. This is a Supabase setting, not part of the app.
+
 ## 0.5.2: invite requests reach NYNZ, and reset and invitation links finish signing in
 
 - `/api/waitlist` is now public in the middleware. Before, "Request an invite" got "Not found" in 0.5.1.

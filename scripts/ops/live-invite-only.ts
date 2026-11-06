@@ -61,8 +61,12 @@ async function nextLink(inbox: { address: string; password: string }, kind: stri
       const body = [msg.html?.join?.("") || "", msg.text || ""].join("\n").replace(/&amp;/g, "&");
       const link = (body.match(/https:\/\/[^\s"'<>]+(?:verify|confirm|callback)[^\s"'<>]*/) || [""])[0];
       const redirect = (() => { try { return new URL(link).searchParams.get("redirect_to") || ""; } catch { return ""; } })();
-      console.log(`${kind} email: from ${msg.from?.address}, subject "${msg.subject}", returns to ${redirect.replace(/\?.*$/, "")}`);
-      return { link, from: msg.from?.address as string, subject: msg.subject as string, redirect };
+      // Sender authentication as recorded by the receiving server (headers only).
+      let auth = "";
+      try { const raw = await (await fetch(`${MAILTM}${msg.downloadUrl}`, { headers: { authorization: `Bearer ${token}` } })).text(); const head = raw.split(/\r?\n\r?\n/)[0]; auth = [/spf=\w+/i, /dkim=\w+/i, /dmarc=\w+/i].map((r) => (head.match(r) || [""])[0]).filter(Boolean).join(" "); } catch { /* optional */ }
+      const from = `${msg.from?.name ? `${msg.from.name} ` : ""}<${msg.from?.address}>`;
+      console.log(`${kind} email: from ${from}, subject "${msg.subject}", returns to ${redirect.replace(/\?.*$/, "")}${auth ? `, ${auth}` : ""}`);
+      return { link, from, subject: msg.subject as string, redirect, auth };
     }
     await wait(5000);
   }

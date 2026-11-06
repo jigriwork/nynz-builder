@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
 
 /**
@@ -23,8 +23,8 @@ export function InviteOnlyPanel({ onSignIn }: { onSignIn: () => void }) {
   }
   return <div data-testid="invite-only" className="rounded-[20px] border border-white/[.06] bg-[#0b121b] p-6 sm:p-8">
     <NynzBrand className="h-7" />
-    <p className="mt-7 inline-flex items-center gap-1.5 rounded-full border border-[#c7ff4a]/25 bg-[#c7ff4a]/[.07] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.18em] text-[#c7ff4a]"><Sparkles className="h-3 w-3" /> Invite only</p>
-    <h2 className="mt-4 text-3xl font-medium tracking-[-.05em] sm:text-[2.1rem]">Thank you for wanting to join NYNZ.</h2>
+    <p className="mt-8 text-[10px] font-medium uppercase tracking-[.2em] text-[#c7ff4a]">Invite only</p>
+    <h2 className="mt-3 text-3xl font-medium tracking-[-.05em] sm:text-[2.1rem]">Thank you for wanting to join NYNZ.</h2>
     <p className="mt-3 text-sm leading-6 text-white/55">We&apos;re in a private testing phase, so new accounts are by invitation for now. Leave your email and we&apos;ll send you an invite as we open more places. We&apos;ll be onboarding soon.</p>
     {state === "done"
       ? <div role="status" className="mt-7 rounded-xl border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] p-4 text-sm leading-6 text-[#e9ffc0]"><p className="flex items-center gap-2 font-medium text-[#c7ff4a]"><Check className="h-4 w-4" /> You&apos;re on the list.</p><p className="mt-1 text-white/65">We&apos;ll email <span className="text-white/85">{email}</span> as soon as your invite is ready.</p></div>
