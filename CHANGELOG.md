@@ -3,6 +3,13 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.6: clarifying questions before planning a vague brief
+
+- For a vague brief, NYNZ asks one or two questions, only when the answer changes how the app works (where data lives, accounts or roles, payments, the core workflow), with options and a recommendation. You can pick an option, write your own answer, reply in the chat, or continue with the stated assumptions. A clear brief goes straight to the plan.
+- While questions wait, no code is written and nothing new is charged: the plan hold (5 credits) is held, and only the planning request is charged (about 2 credits). Answering costs one more planning request; continuing with the assumptions costs nothing more.
+- Answers or accepted assumptions are saved with the request and kept in the project brief on approval, and the plan card shows them before approval.
+- Plan and question cards follow NYNZ's message that introduces them.
+
 ## 0.5.5: builder chat shows progress, what was verified and activity
 
 - Each build gets one ordered progress list in the chat, built from saved events: plan approved, files written (one line), plan review, install, compile (with repairs), preview starting and live. It stays the same after a refresh. Stop, failure (what stopped, where, what is saved) and Resume (files reused) are explained.
