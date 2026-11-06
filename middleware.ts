@@ -28,6 +28,13 @@ export async function middleware(request: NextRequest) {
   });
   const { data: { user } } = await supabase.auth.getUser();
   const protectedPage = PROTECTED_PAGES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  // "Open in new tab" for a preview is a page navigation: send signed-out visitors to sign in.
+  const previewTab = request.method === "GET" && path.match(/^\/api\/projects\/([0-9a-f-]{36})\/preview-session$/i);
+  if (previewTab && !user) {
+    // The host the browser used (it is only this visitor's own redirect).
+    const origin = `${request.nextUrl.protocol}//${request.headers.get("host") || request.nextUrl.host}`;
+    return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(`/projects/${previewTab[1]}`)}`, origin), 303);
+  }
   if (path.startsWith("/api/") && !user) return NextResponse.json({ error: "Authentication required", code: "AUTH_REQUIRED" }, { status: 401 });
   if (!user && protectedPage) return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(path)}`, request.url));
   if (user && protectedPage) {

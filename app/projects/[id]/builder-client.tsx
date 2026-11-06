@@ -235,6 +235,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       .then(async (response) => {
         const body = await response.json().catch(() => ({ error: "The live preview service returned an invalid response" }));
         if (!response.ok) throw new Error(body.error || "Could not authorize preview");
+        // This one-time link is used by the embedded preview only. "Open in new
+        // tab" asks the app for its own link, so the tab gets its own session.
         if (current) setPreviewSrc(body.url);
       })
       .catch((error) => { if (current) setNotice(error instanceof Error ? error.message : "Could not authorize preview"); });
@@ -570,7 +572,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
             {tab === "preview" && <>
               <div className="flex rounded-lg border border-white/[.07] p-0.5">{([["desktop", Monitor], ["mobile", Smartphone]] as const).map(([id, Icon]) => <button key={id} aria-label={`${id} preview`} aria-pressed={device === id} onClick={() => setDevice(id)} className={`grid h-6 w-7 place-items-center rounded-md transition ${device === id ? "bg-white/[.1] text-white" : "text-white/40 hover:text-white/75"}`}><Icon className="h-3 w-3" /></button>)}</div>
             </>}
-            {tab === "preview" && (previewSrc ? <a href={previewSrc} target="_blank" rel="noreferrer" title="Open preview in a new tab" className="grid h-7 w-7 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a> : <button type="button" disabled title="Open in new tab becomes available when the preview is live" aria-label="Open preview in new tab unavailable until build completes" className="grid h-7 w-7 place-items-center rounded-lg text-white/20"><ExternalLink className="h-3.5 w-3.5" /></button>)}
+            {tab === "preview" && (previewSrc ? <a href={`/api/projects/${project.id}/preview-session`} target="_blank" rel="noopener noreferrer" title="Open preview in a new tab" className="grid h-7 w-7 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white" aria-label="Open preview in new tab"><ExternalLink className="h-3.5 w-3.5" /></a> : <button type="button" disabled title="Open in new tab becomes available when the preview is live" aria-label="Open preview in new tab unavailable until build completes" className="grid h-7 w-7 place-items-center rounded-lg text-white/20"><ExternalLink className="h-3.5 w-3.5" /></button>)}
             <button onClick={restart} className="group flex h-7 items-center gap-2 rounded-lg px-2 text-[10px] text-white/45 transition hover:bg-white/[.06] hover:text-white/80"><RefreshCw className="h-3.5 w-3.5 transition-transform duration-500 group-hover:rotate-180" /><span className="hidden sm:inline">Restart</span></button>
           </div>
         </div>

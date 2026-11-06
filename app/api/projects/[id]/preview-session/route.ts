@@ -11,19 +11,27 @@ import { prepareProjectPreview } from "@/lib/preview/registration";
  * Issues a one-time, host-bound exchange URL for the project's isolated preview
  * origin. The preview host swaps it for an HttpOnly cookie and redirects to a
  * clean URL, so no long-lived credential remains in the address bar, history
- * or logs. GET is used when an expired preview tab renews through the app.
+ * or logs. GET is a top-level navigation: the builder's "Open in new tab"
+ * button and an expired preview tab renewing through the app. Each GET issues
+ * a fresh link for that tab only, after the same ownership checks; anything
+ * else ends on a NYNZ page instead of a JSON error.
  */
 async function issueSession(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // Relative, so the browser stays on the address it used for NYNZ.
+  const page = (path: string) => new Response(null, { status: 303, headers: { location: path, "cache-control": "private, no-store" } });
   const auth = await requireProject(id);
-  if ("error" in auth) return auth.error;
+  if ("error" in auth) {
+    if (request.method !== "GET") return auth.error!;
+    return page(auth.error?.status === 401 ? `/login?next=${encodeURIComponent(`/projects/${id}`)}` : `/projects/${encodeURIComponent(id)}`);
+  }
   const limited = await rateLimit(`preview:${auth.user.id}`, 60, 60);
   if (limited) return limited;
   try {
     await prepareProjectPreview(createAdmin(), id, auth.user.id);
     const { data, error } = await createAdmin().rpc("authorize_sandbox_access", { p_project: id, p_user: auth.user.id });
     if (error) return apiError("SERVICE_UNAVAILABLE", "The live preview service is temporarily unavailable.", { cause: error, scope: "preview-session" });
-    if (!Array.isArray(data) || !data.length) return apiError("CONFLICT", "Preview is not ready");
+    if (!Array.isArray(data) || !data.length) return request.method === "GET" ? page(`/projects/${encodeURIComponent(id)}`) : apiError("CONFLICT", "Preview is not ready");
     const next = request.method === "GET" ? safeNextPath(new URL(request.url).searchParams.get("next")) : "/";
     const exchange = createPreviewExchangeUrl(id, auth.user.id, next);
     const headers = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
