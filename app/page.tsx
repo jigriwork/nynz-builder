@@ -108,7 +108,7 @@ export default function HomePage() {
         </nav>
         <div className="flex items-center gap-2">
           <Link href="/login" className="hidden rounded-full px-4 py-2 text-[14px] font-medium text-[#e7ecf3] transition hover:text-[#c7ff4a] sm:inline-flex">Sign in</Link>
-          <Link href="/login" className="group inline-flex items-center gap-2 rounded-full bg-[#f4f1e8] px-4 py-2 text-[13px] font-medium text-[#071019] transition hover:bg-white">Start building <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></Link>
+          <Link href="/login" className="group inline-flex items-center gap-2 rounded-full bg-[#c7ff4a] px-4 py-2 text-[13px] font-semibold text-[#071019] shadow-[0_6px_24px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72]">Start building <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></Link>
         </div>
       </div>
     </header>

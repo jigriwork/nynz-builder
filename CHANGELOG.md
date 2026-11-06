@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.4: preview "Open in new tab", readable text, lime "Start building"
+
+- "Open in new tab" in the builder opens the private preview for its owner. It used to reuse the embedded preview's one-time link, which was already used, and showed "Open this preview from NYNZ". The button now asks NYNZ for a fresh link after checking ownership; signed-out visitors are sent to sign in and other accounts get a not-found page.
+- Readable navigation and secondary text across NYNZ: brighter, larger navigation and header links; graded greys for faint, muted, secondary and strong text instead of one muted grey; hover colours work again.
+- The landing header's "Start building" button is NYNZ lime, like the other main actions.
+
 ## 0.5.3: cleaner invite-only label
 
 - The signup screen's "Invite only" pill with a star icon is replaced by the plain lime uppercase label the sign-in page already uses ("NYNZ BUILDER", "CREATE YOUR WORKSPACE").
