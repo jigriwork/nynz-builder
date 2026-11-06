@@ -139,7 +139,7 @@ async function main() {
     await page.getByRole("button", { name: "View activity" }).first().click();
     await page.waitForTimeout(400);
     const details = (await page.getByTestId("activity-details").innerText()).replace(/\s+/g, " ");
-    check("normal build: View activity lists files, checks and credits by step (total 13)", /Workspace\.tsx/.test(details) && /Passed: Compiled and type-checked/.test(details) && /Total 13/.test(details), details.slice(0, 160));
+    check("normal build: View activity lists files, checks and credits by step (total 13)", /Workspace\.tsx/.test(details) && /Passed: Compiled and type-checked/.test(details) && /Total for this build 13 credits/.test(details) && /Preview time after the build is charged separately/.test(details), details.slice(0, 160));
     await toBottom();
     await page.screenshot({ path: `${OUT}/chat-2-normal-activity.png` });
     const before = await chatText(page);

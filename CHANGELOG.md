@@ -3,6 +3,13 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.5: builder chat shows progress, what was verified and activity
+
+- Each build gets one ordered progress list in the chat, built from saved events: plan approved, files written (one line), plan review, install, compile (with repairs), preview starting and live. It stays the same after a refresh. Stop, failure (what stopped, where, what is saved) and Resume (files reused) are explained.
+- "What I verified" under the completion reply keeps compilation, a responding preview and the AI code review apart. It says "Not tested in a browser yet" unless a browser test is recorded.
+- "View activity" (collapsed): files written or changed, checks run and the credits charged to the build, with a note that preview time is charged separately.
+- The plan card shows "What I understood" from the saved request, plan and brief.
+
 ## 0.5.4: preview "Open in new tab", readable text, lime "Start building"
 
 - "Open in new tab" in the builder opens the private preview for its owner. It used to reuse the embedded preview's one-time link, which was already used, and showed "Open this preview from NYNZ". The button now asks NYNZ for a fresh link after checking ownership; signed-out visitors are sent to sign in and other accounts get a not-found page.
