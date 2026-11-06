@@ -44,6 +44,15 @@ async function submit(page: Page, brief: string) {
   await page.waitForURL(/\/projects\/[0-9a-f-]{36}/, { timeout: 90_000 });
   return page.url().match(/projects\/([0-9a-f-]{36})/)![1];
 }
+const ledger = async (buildId: string) => {
+  const { data } = await admin.from("credit_ledger").select("entry_type,amount,metadata").eq("build_id", buildId).order("id");
+  const held = (data || []).filter((r) => r.entry_type === "reserve").reduce((s, r) => s + Number(r.metadata?.held || 0), 0);
+  const used = (data || []).filter((r) => r.entry_type === "consume").reduce((s, r) => s - Number(r.amount), 0);
+  const steps = (data || []).filter((r) => r.entry_type === "consume").map((r) => `${r.metadata?.step || "?"} ${-r.amount}`);
+  return { held, used, steps };
+};
+const generationCalls = async (since: number) => ((await (await fetch(`${FAKE}/__log`)).json()) as Array<{ schema: string }>).slice(since).filter((l) => ["nynz_files", "nynz_edit", "nynz_styles"].includes(l.schema)).length;
+const logSize = async () => ((await (await fetch(`${FAKE}/__log`)).json()) as unknown[]).length;
 const job = async (projectId: string) => (await admin.from("build_jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).single()).data;
 
 async function main() {
@@ -78,9 +87,26 @@ async function main() {
     check("vague brief: NYNZ asks two questions that change how the app works, with options and a recommendation, before any code", /Two quick choices before I plan/.test(asked) && /only in this browser, or shared/.test(asked) && /different permissions/.test(asked) && /recommended/i.test(asked) && (await job(p1)).plan.approval === "questions");
     check("the questions say no code was written and list the assumptions if you continue", /No code has been written/.test(asked) && /If you continue, I'll assume/.test(asked));
     await page.screenshot({ path: `${OUT}/clarify-1-questions.png` });
+    // Waiting for answers cannot start generation.
+    const waiting = await job(p1);
+    const mark = await logSize();
+    const approve = await page.request.patch(`${APP}/api/projects/${p1}/builds`, { data: { action: "approve", buildId: waiting.id, revision: waiting.plan.revision, summary: waiting.plan.summary, steps: waiting.plan.steps } });
+    const another = await page.request.post(`${APP}/api/projects/${p1}/builds`, { data: { prompt: "Build something else", mode: "create", idempotencyKey: randomUUID() } });
+    await wait(8000);
+    const still = await job(p1);
+    check("while questions wait: approving is refused, another request is refused, nothing is generated", approve.status() === 409 && another.status() === 409 && still.status === "planning" && still.plan.approval === "questions" && !still.locked_by && (await generationCalls(mark)) === 0,
+      `approve ${approve.status()}, new request ${another.status()}, status ${still.status}`);
+    const waitCredits = await ledger(waiting.id);
+    check("while questions wait, credits: the plan hold is held, only the planning request was charged", waitCredits.held === 5 && waitCredits.steps.length === 1 && /Planning the build/.test(waitCredits.steps[0]), `held ${waitCredits.held}, charged ${waitCredits.used} (${waitCredits.steps.join("; ")})`);
+    await page.reload({ waitUntil: "networkidle" });
+    check("the questions are still there after a refresh", await page.getByTestId("clarify-card").isVisible());
     await card.getByRole("button", { name: /Shared between devices/ }).click();
     await card.getByLabel("Your own answer to question 2").fill("Me and one staff member who can only add orders");
+    const beforeAnswer = (await planCalls()).length;
+    // A duplicate answer arriving at the same time as the click.
+    const dup = page.request.patch(`${APP}/api/projects/${p1}/builds`, { data: { action: "answer", buildId: waiting.id, revision: waiting.plan.revision, answers: [{ id: "data", answer: "Shared between devices" }, { id: "people", answer: "Me and one staff member who can only add orders" }] } });
     await card.getByRole("button", { name: "Use my answers" }).click();
+    const dupStatus = (await dup).status();
     const review = page.getByLabel("Review build plan");
     await review.waitFor({ timeout: 120_000 });
     const understood = (await page.getByTestId("what-i-understood").innerText()).replace(/\s+/g, " ");
@@ -88,6 +114,12 @@ async function main() {
     const j1 = await job(p1);
     const calls1 = (await planCalls()).slice(before1);
     check("the answers were used to plan again, marked final so NYNZ does not ask twice", calls1.length === 2 && /Shared between devices/.test(calls1[1].body) && /DECISIONS ARE FINAL/.test(calls1[1].body) && j1.plan.approval === "awaiting" && j1.plan.decisions?.length === 2);
+    const { count: jobs1 } = await admin.from("build_jobs").select("id", { count: "exact", head: true }).eq("project_id", p1);
+    check("a duplicate answer sent at the same moment makes one plan: one job, one extra planning request", jobs1 === 1 && (await planCalls()).length - beforeAnswer === 1 && (dupStatus === 202 || dupStatus === 409), `duplicate answered ${dupStatus}; ${jobs1} job`);
+    const answeredCredits = await ledger(j1.id);
+    check("answering costs one more planning request; nothing else is charged before approval", answeredCredits.steps.length === 2 && answeredCredits.steps.every((x) => /Planning the build/.test(x)), `charged ${answeredCredits.used} (${answeredCredits.steps.join("; ")}), held ${answeredCredits.held}`);
+    await page.reload({ waitUntil: "networkidle" });
+    check("the decisions are still on the plan after a refresh", /Shared between devices/.test(await page.getByTestId("what-i-understood").innerText()));
     await page.screenshot({ path: `${OUT}/clarify-2-plan-with-decisions.png` });
     await review.getByRole("button", { name: "Approve and build" }).click();
     const brief = await until("the saved brief", async () => { const { data: p } = await admin.from("projects").select("brief").eq("id", p1).single(); return p?.brief?.original ? p.brief : null; }, 60_000);
@@ -105,9 +137,43 @@ async function main() {
     const j2 = await job(p2);
     check("continuing shows the plan with the assumptions labelled as yours to check", /Assumptions I made \(you chose to continue with them\)/.test(understood2) && /only in this browser/.test(understood2) && !/Your decisions/.test(understood2), understood2.slice(0, 220));
     check("continuing needs no second planning request, and the assumptions are saved with the request", (await planCalls()).length - before2 === 1 && /ASSUMPTIONS ACCEPTED/.test(j2.request) && j2.plan.assumptions?.length === 2);
+    const assumedCredits = await ledger(j2.id);
+    check("continuing with assumptions costs nothing more than the first planning request", assumedCredits.steps.length === 1, `charged ${assumedCredits.used} (${assumedCredits.steps.join("; ")}), held ${assumedCredits.held}`);
     await page.screenshot({ path: `${OUT}/clarify-3-plan-with-assumptions.png` });
     await page.getByLabel("Review build plan").getByRole("button", { name: "Cancel" }).click();
     await until("the plan to be cancelled", async () => (await job(p2)).status === "cancelled", 30_000);
+
+    // 2b. A typed reply in the chat answers the questions.
+    page = await signedIn("reply");
+    const before3 = (await planCalls()).length;
+    const p4 = await submit(page, VAGUE);
+    await page.getByTestId("clarify-card").waitFor({ timeout: 120_000 });
+    const composer = page.getByPlaceholder(/Describe your app|Ask for a change/);
+    await composer.fill("Keep it in this browser, and it's just me."); await composer.press("End"); await composer.pressSequentially(" ");
+    await composer.press("Enter");
+    await page.getByLabel("Review build plan").waitFor({ timeout: 120_000 });
+    const j4 = await job(p4);
+    const understood4 = (await page.getByTestId("what-i-understood").innerText()).replace(/\s+/g, " ");
+    check("a typed reply answers the questions and gives one plan with the reply as the decision", (await planCalls()).length - before3 === 2 && j4.plan.approval === "awaiting" && j4.plan.decisions?.[0]?.answer.startsWith("Keep it in this browser") && /Keep it in this browser/.test(understood4), understood4.slice(0, 200));
+    await page.reload({ waitUntil: "networkidle" });
+    check("the typed decision survives a refresh", /Keep it in this browser/.test(await page.getByTestId("what-i-understood").innerText()));
+    await page.getByLabel("Review build plan").getByRole("button", { name: "Approve and build" }).click();
+    const brief4 = await until("the saved brief", async () => { const { data: p } = await admin.from("projects").select("brief").eq("id", p4).single(); return p?.brief?.original ? p.brief : null; }, 60_000);
+    check("on approval the typed decision is saved in the project brief", /Keep it in this browser/.test(brief4.original) && /DECISIONS ARE FINAL/.test(brief4.original));
+    await admin.from("build_jobs").update({ cancel_requested_at: new Date().toISOString() }).eq("id", j4.id);
+
+    // Duplicate submissions of the same request create one job and one plan hold.
+    page = await signedIn("duplicate");
+    const proj = (await page.request.post(`${APP}/api/projects`, { data: { name: "Duplicate check" } }).then((r) => r.json())).project?.id as string;
+    const key = randomUUID();
+    const sends = await Promise.all(Array.from({ length: 3 }, () => page.request.post(`${APP}/api/projects/${proj}/builds`, { data: { prompt: VAGUE, mode: "create", idempotencyKey: key } })));
+    const bodies = await Promise.all(sends.map(async (r) => ({ status: r.status(), body: await r.json().catch(() => ({})) })));
+    const { data: dupJobs } = await admin.from("build_jobs").select("id").eq("project_id", proj);
+    const { data: holds } = await admin.from("credit_reservations").select("id,status").eq("project_id", proj);
+    const dupUser = (await admin.from("projects").select("owner_id").eq("id", proj).single()).data!.owner_id;
+    const { data: dupLedger } = await admin.from("credit_ledger").select("entry_type,amount").eq("user_id", dupUser).eq("entry_type", "consume");
+    check("three identical submissions at once: one job and one plan hold; the duplicates are refused and charge nothing", (dupJobs || []).length === 1 && (holds || []).filter((h) => h.status === "active").length === 1 && bodies.filter((b) => b.status !== 202).every((b) => b.status === 429 || b.status === 409),
+      `${bodies.map((b) => `${b.status}${b.body.code ? ` ${b.body.code}` : ""}`).join(", ")}; ${(dupJobs || []).length} job; holds ${(holds || []).length}; consumed so far ${(dupLedger || []).length} entries`);
 
     // 3. A clear brief goes straight to planning.
     page = await signedIn("clear");
