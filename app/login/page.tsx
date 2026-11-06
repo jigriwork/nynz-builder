@@ -54,7 +54,7 @@ export default function LoginPage() {
     <div aria-hidden className="absolute -bottom-64 left-[12%] h-[500px] w-[500px] rounded-full bg-[#c7ff4a]/[.05] blur-[120px]" />
     <header className="relative z-10 mx-auto flex h-[76px] max-w-[1280px] items-center justify-between px-5 md:px-8">
       <Link href="/"><NynzBrand className="h-7" /></Link>
-      <Link href="/" className="inline-flex items-center gap-2 text-xs text-white/40 transition hover:text-white"><ArrowLeft className="h-3.5 w-3.5" /> Back to home</Link>
+      <Link href="/" className="inline-flex items-center gap-2 text-[13px] font-medium text-[#d7dee8] transition hover:text-white"><ArrowLeft className="h-3.5 w-3.5" /> Back to home</Link>
     </header>
 
     <div className="relative z-10 mx-auto grid min-h-[calc(100vh-76px)] max-w-[1180px] items-center gap-10 px-5 pb-16 pt-6 md:px-8 lg:grid-cols-[1fr_480px] lg:gap-20">

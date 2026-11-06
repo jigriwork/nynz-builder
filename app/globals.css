@@ -12,22 +12,43 @@
    was being used for functional labels, placeholders and help text. */
 .nynz-dark {
   --nynz-text-primary: #f4f1e8;
-  --nynz-text-secondary: #bdc7d5;
-  --nynz-text-muted: #a5b2c4;
+  --nynz-text-strong: #dfe5ec;
+  --nynz-text-secondary: #ccd5e0;
+  --nynz-text-muted: #b6c1cf;
+  --nynz-text-faint: #8e9cb0;
   color-scheme: dark;
 }
 
-.nynz-dark :is(
+/* Readability tiers on the dark surfaces. Faint text (decoration, disabled
+   controls) stays visibly secondary but readable; labels and help text are
+   clearly legible; 65 to 75 percent secondary text is lifted as well.
+   :where() keeps these at class strength, so hover and focus colours still win. */
+.nynz-dark :where(
   [class~="text-white/10"], [class~="text-white/15"],
   [class~="text-white/18"], [class~="text-white/20"],
-  [class~="text-white/25"], [class~="text-white/28"],
-  [class~="text-white/30"], [class~="text-white/32"],
-  [class~="text-white/35"], [class~="text-white/38"],
-  [class~="text-white/40"], [class~="text-white/42"],
-  [class~="text-white/45"], [class~="text-white/50"],
-  [class~="text-white/55"], [class~="text-white/60"]
+  [class~="text-white/25"]
+) {
+  color: var(--nynz-text-faint);
+}
+
+.nynz-dark :where(
+  [class~="text-white/28"], [class~="text-white/30"],
+  [class~="text-white/32"], [class~="text-white/35"],
+  [class~="text-white/38"], [class~="text-white/40"],
+  [class~="text-white/42"], [class~="text-white/45"]
 ) {
   color: var(--nynz-text-muted);
+}
+
+.nynz-dark :where(
+  [class~="text-white/50"], [class~="text-white/55"],
+  [class~="text-white/60"], [class~="text-[#f4f1e8]/60"]
+) {
+  color: var(--nynz-text-secondary);
+}
+
+.nynz-dark :where([class~="text-white/65"], [class~="text-white/70"], [class~="text-white/75"]) {
+  color: var(--nynz-text-strong);
 }
 
 .nynz-dark :is(input, textarea, select, [contenteditable="true"]) {

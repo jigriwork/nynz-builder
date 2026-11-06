@@ -100,14 +100,14 @@ export default function HomePage() {
     <header className="sticky top-0 z-40 border-b border-transparent bg-[#070b12]/60 backdrop-blur-xl transition-colors">
       <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-5 md:px-8">
         <Link href="/" aria-label="NYNZ home"><NynzBrand className="h-7" /></Link>
-        <nav className="hidden items-center gap-8 text-[13px] text-[#f4f1e8]/60 md:flex">
-          <a href="#product" className="transition hover:text-[#f4f1e8]">Product</a>
-          <a href="#how" className="transition hover:text-[#f4f1e8]">How it works</a>
-          <a href="#faq" className="transition hover:text-[#f4f1e8]">FAQ</a>
-          <Link href="/pricing" className="transition hover:text-[#f4f1e8]">Pricing</Link>
+        <nav className="hidden items-center gap-8 text-[14px] font-medium text-[#e7ecf3] md:flex">
+          <a href="#product" className="transition hover:text-[#c7ff4a]">Product</a>
+          <a href="#how" className="transition hover:text-[#c7ff4a]">How it works</a>
+          <a href="#faq" className="transition hover:text-[#c7ff4a]">FAQ</a>
+          <Link href="/pricing" className="transition hover:text-[#c7ff4a]">Pricing</Link>
         </nav>
         <div className="flex items-center gap-2">
-          <Link href="/login" className="hidden rounded-full px-4 py-2 text-[13px] text-white/65 transition hover:text-white sm:inline-flex">Sign in</Link>
+          <Link href="/login" className="hidden rounded-full px-4 py-2 text-[14px] font-medium text-[#e7ecf3] transition hover:text-[#c7ff4a] sm:inline-flex">Sign in</Link>
           <Link href="/login" className="group inline-flex items-center gap-2 rounded-full bg-[#f4f1e8] px-4 py-2 text-[13px] font-medium text-[#071019] transition hover:bg-white">Start building <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></Link>
         </div>
       </div>

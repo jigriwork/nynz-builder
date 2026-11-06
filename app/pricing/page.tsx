@@ -23,7 +23,7 @@ export default async function PricingPage() {
     plans = (data || []) as typeof plans;
   } catch { plans = []; }
   return <main className="nynz-dark min-h-screen bg-[#070b12] text-[#f4f1e8]">
-    <header className="mx-auto flex h-16 max-w-[1100px] items-center justify-between px-5"><Link href="/" aria-label="NYNZ home"><NynzBrand className="h-7" /></Link><Link href="/login" className="text-[13px] text-white/70 hover:text-white">Sign in</Link></header>
+    <header className="mx-auto flex h-16 max-w-[1100px] items-center justify-between px-5"><Link href="/" aria-label="NYNZ home"><NynzBrand className="h-7" /></Link><Link href="/login" className="text-[14px] font-medium text-[#e7ecf3] hover:text-[#c7ff4a]">Sign in</Link></header>
     <section className="mx-auto max-w-[1100px] px-5 pb-20 pt-10">
       <h1 className="text-4xl font-medium tracking-[-.05em] md:text-6xl">Simple monthly plans</h1>
       <p className="mt-4 max-w-2xl text-[15px] leading-7 text-white/60">Every plan builds React, TypeScript and Vite web apps with private previews and full source export. Monthly credits pay for the AI and cloud resources each build uses, measured per model. Generation is never unlimited, and prices exclude GST.</p>
