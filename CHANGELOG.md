@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.12: keep chat follow-ups in chronological order
+
+- Sending a message now returns the conversation to its live end, even after the user has scrolled up to inspect an earlier build.
+- Coverage and “couldn't confirm” details stay inside the completion reply they belong to instead of being duplicated in status cards below newer messages.
+
 ## 0.5.11: attachments move with their chat message
 
 - A newly uploaded file appears as a pending attachment beside the composer. After the request is accepted, it moves onto that user message instead of remaining permanently above the chat box.

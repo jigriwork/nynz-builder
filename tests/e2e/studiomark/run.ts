@@ -265,11 +265,13 @@ async function main() {
   const { data: projectV2 } = await admin.from("projects").select("active_version_id,brief").eq("id", projectId).single();
   fake.control.coverageUnclear = false;
   await page.reload({ waitUntil: "networkidle" });
-  const unsure = page.locator("section[role=status]").filter({ hasText: "Couldn't confirm automatically" }).first();
+  // Verification belongs to the completion reply in chronological chat order;
+  // it must not be duplicated as a status card pinned below newer messages.
+  const unsure = page.locator("[data-chat-message]").filter({ hasText: "Couldn't confirm automatically" }).last();
   const unsureShown = await unsure.isVisible().catch(() => false);
   if (unsureShown) await unsure.screenshot({ path: `${process.env.E2E_ARTIFACTS || "/tmp"}/couldnt-confirm.png` });
   const { data: reply } = await admin.from("messages").select("content").eq("metadata->>build_id", edit.id).eq("metadata->>kind", "build_complete").maybeSingle();
-  check("an unverifiable step is shown as Couldn't confirm, not Not built yet", unsureShown && /Couldn't confirm automatically/.test(reply?.content || "") && !/Not built yet/.test(reply?.content || "") && !(await page.locator("text=Not built yet from your approved plan").count()), (reply?.content || "").split("\n").find((line: string) => /Couldn't confirm/.test(line)) || "");
+  check("an unverifiable step stays in its completion reply, not pinned below newer chat", unsureShown && /Couldn't confirm automatically/.test(reply?.content || "") && !/Not built yet/.test(reply?.content || "") && !(await page.locator("section[role=status]").filter({ hasText: "Couldn't confirm automatically" }).count()), (reply?.content || "").split("\n").find((line: string) => /Couldn't confirm/.test(line)) || "");
   check("the brief records the change as applied", projectV2?.brief?.changes?.some((change: { request: string; status: string }) => change.request === EDIT_REQUEST && change.status === "applied"));
 
   // 5. Stop during a build.

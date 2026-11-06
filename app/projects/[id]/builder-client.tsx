@@ -171,8 +171,6 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const stoppedBuild = latestFinished && latestFinished.status !== "succeeded" ? latestFinished : undefined;
   const plannedTotal = stoppedBuild?.plan?.manifest?.files?.length || 0;
   const resumeInfo = stoppedBuild?.resumable ? { saved: stoppedBuild.checkpoint?.done?.length || 0, total: plannedTotal, failedStep: stoppedBuild.checkpoint?.failed_step?.label || null, message: stoppedBuild.status === "cancelled" ? stoppedBuild.error_message : null } : null;
-  const coverageGaps = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.missing || [] : [];
-  const coverageUnconfirmed = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.unconfirmed || [] : [];
   const running = mounted ? builds.find((build) => active.has(build.status) && !["awaiting", "questions"].includes(build.plan?.approval || "")) : undefined;
   const pendingQuestions = builds.find(build => build.status === "planning" && build.plan?.approval === "questions");
   const runningId = running?.id;
@@ -302,6 +300,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     event?.preventDefault();
     const text = promptRef.current;
     if (!text.trim()) return;
+    // Sending explicitly returns to the live end of the conversation, even
+    // after the user scrolled up to inspect an earlier build.
+    followConversation.current = true;
     // Questions and small talk are answered in chat even during a build or plan review.
     const conversationMessage = classifyConversationMessage(text);
     const attachments = pendingAssets.map(({ name, storageName }) => ({ name, storageName }));
@@ -606,8 +607,6 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
             {trialPause && !running && <TrialPauseCard pause={trialPause} onReopen={clearTrialPause} />}
             {(project.last_error || resumeInfo) && stoppedBuild && !running && !(trialPause && stoppedBuild.error_code === "TRIAL_BUDGET") && <BuildIssueCard code={stoppedBuild.error_code} hasPreview={Boolean(project.has_preview)} resume={resumeInfo} onResume={resumeBuild} onStartOver={retryFailedBuild} onLogs={() => setTab("logs")} checkoutAvailable={checkoutAvailable} />}
-            {coverageGaps.length > 0 && !running && <section role="status" className="rounded-2xl border border-amber-300/25 bg-amber-300/[.05] p-4"><p className="text-[12px] font-medium text-amber-200">Not built yet from your approved plan</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageGaps.map((item) => <li key={item}>{item}</li>)}</ul><button type="button" onClick={() => applyPrompt(`Add the parts of the approved plan that are not built yet:\n${coverageGaps.map((item) => `- ${item}`).join("\n")}`)} className="mt-3 rounded-lg bg-white/[.08] px-3 py-1.5 text-[11px] text-white/85 hover:bg-white/[.12]">Ask NYNZ to add these</button></section>}
-            {coverageUnconfirmed.length > 0 && !running && <section role="status" className="rounded-2xl border border-sky-300/20 bg-sky-300/[.04] p-4"><p className="text-[12px] font-medium text-sky-200">Couldn&apos;t confirm automatically</p><p className="mt-1 text-[11px] leading-5 text-white/55">These may well be built. NYNZ couldn&apos;t verify them from the code, so please check them in the preview.</p><ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-white/65">{coverageUnconfirmed.map((item) => <li key={item}>{item}</li>)}</ul></section>}
           </div>
         </div>
 
