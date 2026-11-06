@@ -26,7 +26,10 @@ export async function assetReferenceContext(assets: ProjectAsset[]) {
     if (remaining > 0 && PDF_EXTENSION.test(name)) {
       try {
         const { extractText, getDocumentProxy } = await import("unpdf");
-        const pdf = await getDocumentProxy(new Uint8Array(asset.data));
+        // PDF.js may transfer (and therefore detach) the buffer it receives.
+        // Parse a copy because the original is reused later when the same asset
+        // is written into the preview sandbox.
+        const pdf = await getDocumentProxy(new Uint8Array(asset.data.slice(0)));
         const extracted = await extractText(pdf, { mergePages: true });
         const text = cleanText(Array.isArray(extracted.text) ? extracted.text.join("\n\n") : extracted.text);
         if (text) {

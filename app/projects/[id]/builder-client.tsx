@@ -242,18 +242,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   useEffect(() => {
     if (project.id === "design-fixture") { setPreviewSrc(project.preview_url); return; }
     if (!project.preview_url || !project.has_preview || project.status === "archived") { setPreviewSrc(null); return; }
-    let current = true;
-    fetch(`/api/projects/${project.id}/preview-session`, { method: "POST" })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({ error: "The live preview service returned an invalid response" }));
-        if (!response.ok) throw new Error(body.error || "Could not authorize preview");
-        // This one-time link is used by the embedded preview only. "Open in new
-        // tab" asks the app for its own link, so the tab gets its own session.
-        if (current) setPreviewSrc(body.url);
-      })
-      .catch((error) => { if (current) setNotice(error instanceof Error ? error.message : "Could not authorize preview"); });
-    return () => { current = false; };
-  }, [project.has_preview, project.active_version_id, project.id, project.preview_url, project.status]);
+    // Keep a stable NYNZ-owned URL in the iframe rather than the one-time
+    // exchange URL it redirects to. If the browser restores or reloads the
+    // iframe, NYNZ issues a fresh exchange instead of replaying an already-used
+    // token and showing "Open this preview from NYNZ".
+    const version = project.active_version_id || project.preview_revision || "current";
+    setPreviewSrc(`/api/projects/${project.id}/preview-session?embed=1&v=${encodeURIComponent(String(version))}`);
+  }, [project.has_preview, project.active_version_id, project.id, project.preview_revision, project.preview_url, project.status]);
 
   useEffect(() => {
     // Polling replaces job objects even when nothing changed. Only follow new

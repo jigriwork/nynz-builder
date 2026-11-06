@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.10: keep uploaded PDFs reusable after extraction
+
+- PDF.js can transfer and detach the `ArrayBuffer` it parses. NYNZ 0.5.9 passed the original catalog buffer into extraction, so planning and code edits completed but preview creation then crashed when it tried to write that detached PDF into the sandbox. Extraction now parses a copy; the original upload remains available to preview, publish and export.
+- The regression test runs extraction against a PDF-shaped buffer and proves the original buffer can still be constructed and read afterward.
+- Embedded previews now keep a reload-safe NYNZ session endpoint as their iframe source. Browser restore, iframe reload and React remounts therefore receive a fresh one-time exchange instead of replaying the consumed token and intermittently showing “Open this preview from NYNZ.”
+
 ## 0.5.9: catalog uploads, readable PDFs and conversational chat
 
 - Project attachments now upload directly from the signed-in browser to private Supabase Storage after NYNZ authorizes the project and file. This bypasses Vercel's 4.5 MB function-body ceiling without making the bucket public. The per-file limit is 25 MB and the existing 50 MB project total, ownership checks, file signatures and type validation remain enforced.

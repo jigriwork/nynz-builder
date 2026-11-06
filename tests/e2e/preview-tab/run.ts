@@ -95,6 +95,7 @@ async function main() {
     check("embedded preview loads in the builder", embedded);
     const button = ownerPage.getByRole("link", { name: "Open preview in new tab" });
     const exchangeUsedByIframe = await ownerPage.locator("iframe[title='Application preview']").getAttribute("src");
+    check("embedded preview keeps a reload-safe NYNZ session URL", Boolean(exchangeUsedByIframe?.startsWith(`/api/projects/${projectId}/preview-session?embed=1`)), exchangeUsedByIframe || "missing");
     const [tab] = await Promise.all([ownerContext.waitForEvent("page"), button.click()]);
     await tab.waitForLoadState("networkidle").catch(() => undefined);
     await tab.waitForTimeout(1500);
@@ -110,12 +111,13 @@ async function main() {
     for (let i = 0; i < 30 && !stillEmbedded; i += 1) { stillEmbedded = await served(frame.locator("body").innerText({ timeout: 2000 })); if (!stillEmbedded) await ownerPage.waitForTimeout(1000); }
     check("the same project works in both views at once (embedded preview after the new tab)", stillEmbedded && await served(tab.locator("body").innerText()));
 
-    // Denied: replayed one-time link, signed-out visitor, another account.
+    // Denied: the iframe session URL without its owner session, a direct
+    // preview visit, and another account.
     const connectsBefore = fake.calls.filter((c) => c.startsWith(`connect ${sandbox}`)).length;
     const stranger = await browser.newContext();
     const replay = await stranger.newPage();
     if (exchangeUsedByIframe) await replay.goto(exchangeUsedByIframe, { waitUntil: "networkidle" }).catch(() => undefined);
-    check("a used preview link cannot be replayed in another browser", !(await served(replay.locator("body").innerText())), (await replay.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 80));
+    check("the embedded preview session URL cannot be used by another browser", !(await served(replay.locator("body").innerText())), (await replay.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 80));
     const signedOut = await stranger.newPage();
     await signedOut.goto(`${APP}/api/projects/${projectId}/preview-session`, { waitUntil: "networkidle" }).catch(() => undefined);
     const signedOutUrl = new URL(signedOut.url());

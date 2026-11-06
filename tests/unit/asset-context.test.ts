@@ -14,4 +14,12 @@ describe("uploaded asset model context", () => {
     const context = await assetReferenceContext([{ name: "123e4567-e89b-12d3-a456-426614174000-bottle.png", data: new Uint8Array([1, 2]).buffer }]);
     expect(context).toContain("UPLOADED ASSET: bottle.png");
   });
+
+  it("does not detach the original PDF buffer needed by the preview sandbox", async () => {
+    const bytes = new TextEncoder().encode("%PDF-1.7\nmalformed fixture");
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    await assetReferenceContext([{ name: "123e4567-e89b-12d3-a456-426614174000-catalog.pdf", data }]);
+    expect(() => new Uint8Array(data)).not.toThrow();
+    expect(new TextDecoder().decode(data)).toContain("%PDF-1.7");
+  });
 });
