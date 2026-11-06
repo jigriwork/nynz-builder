@@ -5,7 +5,7 @@
  * owner privileges; the service role is used only for read-only checks.
  *
  *   LIVE_DIR=<run folder> npx tsx scripts/ops/live-trial.ts <stage>
- *   stages: signup | signin | reset | brief | approve | watch | preview
+ *   stages: signup | signin | reset | brief | approve | watch | preview | settle
  */
 import { config } from "dotenv";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,6 +20,10 @@ if (!DIR) throw new Error("Set LIVE_DIR");
 mkdirSync(DIR, { recursive: true });
 const STATE = `${DIR}/state.json`;
 const state: Record<string, any> = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {};
+// An invite-only launch run starts with live-invite-only.ts. Reuse that
+// account instead of creating a second customer or granting credits manually.
+if (state.inviteInbox && !state.inbox) state.inbox = state.inviteInbox;
+if (state.invitePassword && !state.accountPassword) state.accountPassword = state.invitePassword;
 const save = () => { writeFileSync(STATE, JSON.stringify(state, null, 2)); chmodSync(STATE, 0o600); };
 const log = (line: string) => { console.log(line); writeFileSync(`${DIR}/log.txt`, `${new Date().toISOString()} ${line}\n`, { flag: "a" }); };
 const read = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
@@ -27,9 +31,26 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function browser(): Promise<{ context: BrowserContext; page: Page }> {
   const context = await chromium.launchPersistentContext(`${DIR}/profile`, { executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true, viewport: { width: 1440, height: 950 } });
-  return { context, page: context.pages()[0] || await context.newPage() };
+  const page = context.pages()[0] || await context.newPage();
+  if (state.inbox?.address && state.accountPassword) {
+    await page.goto(`${APP}/dashboard`, { waitUntil: "networkidle" });
+    if (new URL(page.url()).pathname === "/login") {
+      await page.fill("#email", state.inbox.address); await page.fill("#password", state.accountPassword);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+    }
+  }
+  return { context, page };
 }
-async function balance() { const { data } = await read.rpc("credit_balance", { p_user: state.userId }); return data as { available: number; reserved: number; used: number }; }
+async function balance() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await read.rpc("credit_balance", { p_user: state.userId });
+    if (data) return data as { available: number; reserved: number; used: number };
+    if (attempt === 4) throw new Error(`Could not read credit balance: ${error?.message || "empty response"}`);
+    await wait(500 * (attempt + 1));
+  }
+  throw new Error("Could not read credit balance");
+}
 const text = async (page: Page) => (await page.locator("body").innerText()).replace(/\s+/g, " ");
 
 const MAILTM = "https://api.mail.tm";
@@ -138,6 +159,12 @@ async function reset() {
 }
 
 async function brief() {
+  if (!state.userId && state.inbox?.address) {
+    const { data } = await read.auth.admin.listUsers({ perPage: 1000 });
+    state.userId = data.users.find((user) => user.email === state.inbox.address)?.id;
+    if (!state.userId) throw new Error("Invited account does not exist");
+    save();
+  }
   const { context, page } = await browser();
   await page.goto(`${APP}/dashboard`, { waitUntil: "networkidle" });
   const box = page.getByLabel("Application description");
@@ -189,21 +216,65 @@ async function watch() {
     }
     await wait(5000);
   }
+  const { context, page } = await browser();
+  await page.goto(`${APP}/projects/${state.projectId}`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(3000);
+  const timeline = ((await page.getByTestId("build-timeline").last().innerText().catch(() => "")) || "").replace(/\s+/g, " ");
+  const verified = ((await page.getByTestId("what-i-verified").last().innerText().catch(() => "")) || "").replace(/\s+/g, " ");
+  const activityButton = page.getByRole("button", { name: "View activity" }).last();
+  if (await activityButton.count()) await activityButton.click();
+  const activity = ((await page.getByTestId("activity-details").last().innerText().catch(() => "")) || "").replace(/\s+/g, " ");
+  log(`progress messages: ${timeline.slice(0, 700)}`);
+  log(`What I verified: ${verified.slice(0, 700)}`);
+  log(`View activity: ${activity.slice(0, 900)}`);
+  await page.screenshot({ path: `${DIR}/05-completed-build.png`, fullPage: true });
+  await context.close();
+
+  const { data: build } = await read.from("build_jobs").select("id,status,created_at,started_at,finished_at").eq("id", state.buildId).single();
+  const { data: ledger } = await read.from("credit_ledger").select("entry_type,amount,event_key,reason,metadata,created_at").eq("user_id", state.userId).eq("build_id", state.buildId).order("id");
+  log(`build timing: ${JSON.stringify(build)}`);
+  log(`build ledger: ${JSON.stringify(ledger)}`);
 }
 
 async function preview() {
   const { context, page } = await browser();
   await page.goto(`${APP}/projects/${state.projectId}`, { waitUntil: "networkidle" });
-  const frame = page.frameLocator("iframe").first();
-  await frame.locator("body").waitFor({ timeout: 90_000 });
-  await page.waitForTimeout(5000);
-  await page.screenshot({ path: `${DIR}/05-builder-preview.png` });
-  log(`preview frame text: ${(await frame.locator("body").innerText()).replace(/\s+/g, " ").slice(0, 300)}`);
+  await page.getByRole("button", { name: "Preview" }).click().catch(() => undefined);
+  const link = page.getByRole("link", { name: "Open preview in new tab" });
+  await link.waitFor({ timeout: 90_000 });
+  const [preview] = await Promise.all([context.waitForEvent("page"), link.click()]);
+  await preview.waitForLoadState("networkidle");
+  const marker = `Refresh Test ${Date.now()}`;
+  const customer = preview.getByLabel(/customer|name/i).first();
+  const item = preview.getByLabel(/item|product/i).first();
+  if (await customer.count()) await customer.fill(marker);
+  if (await item.count()) await item.fill("Silk scarf");
+  const add = preview.getByRole("button", { name: /add|create|save/i }).first();
+  if (!await customer.count() || !await add.count()) throw new Error("Generated order form could not be exercised through accessible labels");
+  await add.click(); await preview.waitForTimeout(1000);
+  const before = (await preview.locator("body").innerText()).includes(marker);
+  await preview.reload({ waitUntil: "networkidle" });
+  const after = (await preview.locator("body").innerText()).includes(marker);
+  log(`new-tab preview order persisted across refresh: ${before && after}; url ${new URL(preview.url()).origin}`);
+  await preview.screenshot({ path: `${DIR}/06-preview-order-after-refresh.png`, fullPage: true });
   state.previewOpenedAt = new Date().toISOString(); save();
+  await preview.close();
   await context.close();
 }
 
+async function settle() {
+  if (!state.previewOpenedAt) throw new Error("Preview was not opened");
+  const { data: sessions } = await read.from("sandbox_sessions").select("id,status,started_at,ended_at,held_credits,charged_credits,refunded_credits,end_source,estimate_reason").eq("owner_id", state.userId).eq("project_id", state.projectId).order("started_at");
+  const sessionIds = (sessions || []).map((session) => session.id);
+  const { data: ledger } = sessionIds.length
+    ? await read.from("credit_ledger").select("entry_type,amount,event_key,build_id,reason,metadata,created_at").eq("user_id", state.userId).in("build_id", sessionIds).order("id")
+    : { data: [] };
+  log(`preview sessions: ${JSON.stringify(sessions)}`);
+  log(`preview ledger after close: ${JSON.stringify(ledger)}`);
+  log(`balance after preview: ${JSON.stringify(await balance())}`);
+}
+
 const stage = process.argv[2];
-const stages: Record<string, () => Promise<void>> = { signup, signin, reset, brief, approve, watch, preview };
+const stages: Record<string, () => Promise<void>> = { signup, signin, reset, brief, approve, watch, preview, settle };
 if (!stages[stage]) throw new Error(`unknown stage ${stage}`);
 await stages[stage]();
