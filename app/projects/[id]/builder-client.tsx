@@ -19,14 +19,15 @@ import { ProjectIntegrations } from "@/components/project-integrations";
 import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
 import { BuildIssueCard } from "@/components/build-issue-card";
 import { TrialPauseCard, type TrialPause } from "@/components/trial-pause-card";
+import { ActivityDetails, BuildTimeline, UnderstoodBlock, VerifiedBlock, type StepCharge } from "@/components/builder/build-activity";
 import { describeIssue } from "@/lib/platform/build-issues";
 import { ProjectFileSearch } from "@/components/project-file-search";
 
-type Project = { id: string; name: string; description: string; status: string; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
+type Project = { id: string; name: string; description: string; status: string; brief?: { original?: string; changes?: Array<{ status?: string }> } | null; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
-type Message = { id: string; role: string; content: string; created_at: string };
-type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
+type Message = { id: string; role: string; content: string; created_at: string; metadata?: { kind?: string; build_id?: string } | null };
+type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; assumptions?: string[]; browser_test?: { passed?: boolean; checked?: string[] }; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -104,6 +105,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [versions, setVersions] = useState(initialVersions);
   const [messages, setMessages] = useState(initialMessages);
   const [builds, setBuilds] = useState(initialBuilds);
+  // Credits charged per build step (from the customer's own credit history).
+  const [charges, setCharges] = useState<Record<string, StepCharge[]>>({});
   const [selected, setSelected] = useState(initialFiles[0]?.path || "");
   // The chat box keeps its own text, so typing does not re-render the whole
   // workspace (chat, code and preview). Only empty/non-empty changes re-render.
@@ -188,6 +191,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     return () => { active = false; };
   }, [project.id]);
 
+  useEffect(() => {
+    if (project.id === "design-fixture") return;
+    fetch(`/api/projects/${project.id}/builds`).then((r) => r.ok ? r.json() : null).then((body) => { if (body?.charges) setCharges(body.charges); }).catch(() => undefined);
+  }, [project.id]);
+
   const refresh = useCallback(async () => {
     const [projectResponse, filesResponse, buildsResponse, versionsResponse, messagesResponse] = await Promise.all([
       fetch(`/api/projects/${project.id}`), fetch(`/api/projects/${project.id}/files`),
@@ -208,7 +216,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       setFiles(next); setSelected((value) => value || next[0]?.path || "");
       setProject((value) => ({ ...value, source_revision: body.sourceRevision, preview_revision: body.previewRevision }));
     }
-    if (buildsResponse.ok) setBuilds((await buildsResponse.json()).builds);
+    if (buildsResponse.ok) { const body = await buildsResponse.json(); setBuilds(body.builds); if (body.charges) setCharges(body.charges); }
     if (versionsResponse.ok) setVersions((await versionsResponse.json()).versions);
     if (messagesResponse.ok) setMessages((await messagesResponse.json()).messages);
   }, [project.id]);
@@ -442,7 +450,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   const logLines = useMemo(() => latest?.progress || [], [latest]);
   const conversationItems = useMemo(() => {
-    const items: Array<{ kind: "message"; at: string; message: Message } | { kind: "plan"; at: string; build: Build }> = messages.map(message => ({ kind: "message", at: message.created_at, message }));
+    const items: Array<{ kind: "message"; at: string; message: Message } | { kind: "plan"; at: string; build: Build } | { kind: "build"; at: string; build: Build }> = messages.map(message => ({ kind: "message", at: message.created_at, message }));
+    // One progress list per build, placed when the build started (stable after a refresh).
+    for (const build of builds) {
+      if (build.status === "planning" || (build.mode !== "restart" && !build.resume_of && build.plan?.approval !== "approved")) continue;
+      const started = (build.progress || []).find(event => /^Plan approved|^Continuing from|^Preparing a secure preview/.test(event.message || ""));
+      items.push({ kind: "build", at: started?.at || build.created_at, build });
+    }
     for (const build of builds) {
       if (!build.plan?.summary || !["planning", "queued", "generating", "installing", "running", "validating", "succeeded"].includes(build.status)) continue;
       const planEvent = [...(build.progress || [])].reverse().find(event => event.message?.startsWith("Plan ready for your approval"));
@@ -520,9 +534,9 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           </div>}
 
           <div className="space-y-5">
-            <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
+            <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "build" ? <motion.div key={`build-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}><BuildTimeline build={item.build} charges={charges[item.build.id]} /></motion.div> : item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} build={pendingPlan} brief={project.brief} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
               <div className={`mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40 ${message.role === "user" ? "justify-end" : ""}`}>{message.role === "user" ? "You" : <><NynzIcon className="h-4 w-4" /> NYNZ</>}</div>
-              <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}</div>
+              <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}{message.metadata?.kind === "build_complete" && (() => { const done = builds.find(build => build.id === message.metadata?.build_id); return done ? <div className="whitespace-normal"><VerifiedBlock build={done} /><ActivityDetails build={done} charges={charges[done.id]} /></div> : null; })()}</div>
             </motion.div>)(item.message))}</AnimatePresence>
 
             <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-5 sm:mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> Live activity</div><BuildActivity status={running.status} progress={lastProgress} percent={progressPercent} phase={activityTick} /></motion.div>}</AnimatePresence>
@@ -620,7 +634,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   </main>;
 }
 
-function PlanReview({ plan, onReview }: { plan: NonNullable<Build["plan"]>; onReview: (input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) => Promise<void> }) {
+function PlanReview({ plan, build, brief, onReview }: { plan: NonNullable<Build["plan"]>; build: Build; brief?: Project["brief"]; onReview: (input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) => Promise<void> }) {
   const [summary, setSummary] = useState(plan.summary || "");
   const [steps, setSteps] = useState((plan.steps || []).join("\n"));
   const [changes, setChanges] = useState("");
@@ -637,6 +651,7 @@ function PlanReview({ plan, onReview }: { plan: NonNullable<Build["plan"]>; onRe
   return <section aria-label="Review build plan" className="rounded-2xl border border-[#c7ff4a]/20 bg-[#101a23] p-4">
     <div className="flex items-center gap-2"><NynzIcon className="h-5 w-5" /><h2 className="text-[13px] font-medium">Review your build plan</h2><span className="ml-auto rounded-full bg-[#c7ff4a]/10 px-2 py-1 text-[9px] text-[#c7ff4a]">Your approval needed</span></div>
     <p className="mt-2 text-[11px] leading-5 text-white/45">Check the scope below. Edit the plan directly or ask for changes. Code generation starts after you approve.</p>
+    <UnderstoodBlock build={build} brief={brief} />
     {plan.estimate && <p className="mt-2 rounded-lg bg-white/[.04] px-3 py-2 text-[11px] leading-5 text-white/70">Estimated cost: <strong className="text-white">{plan.estimate.low}–{plan.estimate.high} credits</strong>. Approving holds <strong className="text-white">{plan.estimate.reserve}</strong>; unused credits are released when the build ends. If it needs more and your balance is short, NYNZ stops before the next step, keeps finished work and asks you first.</p>}
     {editing ? <div className="mt-3 space-y-3"><label className="block text-[10px] text-white/55">Summary<textarea aria-label="Plan summary" value={summary} onChange={event => setSummary(event.target.value)} rows={3} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label><label className="block text-[10px] text-white/55">Steps, one per line<textarea aria-label="Plan steps" value={steps} onChange={event => setSteps(event.target.value)} rows={6} className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-[#080f18] p-2 text-[12px] text-white outline-none focus:border-[#c7ff4a]/40" /></label></div> : <><p className="mt-3 text-[12px] leading-5 text-white/80">{summary}</p><ol className="mt-3 space-y-2">{steps.split("\n").filter(Boolean).map((step, index) => <li key={index} className="flex gap-2 text-[11px] leading-5 text-white/60"><span className="font-mono text-[#c7ff4a]/70">{index + 1}.</span><span>{step}</span></li>)}</ol></>}
     <button type="button" disabled={busy} onClick={() => setEditing(value => !value)} className="mt-3 flex items-center gap-1.5 text-[11px] text-white/55 hover:text-white"><Pencil className="h-3 w-3" />{editing ? "Done editing" : "Edit plan"}</button>

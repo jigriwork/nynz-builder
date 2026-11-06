@@ -15,7 +15,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if ("error" in auth) return auth.error;
   const { data, error } = await auth.supabase.from("build_jobs").select("id,status,prompt,request,mode,progress,plan,error_code,error_message,created_at,finished_at,cancel_requested_at,resumable,resume_of,checkpoint,generation_complete").eq("project_id", id).order("created_at", { ascending: false }).limit(20);
   if (error) return apiError("INTERNAL", "Could not load builds", { cause: error, scope: "builds" });
-  return json({ builds: data || [] });
+  // Credits charged per step for these builds, from the customer's own history (row-level security applies).
+  const ids = (data || []).map((build) => build.id);
+  const charges: Record<string, Array<{ step: string; credits: number }>> = {};
+  if (ids.length) {
+    const { data: ledger } = await auth.supabase.from("credit_ledger").select("build_id,amount,metadata").eq("entry_type", "consume").in("build_id", ids).order("id");
+    for (const row of ledger || []) {
+      const step = String((row.metadata as { step?: string } | null)?.step || "Build work");
+      (charges[row.build_id] ||= []).push({ step, credits: -Number(row.amount) });
+    }
+  }
+  return json({ builds: data || [], charges });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
