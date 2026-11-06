@@ -84,13 +84,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     z.object({ action: z.literal("approve"), buildId: z.string().uuid(), revision: z.number().int().positive(), summary: z.string().trim().min(1).max(2000), steps: z.array(z.string().trim().min(1).max(1000)).min(1).max(12) }),
     z.object({ action: z.literal("revise"), buildId: z.string().uuid(), revision: z.number().int().positive(), changes: z.string().trim().min(1).max(10000) }),
     z.object({ action: z.literal("cancel"), buildId: z.string().uuid(), revision: z.number().int().positive() }),
+    // Clarifying questions: answer them (NYNZ plans again with the answers), or continue with the stated assumptions.
+    z.object({ action: z.literal("answer"), buildId: z.string().uuid(), revision: z.number().int().positive(), answers: z.array(z.object({ id: z.string().min(1).max(60), answer: z.string().trim().min(1).max(500) })).min(1).max(3) }),
+    z.object({ action: z.literal("assume"), buildId: z.string().uuid(), revision: z.number().int().positive() }),
   ]).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_INPUT", "Invalid plan review");
   const input = parsed.data;
   if (auth.project.owner_id !== auth.user.id) return apiError("FORBIDDEN", "Only the project owner can approve a plan");
   const { data: job } = await auth.supabase.from("build_jobs").select("*").eq("id", input.buildId).eq("project_id", id).single();
   if (!job) return apiError("NOT_FOUND", "Plan not found");
-  if (job.status !== "planning" || job.plan?.approval !== "awaiting" || job.plan?.revision !== input.revision) return apiError("CONFLICT", "This plan has changed. Refresh to review the latest version.");
+  const awaiting = input.action === "answer" || input.action === "assume" ? "questions" : input.action === "cancel" ? job.plan?.approval : "awaiting";
+  if (job.status !== "planning" || !["awaiting", "questions"].includes(job.plan?.approval) || job.plan?.approval !== awaiting || job.plan?.revision !== input.revision) return apiError("CONFLICT", "This plan has changed. Refresh to review the latest version.");
   const admin = createAdmin();
   let update: Record<string, unknown>;
   const now = new Date().toISOString();
@@ -104,13 +108,28 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!ok) return apiError("INSUFFICIENT_CREDITS", `This plan needs about ${hold} credits held before building starts. Add credits or upgrade your plan, then approve again.`);
     const reviewed = { summary: input.summary, steps: input.steps };
     update = { status: "queued", locked_at: null, locked_by: null, attempt_count: 0, plan: { ...job.plan, ...reviewed, approval: "approved", approved_at: now, manifest: { ...job.plan.manifest, plan: reviewed } }, prompt: `${job.prompt}\n\nUSER APPROVED PLAN (follow this scope):\n${input.summary}\n${input.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`, progress: [...(job.progress || []), { at: now, message: "Plan approved. Application build queued.", percent: 20 }] };
+  } else if (input.action === "answer" || input.action === "assume") {
+    // The decisions are saved with the request, so the brief recorded at approval keeps them.
+    const questions: Array<{ id: string; question: string }> = job.plan?.clarify?.questions || [];
+    const decisions = input.action === "answer"
+      ? input.answers.map((a) => ({ question: questions.find((q) => q.id === a.id)?.question || "Your reply", answer: a.answer }))
+      : [];
+    const assumptions: string[] = input.action === "assume" ? (job.plan?.clarify?.assumptions || []) : [];
+    const noted = input.action === "answer" ? `DECISIONS (final; do not ask again):\n${decisions.map((d) => `- ${d.question} ${d.answer}`).join("\n")}\nDECISIONS ARE FINAL` : `ASSUMPTIONS ACCEPTED (final; do not ask again):\n${assumptions.map((a) => `- ${a}`).join("\n")}\nDECISIONS ARE FINAL`;
+    const request = `${job.request || job.prompt}\n\n${noted}`;
+    if (input.action === "answer") {
+      update = { status: "queued", locked_at: null, locked_by: null, attempt_count: 0, request, prompt: `${job.prompt}\n\n${noted}`, plan: { approval: "required", revision: input.revision + 1, decided: true, decisions }, progress: [...(job.progress || []), { at: now, message: "Planning with your answers.", percent: 10 }] };
+    } else {
+      const { clarify: _asked, ...draft } = job.plan || {};
+      update = { request, prompt: `${job.prompt}\n\n${noted}`, plan: { ...draft, approval: "awaiting", revision: input.revision + 1, decided: true, assumptions }, progress: [...(job.progress || []), { at: now, message: "Plan ready for your approval, using the stated assumptions. No code generation has started.", percent: 18 }] };
+    }
   } else if (input.action === "revise") {
-    update = { status: "queued", locked_at: null, locked_by: null, attempt_count: 0, plan: { approval: "required", revision: input.revision + 1 }, prompt: `${job.prompt}\n\nREQUESTED PLAN CHANGES:\n${input.changes}`, progress: [...(job.progress || []), { at: now, message: "Revising the plan before writing code.", percent: 10 }] };
+    update = { status: "queued", locked_at: null, locked_by: null, attempt_count: 0, plan: { approval: "required", revision: input.revision + 1, ...(job.plan?.decided ? { decided: true } : {}), ...(job.plan?.decisions ? { decisions: job.plan.decisions } : {}), ...(job.plan?.assumptions ? { assumptions: job.plan.assumptions } : {}) }, prompt: `${job.prompt}\n\nREQUESTED PLAN CHANGES:\n${input.changes}`, progress: [...(job.progress || []), { at: now, message: "Revising the plan before writing code.", percent: 10 }] };
   } else {
     update = { status: "cancelled", finished_at: now, locked_at: null, locked_by: null };
   }
   if (typeof update.prompt === "string" && update.prompt.length > 30000) return apiError("INVALID_INPUT", "This brief is too long. Please shorten the requested changes.");
-  const { data, error } = await admin.from("build_jobs").update(update).eq("id", job.id).eq("project_id", id).eq("status", "planning").eq("plan->>approval", "awaiting").eq("plan->>revision", String(input.revision)).is("locked_by", null).is("cancel_requested_at", null).select().maybeSingle();
+  const { data, error } = await admin.from("build_jobs").update(update).eq("id", job.id).eq("project_id", id).eq("status", "planning").eq("plan->>approval", awaiting).eq("plan->>revision", String(input.revision)).is("locked_by", null).is("cancel_requested_at", null).select().maybeSingle();
   if (error || !data) return apiError("CONFLICT", "Plan already reviewed or changed. Refresh to continue.");
   if (input.action === "cancel") await admin.rpc("settle_reservation", { p_build: job.id, p_reason: "plan cancelled" });
   // The brief and every approved change are kept with the project, so later
@@ -119,7 +138,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const recorded = await admin.rpc("record_approved_request", { p_build: job.id });
     if (recorded.error) console.error(`[builds] could not record the approved request for ${job.id}`);
   }
-  await admin.from("projects").update({ status: input.action === "cancel" ? (auth.project.active_sandbox_id ? "ready" : "draft") : "queued", last_error: null }).eq("id", id);
+  await admin.from("projects").update({ status: input.action === "cancel" ? (auth.project.active_sandbox_id ? "ready" : "draft") : input.action === "assume" ? "planning" : "queued", last_error: null }).eq("id", id);
   if (input.action === "revise" && job.conversation_id) await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: input.changes });
+  if ((input.action === "answer" || input.action === "assume") && job.conversation_id) {
+    const reply = input.action === "answer" ? input.answers.map((a) => a.answer).join(". ") : "Go ahead with your assumptions.";
+    await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: reply, metadata: { kind: "clarify_answer", build_id: job.id } });
+  }
   return json({ build: data }, { status: input.action === "cancel" ? 200 : 202 });
 }

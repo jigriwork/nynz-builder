@@ -273,12 +273,24 @@ async function processJob(job: Job) {
         const planned = await planApplication({ prompt: requestText, files: working, mode: job.mode === "edit" ? "edit" : "create", references, ...hooks });
         if (await cancelled(job)) { outcome = "cancelled"; return; }
         const estimate = estimateBuildCredits({ files: planned.manifest.files, mode: job.mode === "edit" ? "edit" : "create", existing: working, briefChars: requestText.length, minimumHold: RESERVE.generate() });
-        const plan = { ...planned.manifest.plan, manifest: planned.manifest, estimate, approval: "awaiting", revision: job.plan.revision || 1 };
-        const { error } = await db.from("build_jobs").update({ plan, status: "planning", locked_at: null, locked_by: null, progress: [...job.progress, { at: new Date().toISOString(), message: "Plan ready for your approval. No code generation has started.", percent: 18 }] }).eq("id", job.id).eq("locked_by", lockOwner);
+        // A vague brief pauses for one or two questions (only when the answer
+        // materially changes the app). The draft plan follows the recommended
+        // options, so "continue with my assumptions" needs no second request.
+        const clarify = planned.manifest.clarify;
+        const decided = Boolean(job.plan?.decided);
+        const ask = !decided && Boolean(clarify?.needed) && (clarify?.questions.length || 0) > 0;
+        const carried = { ...(job.plan?.decisions ? { decisions: job.plan.decisions } : {}), ...(job.plan?.assumptions ? { assumptions: job.plan.assumptions } : {}), ...(decided ? { decided: true } : {}) };
+        const plan = { ...planned.manifest.plan, manifest: planned.manifest, estimate, approval: ask ? "questions" : "awaiting", revision: job.plan.revision || 1, ...carried,
+          ...(ask ? { clarify: { questions: clarify!.questions.slice(0, 2), assumptions: clarify!.assumptions } } : {}) };
+        const ready = ask ? "A quick question before planning. No code generation has started." : "Plan ready for your approval. No code generation has started.";
+        const { error } = await db.from("build_jobs").update({ plan, status: "planning", locked_at: null, locked_by: null, progress: [...job.progress, { at: new Date().toISOString(), message: ready, percent: 18 }] }).eq("id", job.id).eq("locked_by", lockOwner);
         if (error) throw error;
         await db.from("projects").update({ status: "planning", last_error: null }).eq("id", job.project_id);
-        // The proposal stays in the conversation as its own entry, before any code is written.
-        if (job.conversation_id && planned.manifest.message.trim()) {
+        // The proposal (or the questions) stay in the conversation as their own entry, before any code is written.
+        if (job.conversation_id && ask) {
+          const asked = clarify!.questions.slice(0, 2).map((q) => q.question).join(" ");
+          await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: `Before I plan this, ${clarify!.questions.length === 1 ? "one quick choice" : "two quick choices"} that change how the app works. ${asked}`, metadata: { build_id: job.id, kind: "clarify_questions", revision: plan.revision } });
+        } else if (job.conversation_id && planned.manifest.message.trim()) {
           await db.from("messages").insert({ conversation_id: job.conversation_id, role: "assistant", content: planned.manifest.message.trim(), metadata: { build_id: job.id, kind: "plan_proposal", revision: plan.revision } });
         }
         awaitingApproval = true;

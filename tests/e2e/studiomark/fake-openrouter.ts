@@ -12,6 +12,16 @@ import { classesFromStylesRequest, heuristicCss } from "../../fixtures/heuristic
 export type Control = { cutOff: string[]; delayMs: number; costUsd: number; compileErrorOnce: boolean; coverageUnclear: boolean; app: "studiomark" | "small" };
 export type Logged = { n: number; at: number; schema: string; paths: string[]; group: string[]; maxTokens: number; truncated: boolean; id: string; brief: boolean; body: string };
 
+/** The questions the planner returns for a short, open brief such as "Build an orders app for my boutique." */
+export const VAGUE_CLARIFY = {
+  needed: true,
+  questions: [
+    { id: "data", question: "Should orders be kept only in this browser, or shared between your devices and staff?", why: "Sharing needs a database and sign-in, which changes how the whole app is built.", options: ["Only this browser", "Shared between devices"], recommended: "Only this browser" },
+    { id: "people", question: "Will more than one person use it, with different permissions?", why: "Owner and staff roles add sign-in and permission checks to every screen.", options: ["Just me", "Owner and staff roles"], recommended: "Just me" },
+  ],
+  assumptions: ["Orders are kept only in this browser, with no sign-in or shared database", "One person uses it, so there are no roles or permissions"],
+};
+
 export function startFakeOpenRouter(port: number) {
   const control: Control = { cutOff: [], delayMs: 0, costUsd: 0.02, compileErrorOnce: false, coverageUnclear: false, app: "studiomark" };
   const log: Logged[] = [];
@@ -34,7 +44,13 @@ export function startFakeOpenRouter(port: number) {
     let value: unknown;
     let truncated = false;
     let cutPath: string | null = null;
-    if (schema === "nynz_manifest") value = /TASK MODE: edit/.test(user) ? EDIT_MANIFEST : control.app === "small" ? SMALL_MANIFEST : MANIFEST;
+    if (schema === "nynz_manifest") {
+      const base = /TASK MODE: edit/.test(user) ? EDIT_MANIFEST : control.app === "small" ? SMALL_MANIFEST : MANIFEST;
+      // Like the planner rules: ask only for a short, open brief, never once decisions are final.
+      const brief = user.split("PRODUCT BRIEF:\n")[1]?.split("\n\nEXISTING FILES:")[0] || "";
+      const vague = !/DECISIONS ARE FINAL/.test(user) && brief.trim().length < 160 && !/decide yourself|FRONTEND ONLY/i.test(brief);
+      value = { ...base, clarify: vague ? VAGUE_CLARIFY : { needed: false, questions: [], assumptions: [] } };
+    }
     else if (schema === "nynz_coverage") value = { steps: (user.split("APPROVED PLAN STEPS:\n")[1]?.split("\n\n")[0] || "").split("\n").filter(Boolean).map((line, index) => ({ step: line.replace(/^\d+\.\s*/, ""), status: control.coverageUnclear && index === 0 ? "unclear" : "built", evidence: "src/App.tsx", note: control.coverageUnclear && index === 0 ? "toggle wiring not shown" : "" })) };
     else if (schema === "nynz_styles") value = { files: [{ path: "src/index.css", content: heuristicCss(classesFromStylesRequest(user)) }] };
     else if (schema === "nynz_edit") {

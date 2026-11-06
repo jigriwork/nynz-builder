@@ -20,6 +20,7 @@ import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
 import { BuildIssueCard } from "@/components/build-issue-card";
 import { TrialPauseCard, type TrialPause } from "@/components/trial-pause-card";
 import { ActivityDetails, BuildTimeline, UnderstoodBlock, VerifiedBlock, type StepCharge } from "@/components/builder/build-activity";
+import { ClarifyCard, type ClarifyAnswer, type ClarifyQuestion } from "@/components/builder/clarify-card";
 import { describeIssue } from "@/lib/platform/build-issues";
 import { ProjectFileSearch } from "@/components/project-file-search";
 
@@ -27,7 +28,7 @@ type Project = { id: string; name: string; description: string; status: string; 
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
 type Message = { id: string; role: string; content: string; created_at: string; metadata?: { kind?: string; build_id?: string } | null };
-type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; assumptions?: string[]; browser_test?: { passed?: boolean; checked?: string[] }; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
+type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; assumptions?: string[]; decisions?: Array<{ question: string; answer: string }>; clarify?: { questions: ClarifyQuestion[]; assumptions: string[] }; browser_test?: { passed?: boolean; checked?: string[] }; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
 
@@ -167,7 +168,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const resumeInfo = stoppedBuild?.resumable ? { saved: stoppedBuild.checkpoint?.done?.length || 0, total: plannedTotal, failedStep: stoppedBuild.checkpoint?.failed_step?.label || null, message: stoppedBuild.status === "cancelled" ? stoppedBuild.error_message : null } : null;
   const coverageGaps = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.missing || [] : [];
   const coverageUnconfirmed = latestFinished?.status === "succeeded" ? latestFinished.plan?.coverage?.unconfirmed || [] : [];
-  const running = mounted ? builds.find((build) => active.has(build.status) && build.plan?.approval !== "awaiting") : undefined;
+  const running = mounted ? builds.find((build) => active.has(build.status) && !["awaiting", "questions"].includes(build.plan?.approval || "")) : undefined;
+  const pendingQuestions = builds.find(build => build.status === "planning" && build.plan?.approval === "questions");
   const runningId = running?.id;
   const runningStatus = running?.status;
   const pendingPlanKey = pendingPlan ? `${pendingPlan.id}:${pendingPlan.plan?.revision}` : "";
@@ -312,6 +314,12 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       else refuse(body, "Could not answer right now");
       return;
     }
+    if (pendingQuestions) {
+      // A typed reply answers the questions in the user's own words.
+      setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
+      await answerQuestions({ action: "answer", answers: [{ id: "reply", answer: text }] }).catch(() => setPrompt(text));
+      return;
+    }
     if (pendingPlan) {
       await reviewPlan({ action: "revise", changes: text }).catch(() => setPrompt(text));
       return;
@@ -320,6 +328,19 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
     const body = await response.json();
     if (response.ok) { setBuilds((value) => [body.build, ...value]); setTrialPause(null); } else refuse(body, "Could not start this request");
+  }
+
+  // When NYNZ asks before planning, "Preparing your plan" is no longer accurate.
+  useEffect(() => { if (pendingQuestions) setNotice((value) => value.startsWith("Preparing your plan") ? "" : value); }, [pendingQuestions]);
+
+  /** Answers to clarifying questions, or "continue with my assumptions". */
+  async function answerQuestions(input: ClarifyAnswer) {
+    if (!pendingQuestions) return;
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingQuestions.id, revision: pendingQuestions.plan?.revision }) });
+    const body = await response.json();
+    if (!response.ok) { refuse(body, "Could not send your answers"); await refresh(); throw new Error(body.error || "Could not send your answers"); }
+    setNotice(input.action === "answer" ? "Thanks. Planning with your answers." : "Planning with the stated assumptions.");
+    await refresh();
   }
 
   async function reviewPlan(input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) {
@@ -459,8 +480,11 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     }
     for (const build of builds) {
       if (!build.plan?.summary || !["planning", "queued", "generating", "installing", "running", "validating", "succeeded"].includes(build.status)) continue;
-      const planEvent = [...(build.progress || [])].reverse().find(event => event.message?.startsWith("Plan ready for your approval"));
-      items.push({ kind: "plan", at: planEvent?.at || build.created_at, build });
+      const planEvent = [...(build.progress || [])].reverse().find(event => event.message?.startsWith("Plan ready for your approval") || event.message?.startsWith("A quick question before planning"));
+      // The card follows NYNZ's message that introduces it (the proposal or the questions).
+      const intro = [...messages].reverse().find(message => message.metadata?.build_id === build.id && ["plan_proposal", "clarify_questions"].includes(message.metadata?.kind || ""));
+      const at = planEvent?.at || build.created_at;
+      items.push({ kind: "plan", at: intro && intro.created_at >= at ? `${intro.created_at}~` : at, build });
     }
     return items.sort((left, right) => left.at.localeCompare(right.at));
   }, [messages, builds]);
@@ -534,7 +558,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           </div>}
 
           <div className="space-y-5">
-            <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "build" ? <motion.div key={`build-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}><BuildTimeline build={item.build} charges={charges[item.build.id]} /></motion.div> : item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} build={pendingPlan} brief={project.brief} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
+            <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "build" ? <motion.div key={`build-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}><BuildTimeline build={item.build} charges={charges[item.build.id]} /></motion.div> : item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingQuestions?.id ? <ClarifyCard questions={pendingQuestions.plan?.clarify?.questions || []} assumptions={pendingQuestions.plan?.clarify?.assumptions || []} onAnswer={answerQuestions} /> : item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} build={pendingPlan} brief={project.brief} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
               <div className={`mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40 ${message.role === "user" ? "justify-end" : ""}`}>{message.role === "user" ? "You" : <><NynzIcon className="h-4 w-4" /> NYNZ</>}</div>
               <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}{message.metadata?.kind === "build_complete" && (() => { const done = builds.find(build => build.id === message.metadata?.build_id); return done ? <div className="whitespace-normal"><VerifiedBlock build={done} /><ActivityDetails build={done} charges={charges[done.id]} /></div> : null; })()}</div>
             </motion.div>)(item.message))}</AnimatePresence>

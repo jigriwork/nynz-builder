@@ -14,7 +14,7 @@ export type ActivityBuild = {
   id: string; status: string; mode?: string; request?: string | null; created_at: string; cancel_requested_at?: string | null;
   error_code?: string | null; resume_of?: string | null; resumable?: boolean;
   progress?: Array<{ at?: string; message?: string; percent?: number }>;
-  plan?: { summary?: string; steps?: string[]; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> }; assumptions?: string[]; browser_test?: { passed?: boolean; checked?: string[]; at?: string } } | null;
+  plan?: { summary?: string; steps?: string[]; decisions?: Array<{ question: string; answer: string }>; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> }; assumptions?: string[]; browser_test?: { passed?: boolean; checked?: string[]; at?: string } } | null;
   checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null;
 };
 export type StepCharge = { step: string; credits: number };
@@ -153,11 +153,13 @@ export function UnderstoodBlock({ build, brief }: { build: ActivityBuild; brief?
   const stepCount = build.plan?.steps?.length || 0;
   const applied = (brief?.changes || []).filter((c) => c.status === "applied").length;
   const assumptions = (build.plan?.assumptions || []).filter(Boolean);
+  const decisions = (build.plan?.decisions || []).filter((d) => d.answer);
   return <div data-testid="what-i-understood" className="mt-3 rounded-xl border border-white/[.07] bg-white/[.03] p-3 text-[12px] leading-5">
     <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[.14em] text-white/55">What I understood</p>
     {request && <p className="text-white/75"><span className="text-white/55">You asked for: </span>{request.length > 220 ? `${request.slice(0, 220)}…` : request}</p>}
     {(stepCount > 0 || fileCount > 0) && <p className="mt-1 text-white/75"><span className="text-white/55">{build.mode === "edit" ? "I'll change: " : "I'll create: "}</span>{[stepCount ? `${stepCount} plan step${stepCount === 1 ? "" : "s"}` : "", fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"}` : ""].filter(Boolean).join(" across ")}, listed below.</p>}
     {build.mode === "edit" && brief?.original && <p className="mt-1 text-white/75"><span className="text-white/55">I'll keep: </span>your original brief{applied ? ` and ${applied} earlier change${applied === 1 ? "" : "s"}` : ""}, so existing features stay as they are.</p>}
-    {assumptions.length > 0 && <div className="mt-1.5"><p className="text-white/55">Assumptions I made:</p><ul className="list-inside list-disc text-white/75">{assumptions.map((a) => <li key={a}>{a}</li>)}</ul></div>}
+    {decisions.length > 0 && <div className="mt-1.5"><p className="text-white/55">Your decisions:</p><ul className="list-inside list-disc text-white/75">{decisions.map((d) => <li key={d.question}>{d.question === "Your reply" ? d.answer : `${d.question} ${d.answer}`}</li>)}</ul></div>}
+    {assumptions.length > 0 && <div className="mt-1.5"><p className="text-white/55">Assumptions I made (you chose to continue with them):</p><ul className="list-inside list-disc text-white/75">{assumptions.map((a) => <li key={a}>{a}</li>)}</ul></div>}
   </div>;
 }
