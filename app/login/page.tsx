@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff } from "lucide-react";
 import { NynzBrand } from "@/components/nynz-brand";
+import { InviteOnlyPanel } from "@/components/auth/invite-only-panel";
+
+// NYNZ is invite-only while in testing; set NEXT_PUBLIC_SIGNUPS_OPEN=true to reopen signups.
+const SIGNUPS_OPEN = process.env.NEXT_PUBLIC_SIGNUPS_OPEN === "true";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -26,6 +30,7 @@ export default function LoginPage() {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const requested = params.get("next") || "";
     if (requested.startsWith("/") && !requested.startsWith("//") && !requested.startsWith("/api/")) setNext(requested);
+    if (params.get("mode") === "signup") setMode("signup");
     const notice = params.get("notice") || (hash.get("error_code") === "otp_expired" ? "link_expired" : hash.get("error") ? "link_invalid" : "");
     if (notice === "link_expired") setMessage("That email link has expired or was already used. Request a new one below.");
     else if (notice === "link_invalid") setMessage("That email link is not valid. Request a new one below.");
@@ -67,7 +72,7 @@ export default function LoginPage() {
 
       <section className="mx-auto w-full max-w-[480px]">
         <div className="rounded-[26px] border border-white/[.11] bg-[#101823]/90 p-2 shadow-[0_40px_120px_rgba(0,0,0,.5)] backdrop-blur-2xl">
-          <form onSubmit={submit} className="rounded-[20px] border border-white/[.06] bg-[#0b121b] p-6 sm:p-8">
+          {isSignup && !SIGNUPS_OPEN ? <InviteOnlyPanel onSignIn={() => { setMode("signin"); setMessage(""); }} /> : <form onSubmit={submit} className="rounded-[20px] border border-white/[.06] bg-[#0b121b] p-6 sm:p-8">
             <div className="mb-8"><p className="text-[10px] font-medium uppercase tracking-[.2em] text-[#c7ff4a]">{isSignup ? "Create your workspace" : "Welcome back"}</p><h2 className="mt-3 text-3xl font-medium tracking-[-.05em] sm:text-4xl">{isSignup ? "Start building." : "Continue building."}</h2><p className="mt-3 text-sm leading-6 text-white/38">{isSignup ? "One account for your projects, builds and saved versions." : "Sign in to open your projects and active builds."}</p></div>
             <label className="mb-2 block text-[11px] font-medium text-white/60" htmlFor="email">Email address</label>
             <input id="email" className="mb-5 h-12 w-full rounded-xl border border-white/[.1] bg-white/[.035] px-4 text-sm text-white caret-[#c7ff4a] outline-none transition placeholder:text-white/18 focus:border-[#c7ff4a]/45 focus:bg-white/[.05]" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" autoComplete="email" required />
@@ -76,8 +81,8 @@ export default function LoginPage() {
             {message && <p role="alert" className={`mb-5 rounded-xl border p-3 text-xs leading-5 ${message.startsWith("Check") ? "border-[#c7ff4a]/20 bg-[#c7ff4a]/[.06] text-[#c7ff4a]" : "border-red-400/20 bg-red-400/[.06] text-red-300"}`}>{message}</p>}
             <button disabled={loading} className="group flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-[#c7ff4a] text-[13px] font-semibold text-[#071019] transition hover:bg-[#d5ff72] disabled:opacity-45">{loading ? "Please wait…" : isSignup ? "Create workspace" : "Sign in"}{!loading && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}</button>
             <p className="mt-4 text-center text-[11px] leading-5 text-white/45">{isSignup?"By creating an account, you agree to our ":"Read our "}<Link href="/terms" className="text-white/75 underline underline-offset-2">Terms</Link>{isSignup?" and acknowledge our ":" and "}<Link href="/privacy" className="text-white/75 underline underline-offset-2">Privacy policy</Link>. <Link href="/contact" className="text-white/75 underline underline-offset-2">Contact NYNZ</Link></p>
-            <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/32"><span>{isSignup ? "Already have an account?" : "New to NYNZ?"}</span><button type="button" onClick={() => { setMode(isSignup ? "signin" : "signup"); setMessage(""); }} className="font-medium text-[#c7ff4a] hover:text-[#d5ff72]">{isSignup ? "Sign in" : "Create one"}</button></div>
-          </form>
+            <div className="mt-5 flex items-center justify-center gap-2 text-xs text-white/32"><span>{isSignup ? "Already have an account?" : "New to NYNZ?"}</span><button type="button" onClick={() => { setMode(isSignup ? "signin" : "signup"); setMessage(""); }} className="font-medium text-[#c7ff4a] hover:text-[#d5ff72]">{isSignup ? "Sign in" : SIGNUPS_OPEN ? "Create one" : "Request an invite"}</button></div>
+          </form>}
         </div>
       </section>
     </div>

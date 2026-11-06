@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: { default: "Admin console", template: "%s · NYNZ admin" }, robots: { index: false, follow: false } };
 
 const NAV: Array<[string, string, string]> = [
-  ["/admin", "Overview", "overview.read"], ["/admin/users", "Users", "users.read"], ["/admin/projects", "Projects and builds", "projects.read"],
+  ["/admin", "Overview", "overview.read"], ["/admin/users", "Users", "users.read"], ["/admin/waitlist", "Waitlist", "users.read"], ["/admin/projects", "Projects and builds", "projects.read"],
   ["/admin/credits", "Credits", "credits.read"], ["/admin/billing", "Plans and payments", "billing.read"], ["/admin/providers", "Providers and spend", "providers.read"],
   ["/admin/team", "Team", "team.read"], ["/admin/audit", "Audit history", "audit.read"],
 ];

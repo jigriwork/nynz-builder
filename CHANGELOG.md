@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.1: invite-only signups and working email links
+
+- Signups are invite-only while NYNZ is in testing. "Create one" now shows a thank-you with the NYNZ logo, explains the private testing phase and asks for an email to receive an invite (`/api/waitlist`, table `signup_waitlist`). Staff see requests under Admin, then Waitlist, and invite with one click (the existing audited customer invitation). Set `NEXT_PUBLIC_SIGNUPS_OPEN=true` to reopen signups in the app; Supabase Auth signups are also turned off.
+- Supabase Auth URL settings: the Site URL was `http://localhost:3000` with no allowed redirect URLs, so confirmation links led to an unreachable localhost page. It is now `https://www.nynz.in`, with `/auth/callback` allowed.
+- Recovery, invitation and confirmation emails link straight to `/auth/callback` with a one-time token, which the callback verifies on the server. Password resets and staff or customer invitations requested from the server were previously sent in a form the callback could not read, so they ended on "link invalid".
+
 ## 0.5.0: preview billing sessions and the revised trial (deployed 2026-11-05 at 557df2e; switchover 17:10:59 UTC)
 
 - One billing session per sandbox: the build's sandbox and its later preview are the same runtime and are charged once. The first 600 s are held when the sandbox is created; every preview or terminal visit tops up the hold before runtime is extended (refused if the account cannot cover it); the actual running time is charged once when the sandbox stops (shutdown record, provider pause time, or NYNZ's visit record) and the rest of the hold is released. A visit after a pause opens a new segment. Duplicate visits and settlements do not double-charge. Missing evidence is charged as a labelled estimate and later reconciled with refunds only. Replaces the fixed 10-minute clock windows and the separate 600 s build-sandbox charge.
