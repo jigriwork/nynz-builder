@@ -11,7 +11,7 @@ describe("log redaction", () => {
   });
 
   it("removes Supabase keys, JWTs and preview session tokens", () => {
-    const text = "auth eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2lnbmF0dXJl sb_secret_abcdefghijkl url?ny_session=payload.sig&x=1 Bearer abc.def e2b_0123456789abcdef";
+    const text = "auth eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2lnbmF0dXJl sb_secret_abcdefghijkl url?ny_session=payload.sig&x=1 Bearer abc.def e2b_0123456789abcdef"; // nynz-secret-scan: allow (fake test value)
     const out = redact(text, {});
     expect(out).not.toMatch(/eyJ|sb_secret_abc|payload\.sig|abc\.def|e2b_0123/);
     expect(out).toContain("ny_session=[redacted]");

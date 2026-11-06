@@ -43,6 +43,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir preview-host install --frozen-lockfile
+      - name: Secret scan (tracked files)
+        run: pnpm exec tsx scripts/check-secrets.ts
+      - name: Dependency audit (fails on critical advisories in production dependencies)
+        run: |
+          pnpm audit --prod --audit-level critical
+          pnpm --dir preview-host audit --prod --audit-level critical
       - run: pnpm typecheck
       - run: pnpm lint
       - name: Unit, database and multi-connection concurrency tests

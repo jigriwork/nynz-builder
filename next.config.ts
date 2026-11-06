@@ -12,6 +12,21 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_NYNZ_VERSION: pkg.version,
   },
+  // Security headers for NYNZ's own pages. Previews and published sites are
+  // served by the separate preview host, which sets its own headers; the
+  // builder may still frame them because frame-src is not restricted here.
+  async headers() {
+    return [{
+      source: "/:path*",
+      headers: [
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self' https://api.razorpay.com https://checkout.razorpay.com" },
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
+        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(self \"https://checkout.razorpay.com\" \"https://api.razorpay.com\")" },
+      ],
+    }];
+  },
   images: {
     remotePatterns: [
       {

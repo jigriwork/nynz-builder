@@ -1,6 +1,6 @@
 {
   "name": "nynz-builder",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.9.0",
-    "@mendable/firecrawl-js": "^4.3.3",
+    "@mendable/firecrawl-js": "4.51.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/typography": "^0.5.16",
@@ -71,7 +71,8 @@
   },
   "pnpm": {
     "overrides": {
-      "sharp": "0.35.5"
+      "sharp": "0.35.5",
+      "prismjs": "^1.30.0"
     }
   }
 }

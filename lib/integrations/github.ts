@@ -32,7 +32,7 @@ export function verifyState(state: string, secret: string, now = Date.now()) {
   try { const data = JSON.parse(Buffer.from(payload, "base64url").toString()); return data.e > now ? String(data.u) : null; } catch { return null; }
 }
 
-const SECRET_PATTERNS: Array<[string, RegExp]> = [
+export const SECRET_PATTERNS: Array<[string, RegExp]> = [
   ["private key", /-----BEGIN (?:RSA |EC |OPENSSH |)PRIVATE KEY-----/], ["Supabase secret key", /\bsb_secret_[A-Za-z0-9_-]{10,}/],
   ["service-role JWT", /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*cm9sZSI6InNlcnZpY2Vfcm9sZS[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+/], ["Stripe/Razorpay live secret", /\b(?:sk_live_|rzp_live_)[A-Za-z0-9]{10,}/],
   ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/], ["GitHub token", /\bgh[pousr]_[A-Za-z0-9]{30,}\b/], ["OpenAI/OpenRouter key", /\bsk-(?:or-v1-|proj-)?[A-Za-z0-9_-]{20,}/],

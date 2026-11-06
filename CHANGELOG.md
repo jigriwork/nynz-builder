@@ -3,6 +3,14 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.8 (for review): request-origin protection, security headers, CI checks, uploads without a file-count cap
+
+- Data-changing API requests (POST, PUT, PATCH, DELETE) are refused with 403 when the browser reports another origin, including NYNZ previews and published sites on nynz.in subdomains (same-site, so SameSite cookies did not stop them). The signed Razorpay webhook is exempt; non-browser clients and auth flows are unaffected.
+- NYNZ's pages send Content-Security-Policy (frame-ancestors 'none', base-uri, object-src, form-action incl. Razorpay checkout), X-Frame-Options DENY, nosniff, a referrer policy and a permissions policy. Previews keep their own headers.
+- CI: a secret scan of tracked files (scripts/check-secrets.ts, the export patterns plus database URLs with passwords) and a dependency audit that fails on critical advisories (app and preview host).
+- Dependencies: @mendable/firecrawl-js 4.3.4 to 4.51.0 (axios, form-data and follow-redirects advisories) and prismjs 1.30 for the code viewer. Production advisories 71 to 36; the rest are build-time tooling or need the zod 4 migration (backlog).
+- Project attachments: the 20-file cap is removed; the 10 MB per file and 50 MB per project rules, content checks and ownership checks stay. Listing pages through every file. Oversized uploads get a clear 413 instead of a server error.
+
 ## 0.5.7: Next.js security patch
 
 - Next.js 15.5.27 to 15.5.28: fixes a published critical advisory (unauthenticated remote code execution in the image optimizer, which NYNZ uses) and a high denial-of-service advisory in App Router server actions.

@@ -33,8 +33,8 @@ describe("GitHub App", () => {
   it("excludes environment files and refuses secrets", () => {
     const { included, refused } = prepareExport([
       { path: "src/App.tsx", content: "ok" }, { path: ".env.local", content: "A=1" },
-      { path: "src/config.ts", content: 'const k = "sb_secret_abcdefghijklmnop";' },
-      { path: "key.pem", content: "-----BEGIN PRIVATE KEY-----\nabc" },
+      { path: "src/config.ts", content: 'const k = "sb_secret_abcdefghijklmnop";' }, // nynz-secret-scan: allow (fake test value)
+      { path: "key.pem", content: "-----BEGIN PRIVATE KEY-----\nabc" }, // nynz-secret-scan: allow (fake test value)
     ]);
     expect(included.map((f) => f.path)).toEqual(["src/App.tsx"]);
     expect(refused.map((r) => r.path)).toEqual([".env.local", "src/config.ts", "key.pem"]);

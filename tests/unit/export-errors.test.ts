@@ -35,8 +35,8 @@ describe("export archive", () => {
 describe("customer-safe errors", () => {
   it("returns a stable code and reference without internal detail, logging a redacted cause", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    process.env.OPENROUTER_API_KEY = "sk-or-v1-secretsecretsecret";
-    const response = apiError("INTERNAL", "We could not complete that request.", { cause: new Error('duplicate key value violates unique constraint "projects_pkey" using sk-or-v1-secretsecretsecret'), scope: "test" });
+    process.env.OPENROUTER_API_KEY = "sk-or-v1-secretsecretsecret"; // nynz-secret-scan: allow (fake test value)
+    const response = apiError("INTERNAL", "We could not complete that request.", { cause: new Error('duplicate key value violates unique constraint "projects_pkey" using sk-or-v1-secretsecretsecret'), scope: "test" }); // nynz-secret-scan: allow (fake test value)
     const body = await response.json();
     expect(response.status).toBe(500);
     expect(body).toEqual({ error: "We could not complete that request.", code: "INTERNAL", ref: expect.stringMatching(/^[0-9a-f-]{36}$/) });
@@ -44,7 +44,7 @@ describe("customer-safe errors", () => {
     expect(response.headers.get("x-nynz-ref")).toBe(body.ref);
     const logged = spy.mock.calls.map((c) => c.join(" ")).join("\n");
     expect(logged).toContain(body.ref);
-    expect(logged).not.toContain("sk-or-v1-secretsecretsecret");
+    expect(logged).not.toContain("sk-or-v1-secretsecretsecret"); // nynz-secret-scan: allow (fake test value)
     spy.mockRestore();
   });
   it("maps database function codes to safe messages", async () => {

@@ -17,6 +17,7 @@ import { BuildMeter } from "../lib/billing/meter";
 import { BudgetError } from "../lib/billing/budget-error";
 import { reconcileResources } from "../lib/platform/reconcile";
 import { e2bSandboxInfo, reconcileEstimatedSessions, settleSandboxSessions } from "../lib/billing/sessions";
+import { listProjectAssets } from "../lib/platform/project-assets";
 import { paisePerCredit, sandboxPaisePerSecond } from "../lib/billing/pricing";
 import { readFileSync } from "node:fs";
 import { watchBuild } from "../lib/platform/build-control";
@@ -122,8 +123,7 @@ async function assertNotCancelled(job: Job) {
 }
 
 async function projectAssets(projectId: string) {
-  const { data } = await db.storage.from("project-assets").list(projectId, { limit: 100 });
-  const names = (data || []).filter((item) => item.id).map((item) => item.name);
+  const names = (await listProjectAssets(db, projectId)).map((item) => item.name);
   return Promise.all(names.map(async (name) => {
     const { data: file, error } = await db.storage.from("project-assets").download(`${projectId}/${name}`);
     if (error || !file) throw error || new Error(`Could not download asset ${name}`);

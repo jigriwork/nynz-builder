@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { allowedOrigins, crossOriginWrite } from "@/lib/http/origin";
 
 const PROTECTED_PAGES = ["/dashboard", "/projects", "/admin", "/billing", "/account"];
 const SUPPORTED_API = ["/api/projects", "/api/builds", "/api/admin", "/api/billing", "/api/account/invitations", "/api/github"];
@@ -8,6 +9,10 @@ const PUBLIC_API = ["/api/webhooks/razorpay", "/api/account/password-reset", "/a
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  // Data-changing API requests must come from NYNZ's own pages.
+  const refused = crossOriginWrite({ method: request.method, path, origin: request.headers.get("origin"), secFetchSite: request.headers.get("sec-fetch-site"),
+    allowed: allowedOrigins(request.headers.get("host"), request.nextUrl.protocol) });
+  if (refused) return NextResponse.json({ error: "This request must come from NYNZ itself.", code: "FORBIDDEN" }, { status: 403, headers: { "cache-control": "no-store" } });
   if (PUBLIC_API.some((prefix) => path === prefix)) return NextResponse.next();
   if (path.startsWith("/api/") && !SUPPORTED_API.some((prefix) => path.startsWith(prefix))) {
     return NextResponse.json({ error: "Not found", code: "NOT_FOUND" }, { status: 404 });
