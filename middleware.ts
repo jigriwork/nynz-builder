@@ -3,8 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_PAGES = ["/dashboard", "/projects", "/admin", "/billing", "/account"];
 const SUPPORTED_API = ["/api/projects", "/api/builds", "/api/admin", "/api/billing", "/api/account/invitations", "/api/github"];
-// Authenticated by their own mechanism (provider signature, generic recovery response).
-const PUBLIC_API = ["/api/webhooks/razorpay", "/api/account/password-reset"];
+// Authenticated by their own mechanism (provider signature, generic recovery and waitlist responses).
+const PUBLIC_API = ["/api/webhooks/razorpay", "/api/account/password-reset", "/api/waitlist"];
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;

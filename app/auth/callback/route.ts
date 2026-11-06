@@ -25,7 +25,10 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
     if (error) return fail(/expired/i.test(error.message) ? "link_expired" : "link_invalid");
   } else {
-    return fail("link_invalid");
+    // Links from emails NYNZ requests on the server (password reset,
+    // invitations) carry the session after "#", which only the browser can
+    // read. The browser keeps that part across this redirect.
+    return NextResponse.redirect(new URL(`/auth/complete?next=${encodeURIComponent(next)}`, url.origin));
   }
   return NextResponse.redirect(new URL(type === "recovery" && next === "/dashboard" ? "/reset-password" : next, url.origin));
 }
