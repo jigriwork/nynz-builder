@@ -3,6 +3,14 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.9: catalog uploads, readable PDFs and conversational chat
+
+- Project attachments now upload directly from the signed-in browser to private Supabase Storage after NYNZ authorizes the project and file. This bypasses Vercel's 4.5 MB function-body ceiling without making the bucket public. The per-file limit is 25 MB and the existing 50 MB project total, ownership checks, file signatures and type validation remain enforced.
+- The worker extracts selectable text from uploaded PDFs, CSV, JSON and text files and supplies it as untrusted reference data to planning and generation. Catalog product names, descriptions and prices can therefore be used in a requested website change. Scanned/image-only PDFs are identified instead of being presented as successfully read.
+- Short conversation such as “hi”, “thanks”, “who are you?” and “what can you do?” receives an immediate chat response without a build job, plan hold or code change. Messages that also contain an app instruction still use the plan-and-build flow.
+- The composer shows a visible “Thinking…” response immediately while a message is being handled. Uploads show transfer and validation states, and network/non-JSON failures no longer leave the attachment button stuck.
+- Local release evidence: full suite 275 passed / 7 skipped; production build passed; focused browser upload/security journey 8/8, including a 14 MB PDF, more than 20 files, 25/50 MB limits, content validation, cross-account isolation, origin protection and security headers.
+
 ## 0.5.8 (for review): request-origin protection, security headers, CI checks, uploads without a file-count cap
 
 - Data-changing API requests (POST, PUT, PATCH, DELETE) are refused with 403 when the browser reports another origin, including NYNZ previews and published sites on nynz.in subdomains (same-site, so SameSite cookies did not stop them). The signed Razorpay webhook is exempt; non-browser clients and auth flows are unaffected.

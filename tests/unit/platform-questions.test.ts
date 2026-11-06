@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPlatformQuestion } from "../../lib/platform/platform-questions";
+import { classifyCasualMessage, classifyPlatformQuestion } from "../../lib/platform/platform-questions";
 
 const APPROVED = "NYNZ was founded by Adib Sattar from Berhampur, Odisha, India.";
 const kind = (text: string) => classifyPlatformQuestion(text)?.kind ?? null;
@@ -17,7 +17,7 @@ describe("NYNZ identity questions in chat", () => {
     expect(answer?.reply).toMatch(/Berhampur|बरहामपुर/);
   });
 
-  it.each(["Change my app's founder name to Rahul", "Create a founder profile page", "Add a founder section to the about page", "Build a page about who founded our bakery", "Who founded the company shown in my app's about section?", "Make the header bigger", "Did you make this app?", "Who are you?", "Set the footer text to: Made by Rahul, founder of Kiro", "Show the founder's photo on the team page", ""])("leaves %s to the normal build flow", (text) => {
+  it.each(["Change my app's founder name to Rahul", "Create a founder profile page", "Add a founder section to the about page", "Build a page about who founded our bakery", "Who founded the company shown in my app's about section?", "Make the header bigger", "Did you make this app?", "Set the footer text to: Made by Rahul, founder of Kiro", "Show the founder's photo on the team page", ""])("leaves %s to the normal build flow", (text) => {
     expect(kind(text)).toBeNull();
   });
 
@@ -39,5 +39,17 @@ describe("NYNZ identity questions in chat", () => {
     for (const text of ["Who founded NYNZ?", "Tumhara founder kaun hai?", "आपको किसने बनाया?"]) {
       expect(classifyPlatformQuestion(text)!.reply).not.toMatch(/first|award|funded|investor|degree|CEO|IIT|startup of the year/i);
     }
+  });
+});
+
+describe("casual project chat", () => {
+  it.each(["hi", "Hello!", "hey there", "Namaste", "good morning", "how are you?"])('answers "%s" without starting a build', (text) => {
+    expect(classifyCasualMessage(text)?.kind).toBe("greeting");
+  });
+
+  it("answers identity chat without starting a build", () => expect(classifyCasualMessage("Who are you?")?.kind).toBe("identity"));
+
+  it.each(["hi, change the header", "thanks, now add five products", "help me rename the site", "hello build a shop"])('keeps app work in "%s" on the build path', (text) => {
+    expect(classifyCasualMessage(text)).toBeNull();
   });
 });

@@ -16,7 +16,8 @@ import { BuildPipeline, buildPercent, ease } from "@/components/nynz-motion";
 import { formatDateTime } from "@/lib/format-date";
 import { ProjectNameDialog } from "@/components/project-name-dialog";
 import { ProjectIntegrations } from "@/components/project-integrations";
-import { classifyPlatformQuestion } from "@/lib/platform/platform-questions";
+import { classifyConversationMessage } from "@/lib/platform/platform-questions";
+import { createClient as createBrowserSupabase } from "@/lib/supabase/client";
 import { BuildIssueCard } from "@/components/build-issue-card";
 import { TrialPauseCard, type TrialPause } from "@/components/trial-pause-card";
 import { ActivityDetails, BuildTimeline, UnderstoodBlock, VerifiedBlock, type StepCharge } from "@/components/builder/build-activity";
@@ -140,6 +141,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [assetBusy, setAssetBusy] = useState(false);
+  const [thinking, setThinking] = useState(false);
   // Unsaved manual edits, keyed by path, with the hash the edit started from.
   const [dirty, setDirty] = useState<Record<string, { content: string; baseHash: string | null }>>({});
   const dirtyRef = useRef(dirty);
@@ -302,11 +304,13 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     event?.preventDefault();
     const text = promptRef.current;
     if (!text.trim()) return;
-    // Questions about NYNZ itself are answered in chat even during a build or plan review.
-    const platformQuestion = classifyPlatformQuestion(text);
-    if (running && !platformQuestion) return;
+    // Questions and small talk are answered in chat even during a build or plan review.
+    const conversationMessage = classifyConversationMessage(text);
+    if (running && !conversationMessage) return;
     setPrompt("");
-    if (platformQuestion) {
+    setThinking(true);
+    try {
+    if (conversationMessage) {
       setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
       const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
       const body = await response.json().catch(() => ({}));
@@ -328,6 +332,12 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
     const body = await response.json();
     if (response.ok) { setBuilds((value) => [body.build, ...value]); setTrialPause(null); } else refuse(body, "Could not start this request");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not send this message");
+      setPrompt(text);
+    } finally {
+      setThinking(false);
+    }
   }
 
   // When NYNZ asks before planning, "Preparing your plan" is no longer accurate.
@@ -416,14 +426,27 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   async function uploadAsset(file: File) {
     if (!file || assetBusy) return;
     setAssetBusy(true);
-    const form = new FormData();
-    form.set("file", file);
-    const response = await fetch(`/api/projects/${project.id}/assets`, { method: "POST", body: form });
-    const body = await response.json();
-    if (response.ok) { setAssets((value) => [body.asset, ...value]); setNotice(`${body.asset.name} uploaded. Mention it in your next request so NYNZ can place it.`); }
-    else setNotice(body.error || "Could not upload this file");
-    if (assetInput.current) assetInput.current.value = "";
-    setAssetBusy(false);
+    setNotice(`Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)…`);
+    try {
+      const prepared = await fetch(`/api/projects/${project.id}/assets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "prepare", name: file.name, type: file.type, size: file.size }) });
+      const authorization = await prepared.json().catch(() => ({}));
+      if (!prepared.ok) throw new Error(authorization.error || "Could not authorize this upload");
+      const upload = authorization.upload as { path: string; token: string; storageName: string };
+      const supabase = createBrowserSupabase();
+      const { error } = await supabase.storage.from("project-assets").uploadToSignedUrl(upload.path, upload.token, file, { contentType: file.type, upsert: false });
+      if (error) throw new Error(error.message || "The file transfer failed");
+      setNotice(`Checking ${file.name}…`);
+      const completed = await fetch(`/api/projects/${project.id}/assets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", storageName: upload.storageName }) });
+      const body = await completed.json().catch(() => ({}));
+      if (!completed.ok) throw new Error(body.error || "Could not verify this upload");
+      setAssets((value) => [body.asset, ...value]);
+      setNotice(`${body.asset.name} uploaded and ready. Mention the catalog in your next request.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not upload this file");
+    } finally {
+      if (assetInput.current) assetInput.current.value = "";
+      setAssetBusy(false);
+    }
   }
 
   async function removeAsset(asset: Asset) {
@@ -565,6 +588,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
             <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-5 sm:mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> Live activity</div><BuildActivity status={running.status} progress={lastProgress} percent={progressPercent} phase={activityTick} /></motion.div>}</AnimatePresence>
 
+            <AnimatePresence>{thinking && !running && <motion.div role="status" aria-live="polite" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> NYNZ</div><div className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md border border-white/[.07] bg-white/[.025] px-4 py-3 text-[13px] text-white/60"><LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#c7ff4a]" />Thinking…</div></motion.div>}</AnimatePresence>
+
             {!running && project.status === "ready" && messages[messages.length - 1]?.role === "assistant" && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-wrap gap-1.5">{[
               ["Refine the design", "Refine the visual design so it feels more distinctive, polished, and professionally art-directed. Preserve all working functionality."],
               ["Improve mobile", "Review the complete mobile experience and improve spacing, navigation, touch targets, and responsive layouts."],
@@ -596,7 +621,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
               <input ref={assetInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,font/woff,font/woff2,font/ttf,application/pdf,text/plain,text/csv,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAsset(file); }} />
               <button type="button" onClick={() => assetInput.current?.click()} disabled={assetBusy} aria-label="Upload project file" title="Upload logo, image or project file" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white/80 disabled:opacity-35">{assetBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <span className="flex-1 truncate px-1 text-[10px] text-white/30"><kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift + Enter</kbd> for a new line</span>
-              {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!hasPrompt} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none"><ArrowUp className="h-4 w-4" /></motion.button>}
+              {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!hasPrompt || thinking} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none">{thinking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}</motion.button>}
             </div>
           </div>
         </form>

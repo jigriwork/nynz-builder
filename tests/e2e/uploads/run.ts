@@ -1,6 +1,7 @@
 /**
  * Project attachments without a file-count cap, locally: more than 20
- * supported files upload within the size allowance; the 10 MB per file and
+ * supported files upload within the size allowance; a 14 MB catalog bypasses
+ * the web-function body limit; the 25 MB per file and
  * 50 MB per project rules and content checks still hold; another account can
  * neither read nor write them through NYNZ or directly through Supabase
  * Storage; data-changing requests from another origin are refused; NYNZ's
@@ -55,6 +56,18 @@ async function main() {
     const pageA = await (await browser.newContext()).newPage();
     await signIn(pageA, a);
 
+    // The actual builder UI uses a signed direct upload, so a normal catalog
+    // is not constrained by Vercel's 4.5 MB function request-body ceiling.
+    const catalogProject = (await admin.from("projects").insert({ owner_id: a.id, name: "Catalog upload check" }).select("id").single()).data!.id as string;
+    await admin.from("conversations").insert({ project_id: catalogProject });
+    await pageA.goto(`${APP}/projects/${catalogProject}`, { waitUntil: "networkidle" });
+    const pdf = Buffer.alloc(14 * 1024 * 1024); pdf.set(Buffer.from("%PDF-1.7\n"));
+    await pageA.locator('input[type="file"]').setInputFiles({ name: "catalog.pdf", mimeType: "application/pdf", buffer: pdf });
+    await pageA.getByText("catalog.pdf", { exact: true }).waitFor({ timeout: 60_000 });
+    const uploadedCatalog = (await admin.storage.from("project-assets").list(catalogProject)).data?.find((file) => file.name.endsWith("-catalog.pdf"));
+    check("14 MB PDF uploads through the builder's direct-storage flow", Number(uploadedCatalog?.metadata?.size) === pdf.byteLength, `${uploadedCatalog?.metadata?.size || 0} bytes`);
+    await pageA.goto(`${APP}/projects/${project}`, { waitUntil: "networkidle" });
+
     // More than 20 supported files.
     const statuses: number[] = [];
     for (let i = 1; i <= 25; i += 1) statuses.push((await upload(pageA, project, "png", `logo-${i}.png`)).status);
@@ -66,9 +79,9 @@ async function main() {
     for (let i = 1; i <= 5; i += 1) big.push((await upload(pageA, project, "bigpng", `photo-${i}.png`)).status);
     const over = await upload(pageA, project, "bigpng", "photo-6.png");
     check("the 50 MB project allowance still applies (5 × 9.5 MB fit, the next one is refused)", big.every((s) => s === 201) && over.status === 400 && /50 MB/.test(over.body.error || ""), over.body.error);
-    const tooBig = await pageA.evaluate(`(async () => { const f = new FormData(); const b = new Uint8Array(11 * 1024 * 1024); b.set([0x89,0x50,0x4e,0x47]); f.append("file", new File([b], "huge.png", { type: "image/png" })); const r = await fetch("/api/projects/${project}/assets", { method: "POST", body: f }); return r.status; })()`);
+    const tooBig = await pageA.evaluate(`(async () => { const r = await fetch("/api/projects/${project}/assets", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "prepare", name: "huge.png", type: "image/png", size: 26 * 1024 * 1024 }) }); return r.status; })()`);
     const fake = await upload(pageA, project, "fakepng", "not-really.png");
-    check("a file over 10 MB and a file whose contents don't match its type are refused", [400, 413].includes(tooBig as number) && fake.status === 400 && /do not match|50 MB/.test(fake.body.error || ""), `over 10 MB: ${tooBig}; mismatched contents: ${fake.status} ${fake.body.error}`);
+    check("a file over 25 MB and a file whose contents don't match its type are refused", [400, 413].includes(tooBig as number) && fake.status === 400 && /do not match|50 MB/.test(fake.body.error || ""), `over 25 MB: ${tooBig}; mismatched contents: ${fake.status} ${fake.body.error}`);
 
     // Another account, through NYNZ and directly through Supabase Storage.
     const pageB = await (await browser.newContext()).newPage();

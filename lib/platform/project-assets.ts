@@ -3,7 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const ASSET_BUCKET = "project-assets";
 /** Total upload allowance per project. There is no limit on the number of files. */
 export const MAX_PROJECT_BYTES = 50 * 1024 * 1024;
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+/** Catalogs commonly contain print-quality images, so one attachment may be up to 25 MB. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 export type StoredAsset = { name: string; size: number; created_at?: string | null };
 

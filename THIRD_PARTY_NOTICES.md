@@ -17,7 +17,7 @@ own starter configuration, so no third-party notice is added to exports.
 | Package | Version | Licence | Copyright line |
 |---|---|---|---|
 | `@e2b/code-interpreter` | 2.9.0 | MIT | Copyright (c) 2025 FOUNDRYLABS, INC. |
-| `@mendable/firecrawl-js` | 4.3.4 | MIT | Copyright (c) 2024 Sideguide Technologies Inc. |
+| `@mendable/firecrawl-js` | 4.51.0 | MIT | Copyright (c) 2024 Sideguide Technologies Inc. |
 | `@supabase/ssr` | 0.12.7 | MIT | Copyright (c) 2022-2023 Supabase, Inc. |
 | `@supabase/supabase-js` | 2.118.0 | MIT | Copyright (c) 2020 Supabase |
 | `@tailwindcss/typography` | 0.5.16 | MIT | Copyright (c) Tailwind Labs, Inc. |
@@ -27,10 +27,11 @@ own starter configuration, so no third-party notice is added to exports.
 | `framer-motion` | 12.23.12 | MIT | Copyright (c) 2018 Framer B.V. |
 | `jszip` | 3.10.2 | (MIT OR GPL-3.0-or-later) | Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso |
 | `lucide-react` | 0.532.0 | ISC | Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022. |
-| `next` | 15.5.27 | MIT | Copyright (c) 2025 Vercel, Inc. |
+| `next` | 15.5.28 | MIT | Copyright (c) 2025 Vercel, Inc. |
 | `react` | 19.1.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. |
 | `react-dom` | 19.1.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. |
 | `react-syntax-highlighter` | 15.6.1 | MIT | Copyright (c) 2019 Conor Hastings |
 | `tailwind-gradient-mask-image` | 1.2.0 | MIT | Copyright © 2020 Juhana Jauhiainen |
 | `tsx` | 4.23.15 | MIT | Copyright (c) Hiroki Osame <hiroki.osame@gmail.com> |
+| `unpdf` | 1.9.1 | MIT | Copyright (c) 2023-PRESENT Johann Schopplich |
 | `zod` | 3.25.76 | MIT | Copyright (c) 2025 Colin McDonnell |
