@@ -3,6 +3,12 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.7: Next.js security patch
+
+- Next.js 15.5.27 to 15.5.28: fixes a published critical advisory (unauthenticated remote code execution in the image optimizer, which NYNZ uses) and a high denial-of-service advisory in App Router server actions.
+- sharp, the image library Next.js uses for optimisation, is pinned to 0.35.5 (inside the range Next.js 15.5.28 declares) to fix the libvips advisories in 0.34.x.
+- Dependencies only: no app, database, worker logic or setting changes.
+
 ## 0.5.6: clarifying questions before planning a vague brief
 
 - For a vague brief, NYNZ asks one or two questions, only when the answer changes how the app works (where data lives, accounts or roles, payments, the core workflow), with options and a recommendation. You can pick an option, write your own answer, reply in the chat, or continue with the stated assumptions. A clear brief goes straight to the plan.
