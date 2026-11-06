@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.11: attachments move with their chat message
+
+- A newly uploaded file appears as a pending attachment beside the composer. After the request is accepted, it moves onto that user message instead of remaining permanently above the chat box.
+- Message-to-file associations persist in conversation metadata across refreshes. Existing project files remain privately stored and manageable from a collapsed project-files list; detaching a pending file does not delete it.
+
 ## 0.5.10: keep uploaded PDFs reusable after extraction
 
 - PDF.js can transfer and detach the `ArrayBuffer` it parses. NYNZ 0.5.9 passed the original catalog buffer into extraction, so planning and code edits completed but preview creation then crashed when it tried to write that detached PDF into the sandbox. Extraction now parses a copy; the original upload remains available to preview, publish and export.

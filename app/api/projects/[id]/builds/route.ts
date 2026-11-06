@@ -6,8 +6,21 @@ import { apiError } from "@/lib/http/errors";
 import { rateLimit } from "@/lib/platform/rate-limit";
 import { RESERVE, admitPaidWork } from "@/lib/billing/entitlements";
 import { classifyConversationMessage } from "@/lib/platform/platform-questions";
+import { listProjectAssets } from "@/lib/platform/project-assets";
 
 const ACTIVE = ["queued", "planning", "generating", "installing", "running", "validating"];
+const attachmentsSchema = z.array(z.object({ storageName: z.string().regex(/^[A-Za-z0-9._-]+$/).max(150), name: z.string().min(1).max(255) })).max(50).optional();
+
+async function verifiedAttachments(db: Parameters<typeof listProjectAssets>[0], projectId: string, requested?: Array<{ storageName: string; name: string }>) {
+  if (!requested?.length) return [];
+  const stored = new Set((await listProjectAssets(db, projectId)).map((asset) => asset.name));
+  return requested.filter((asset) => stored.has(asset.storageName)).map((asset) => ({
+    storageName: asset.storageName,
+    // The storage object is authoritative; never persist a client-supplied
+    // label for a different file in conversation metadata.
+    name: asset.storageName.replace(/^[0-9a-f-]{36}-/, ""),
+  }));
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -32,7 +45,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const auth = await requireProject(id);
   if ("error" in auth) return auth.error;
-  const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), mode: z.enum(["create", "edit"]).default("create"), idempotencyKey: z.string().min(8).max(200) }).safeParse(await request.json().catch(() => null));
+  const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), mode: z.enum(["create", "edit"]).default("create"), idempotencyKey: z.string().min(8).max(200), attachments: attachmentsSchema }).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_INPUT", "Invalid build request");
   const limited = await rateLimit(`build:${auth.user.id}`, Number(process.env.BUILD_RATE_PER_HOUR || 30), 3600);
   if (limited) return limited;
@@ -51,6 +64,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return json({ informational: true, kind: conversationReply.kind, message: conversationReply.reply });
   }
   const admin = createAdmin();
+  const attachments = await verifiedAttachments(auth.supabase, id, parsed.data.attachments).catch(() => []);
   const { data: existing } = await admin.from("build_jobs").select("*").eq("requested_by", auth.user.id).eq("idempotency_key", parsed.data.idempotencyKey).maybeSingle();
   if (existing) return json({ build: existing }, { status: existing.project_id === id ? 202 : 409 });
   const { data: active } = await admin.from("build_jobs").select("id").eq("project_id", id).in("status", ACTIVE).limit(1).maybeSingle();
@@ -69,7 +83,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (error.code === "23505") return apiError("CONFLICT", "A request is already active");
     return apiError("INTERNAL", "Could not queue your request", { cause: error, scope: "builds" });
   }
-  if (conversation) await auth.supabase.from("messages").insert({ conversation_id: conversation.id, role: "user", content: parsed.data.prompt });
+  if (conversation) await auth.supabase.from("messages").insert({ conversation_id: conversation.id, role: "user", content: parsed.data.prompt, metadata: attachments.length ? { attachments } : {} });
   await admin.from("projects").update({ status: "queued", last_error: null }).eq("id", id).eq("owner_id", auth.user.id);
   await admin.rpc("record_activity", { p_user: auth.user.id, p_kind: "build_requested" });
   return json({ build: data }, { status: 202 });
@@ -82,14 +96,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ("error" in auth) return auth.error;
   const parsed = z.discriminatedUnion("action", [
     z.object({ action: z.literal("approve"), buildId: z.string().uuid(), revision: z.number().int().positive(), summary: z.string().trim().min(1).max(2000), steps: z.array(z.string().trim().min(1).max(1000)).min(1).max(12) }),
-    z.object({ action: z.literal("revise"), buildId: z.string().uuid(), revision: z.number().int().positive(), changes: z.string().trim().min(1).max(10000) }),
+    z.object({ action: z.literal("revise"), buildId: z.string().uuid(), revision: z.number().int().positive(), changes: z.string().trim().min(1).max(10000), attachments: attachmentsSchema }),
     z.object({ action: z.literal("cancel"), buildId: z.string().uuid(), revision: z.number().int().positive() }),
     // Clarifying questions: answer them (NYNZ plans again with the answers), or continue with the stated assumptions.
-    z.object({ action: z.literal("answer"), buildId: z.string().uuid(), revision: z.number().int().positive(), answers: z.array(z.object({ id: z.string().min(1).max(60), answer: z.string().trim().min(1).max(500) })).min(1).max(3) }),
+    z.object({ action: z.literal("answer"), buildId: z.string().uuid(), revision: z.number().int().positive(), answers: z.array(z.object({ id: z.string().min(1).max(60), answer: z.string().trim().min(1).max(500) })).min(1).max(3), attachments: attachmentsSchema }),
     z.object({ action: z.literal("assume"), buildId: z.string().uuid(), revision: z.number().int().positive() }),
   ]).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return apiError("INVALID_INPUT", "Invalid plan review");
   const input = parsed.data;
+  const attachments = "attachments" in input ? await verifiedAttachments(auth.supabase, id, input.attachments).catch(() => []) : [];
   if (auth.project.owner_id !== auth.user.id) return apiError("FORBIDDEN", "Only the project owner can approve a plan");
   const { data: job } = await auth.supabase.from("build_jobs").select("*").eq("id", input.buildId).eq("project_id", id).single();
   if (!job) return apiError("NOT_FOUND", "Plan not found");
@@ -139,10 +154,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (recorded.error) console.error(`[builds] could not record the approved request for ${job.id}`);
   }
   await admin.from("projects").update({ status: input.action === "cancel" ? (auth.project.active_sandbox_id ? "ready" : "draft") : input.action === "assume" ? "planning" : "queued", last_error: null }).eq("id", id);
-  if (input.action === "revise" && job.conversation_id) await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: input.changes });
+  if (input.action === "revise" && job.conversation_id) await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: input.changes, metadata: attachments.length ? { attachments } : {} });
   if ((input.action === "answer" || input.action === "assume") && job.conversation_id) {
     const reply = input.action === "answer" ? input.answers.map((a) => a.answer).join(". ") : "Go ahead with your assumptions.";
-    await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: reply, metadata: { kind: "clarify_answer", build_id: job.id } });
+    await auth.supabase.from("messages").insert({ conversation_id: job.conversation_id, role: "user", content: reply, metadata: { kind: "clarify_answer", build_id: job.id, ...(attachments.length ? { attachments } : {}) } });
   }
   return json({ build: data }, { status: input.action === "cancel" ? 200 : 202 });
 }

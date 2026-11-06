@@ -28,7 +28,7 @@ import { ProjectFileSearch } from "@/components/project-file-search";
 type Project = { id: string; name: string; description: string; status: string; brief?: { original?: string; changes?: Array<{ status?: string }> } | null; preview_url: string | null; has_preview?: boolean; active_version_id?: string | null; source_revision?: number; preview_revision?: number | null; sandbox_expires_at: string | null; last_error: string | null };
 type FileRow = { path: string; content: string; content_hash?: string | null; updated_at?: string };
 type Version = { id: string; label: string; created_at: string };
-type Message = { id: string; role: string; content: string; created_at: string; metadata?: { kind?: string; build_id?: string } | null };
+type Message = { id: string; role: string; content: string; created_at: string; metadata?: { kind?: string; build_id?: string; attachments?: Array<{ name: string; storageName: string }> } | null };
 type Build = { id: string; status: string; prompt?: string; request?: string | null; mode?: "create" | "edit" | "restart"; progress: Array<{ at?: string; message?: string; percent?: number }>; plan: { summary?: string; steps?: string[]; assumptions?: string[]; decisions?: Array<{ question: string; answer: string }>; clarify?: { questions: ClarifyQuestion[]; assumptions: string[] }; browser_test?: { passed?: boolean; checked?: string[] }; approval?: string; revision?: number; estimate?: { low: number; high: number; reserve: number }; coverage?: { missing?: string[]; unconfirmed?: string[] }; manifest?: { files?: Array<{ path: string }> } } | null; error_message: string | null; error_code?: string | null; created_at: string; cancel_requested_at: string | null; resumable?: boolean; resume_of?: string | null; checkpoint?: { done?: string[]; failed_step?: { label?: string } } | null };
 type Asset = { name: string; storageName: string; appPath: string; previewUrl: string | null };
 type WorkspaceTab = "preview" | "code" | "terminal" | "logs" | "versions";
@@ -140,6 +140,8 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const [activityTick, setActivityTick] = useState(0);
   const [terminalLines, setTerminalLines] = useState<Array<{ command: string; output: string; exitCode: number | null }>>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [pendingAssetNames, setPendingAssetNames] = useState<string[]>([]);
+  const [showProjectAssets, setShowProjectAssets] = useState(false);
   const [assetBusy, setAssetBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
   // Unsaved manual edits, keyed by path, with the hash the edit started from.
@@ -163,6 +165,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   const assetInput = useRef<HTMLInputElement>(null);
 
   const current = files.find((file) => file.path === selected);
+  const pendingAssets = assets.filter((asset) => pendingAssetNames.includes(asset.storageName));
   const pendingPlan = builds.find(build => build.status === "planning" && build.plan?.approval === "awaiting");
   const latestFinished = builds.find(build => ["succeeded", "failed", "cancelled"].includes(build.status));
   const stoppedBuild = latestFinished && latestFinished.status !== "succeeded" ? latestFinished : undefined;
@@ -301,6 +304,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     if (!text.trim()) return;
     // Questions and small talk are answered in chat even during a build or plan review.
     const conversationMessage = classifyConversationMessage(text);
+    const attachments = pendingAssets.map(({ name, storageName }) => ({ name, storageName }));
     if (running && !conversationMessage) return;
     setPrompt("");
     setThinking(true);
@@ -315,18 +319,18 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
     }
     if (pendingQuestions) {
       // A typed reply answers the questions in the user's own words.
-      setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
-      await answerQuestions({ action: "answer", answers: [{ id: "reply", answer: text }] }).catch(() => setPrompt(text));
+      setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString(), metadata: attachments.length ? { attachments } : null }]);
+      await answerQuestions({ action: "answer", answers: [{ id: "reply", answer: text }] }, attachments).catch(() => setPrompt(text));
       return;
     }
     if (pendingPlan) {
-      await reviewPlan({ action: "revise", changes: text }).catch(() => setPrompt(text));
+      await reviewPlan({ action: "revise", changes: text }, attachments).catch(() => setPrompt(text));
       return;
     }
-    setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString() }]);
-    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID() }) });
+    setMessages((value) => [...value, { id: crypto.randomUUID(), role: "user", content: text, created_at: new Date().toISOString(), metadata: attachments.length ? { attachments } : null }]);
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text, mode: files.length ? "edit" : "create", idempotencyKey: crypto.randomUUID(), attachments }) });
     const body = await response.json();
-    if (response.ok) { setBuilds((value) => [body.build, ...value]); setTrialPause(null); } else refuse(body, "Could not start this request");
+    if (response.ok) { setBuilds((value) => [body.build, ...value]); setTrialPause(null); setPendingAssetNames([]); } else refuse(body, "Could not start this request");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not send this message");
       setPrompt(text);
@@ -339,22 +343,24 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
   useEffect(() => { if (pendingQuestions) setNotice((value) => value.startsWith("Preparing your plan") ? "" : value); }, [pendingQuestions]);
 
   /** Answers to clarifying questions, or "continue with my assumptions". */
-  async function answerQuestions(input: ClarifyAnswer) {
+  async function answerQuestions(input: ClarifyAnswer, attachments = pendingAssets.map(({ name, storageName }) => ({ name, storageName }))) {
     if (!pendingQuestions) return;
-    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingQuestions.id, revision: pendingQuestions.plan?.revision }) });
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingQuestions.id, revision: pendingQuestions.plan?.revision, ...(input.action === "answer" ? { attachments } : {}) }) });
     const body = await response.json();
     if (!response.ok) { refuse(body, "Could not send your answers"); await refresh(); throw new Error(body.error || "Could not send your answers"); }
     setNotice(input.action === "answer" ? "Thanks. Planning with your answers." : "Planning with the stated assumptions.");
+    if (input.action === "answer") setPendingAssetNames([]);
     await refresh();
   }
 
-  async function reviewPlan(input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }) {
+  async function reviewPlan(input: { action: "approve"; summary: string; steps: string[] } | { action: "revise"; changes: string } | { action: "cancel" }, attachments = pendingAssets.map(({ name, storageName }) => ({ name, storageName }))) {
     if (!pendingPlan) return;
-    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingPlan.id, revision: pendingPlan.plan?.revision }) });
+    const response = await fetch(`/api/projects/${project.id}/builds`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, buildId: pendingPlan.id, revision: pendingPlan.plan?.revision, ...(input.action === "revise" ? { attachments } : {}) }) });
     const body = await response.json();
     if (!response.ok) { refuse(body, "Could not review plan"); await refresh(); throw new Error(body.error || "Could not review plan"); }
     setBuilds(value => value.map(build => build.id === body.build.id ? body.build : build));
     setNotice(input.action === "approve" ? "Plan approved. Building your app." : input.action === "revise" ? "Updating the plan for your review." : "Plan cancelled.");
+    if (input.action === "revise") setPendingAssetNames([]);
     await refresh();
   }
 
@@ -435,6 +441,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
       const body = await completed.json().catch(() => ({}));
       if (!completed.ok) throw new Error(body.error || "Could not verify this upload");
       setAssets((value) => [body.asset, ...value]);
+      setPendingAssetNames((value) => [body.asset.storageName, ...value]);
       setNotice(`${body.asset.name} uploaded and ready. Mention the catalog in your next request.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not upload this file");
@@ -446,7 +453,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
   async function removeAsset(asset: Asset) {
     const response = await fetch(`/api/projects/${project.id}/assets`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ storageName: asset.storageName }) });
-    if (response.ok) setAssets((value) => value.filter((item) => item.storageName !== asset.storageName));
+    if (response.ok) { setAssets((value) => value.filter((item) => item.storageName !== asset.storageName)); setPendingAssetNames((value) => value.filter((name) => name !== asset.storageName)); }
     else setNotice((await response.json()).error || "Could not remove this file");
   }
 
@@ -578,7 +585,7 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
           <div className="space-y-5">
             <AnimatePresence initial={false}>{conversationItems.map(item => item.kind === "build" ? <motion.div key={`build-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}><BuildTimeline build={item.build} charges={charges[item.build.id]} /></motion.div> : item.kind === "plan" ? <motion.div key={`plan-${item.build.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>{item.build.id === pendingQuestions?.id ? <ClarifyCard questions={pendingQuestions.plan?.clarify?.questions || []} assumptions={pendingQuestions.plan?.clarify?.assumptions || []} onAnswer={answerQuestions} /> : item.build.id === pendingPlan?.id ? <PlanReview key={`${pendingPlan.id}-${pendingPlan.plan?.revision}`} plan={pendingPlan.plan!} build={pendingPlan} brief={project.brief} onReview={reviewPlan} /> : <details aria-label={item.build.status === "succeeded" ? "Completed build plan" : "Approved build plan"} className="rounded-xl border border-white/[.07] bg-white/[.02] px-3 py-2.5 text-[11px]"><summary className="cursor-pointer text-white/45">{item.build.status === "succeeded" ? "Completed plan" : "Approved plan"}<span className="ml-2 text-[9px] text-white/25">{item.build.plan?.steps?.length || 0} steps</span></summary><p className="mt-3 leading-5 text-white/60">{item.build.plan?.summary}</p><ol className="mt-2 list-inside list-decimal space-y-1.5 text-white/45">{item.build.plan?.steps?.map((step, index) => <li key={index}>{step}</li>)}</ol></details>}</motion.div> : ((message: Message) => <motion.div key={message.id} data-chat-message={message.id} initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .4, ease }} className={message.role === "user" ? "ml-8" : "mr-3"}>
               <div className={`mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40 ${message.role === "user" ? "justify-end" : ""}`}>{message.role === "user" ? "You" : <><NynzIcon className="h-4 w-4" /> NYNZ</>}</div>
-              <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}{message.metadata?.kind === "build_complete" && (() => { const done = builds.find(build => build.id === message.metadata?.build_id); return done ? <div className="whitespace-normal"><VerifiedBlock build={done} /><ActivityDetails build={done} charges={charges[done.id]} /></div> : null; })()}</div>
+              <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13px] leading-[1.6] ${message.role === "user" ? "rounded-tr-md bg-[#1b2433] text-white/90" : "rounded-tl-md border border-white/[.07] bg-white/[.025] text-white/70"}`}>{message.content}{Boolean(message.metadata?.attachments?.length) && <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/[.08] pt-2">{message.metadata!.attachments!.map((attachment) => <span key={attachment.storageName} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-black/15 px-2 py-1 text-[10px] text-white/60"><FileText className="h-3 w-3 shrink-0 text-[#c7ff4a]/75" /><span className="truncate">{attachment.name}</span></span>)}</div>}{message.metadata?.kind === "build_complete" && (() => { const done = builds.find(build => build.id === message.metadata?.build_id); return done ? <div className="whitespace-normal"><VerifiedBlock build={done} /><ActivityDetails build={done} charges={charges[done.id]} /></div> : null; })()}</div>
             </motion.div>)(item.message))}</AnimatePresence>
 
             <AnimatePresence>{running && <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="mr-5 sm:mr-12"><div className="mb-2 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.14em] text-white/40"><NynzIcon className="h-4 w-4" /> Live activity</div><BuildActivity status={running.status} progress={lastProgress} percent={progressPercent} phase={activityTick} /></motion.div>}</AnimatePresence>
@@ -608,13 +615,15 @@ export default function BuilderClient({ initialProject, initialFiles, initialVer
 
         <form onSubmit={build} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) uploadAsset(file); }} className="shrink-0 border-t border-white/[.06] p-3">
           <AnimatePresence>{showReference && <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden"><div className="mb-2 flex gap-1.5"><div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[.09] bg-[#0a0f17] px-3"><Globe2 className="h-3.5 w-3.5 shrink-0 text-[#c7ff4a]/70" /><input value={url} onChange={(event) => setUrl(event.target.value)} autoFocus placeholder="Paste a public website URL" className="h-9 min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-white/35" /></div><button type="button" onClick={importUrl} disabled={!url} className="rounded-xl bg-white/[.08] px-3 text-[11px] text-white/75 transition hover:bg-white/[.12] disabled:opacity-30">Add</button></div></motion.div>}</AnimatePresence>
-          {assets.length > 0 && <div className="nynz-scrollbar mb-2 flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">{assets.map((asset) => <span key={asset.storageName} className="group flex max-w-full items-center gap-1.5 rounded-lg border border-white/[.08] bg-white/[.035] py-1 pl-1.5 pr-1 text-[9px] text-white/55">{asset.previewUrl && /\.(png|jpe?g|webp|gif|svg)$/i.test(asset.name) ? <Image unoptimized src={asset.previewUrl} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" /> : <FileImage className="h-3 w-3 text-[#c7ff4a]/70" />}<span className="max-w-[180px] truncate">{asset.name}</span><button type="button" onClick={() => removeAsset(asset)} aria-label={`Remove ${asset.name}`} className="grid h-5 w-5 place-items-center rounded text-white/30 hover:bg-white/[.07] hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
+          {showProjectAssets && assets.length > 0 && <div className="nynz-scrollbar mb-2 max-h-28 overflow-y-auto rounded-xl border border-white/[.07] bg-[#090e16] p-2"><div className="mb-1.5 text-[9px] uppercase tracking-[.12em] text-white/30">Project files</div><div className="flex flex-wrap gap-1.5">{assets.map((asset) => <span key={asset.storageName} className="group flex max-w-full items-center gap-1.5 rounded-lg border border-white/[.08] bg-white/[.035] py-1 pl-1.5 pr-1 text-[9px] text-white/55">{asset.previewUrl && /\.(png|jpe?g|webp|gif|svg)$/i.test(asset.name) ? <Image unoptimized src={asset.previewUrl} alt="" width={20} height={20} className="h-5 w-5 rounded object-cover" /> : <FileImage className="h-3 w-3 text-[#c7ff4a]/70" />}<span className="max-w-[180px] truncate">{asset.name}</span><button type="button" onClick={() => removeAsset(asset)} aria-label={`Remove ${asset.name}`} className="grid h-5 w-5 place-items-center rounded text-white/30 hover:bg-white/[.07] hover:text-white"><X className="h-3 w-3" /></button></span>)}</div></div>}
+          {pendingAssets.length > 0 && <div className="nynz-scrollbar mb-2 flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">{pendingAssets.map((asset) => <span key={asset.storageName} className="group flex max-w-full items-center gap-1.5 rounded-lg border border-[#c7ff4a]/20 bg-[#c7ff4a]/[.05] py-1 pl-1.5 pr-1 text-[9px] text-white/65"><FileText className="h-3 w-3 text-[#c7ff4a]/80" /><span className="max-w-[180px] truncate">{asset.name}</span><button type="button" onClick={() => setPendingAssetNames((value) => value.filter((name) => name !== asset.storageName))} aria-label={`Detach ${asset.name}`} className="grid h-5 w-5 place-items-center rounded text-white/30 hover:bg-white/[.07] hover:text-white"><X className="h-3 w-3" /></button></span>)}</div>}
           <div className="nynz-composer relative rounded-2xl bg-[#121a26] p-2 shadow-[0_10px_40px_rgba(0,0,0,.25)]" style={{ animation: "none" }}>
             <textarea ref={composer} defaultValue="" onChange={(event) => { promptRef.current = event.target.value; const has = Boolean(event.target.value.trim()); if (has !== hasPrompt) setHasPrompt(has); }} onKeyDown={onComposerKey} placeholder={files.length ? "Ask for a change…" : "Describe your app…"} rows={3} className="w-full resize-none bg-transparent px-2 py-1.5 text-[13px] leading-5 outline-none placeholder:text-white/35" />
             <div className="mt-1 flex items-center gap-1">
               <button type="button" onClick={() => setShowReference((value) => !value)} aria-label="Add website reference" title="Add website reference" className={`grid h-8 w-8 place-items-center rounded-lg transition ${showReference ? "bg-[#c7ff4a]/[.12] text-[#c7ff4a]" : "text-white/45 hover:bg-white/[.06] hover:text-white/80"}`}><Globe2 className="h-4 w-4" /></button>
               <input ref={assetInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,font/woff,font/woff2,font/ttf,application/pdf,text/plain,text/csv,application/json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadAsset(file); }} />
               <button type="button" onClick={() => assetInput.current?.click()} disabled={assetBusy} aria-label="Upload project file" title="Upload logo, image or project file" className="grid h-8 w-8 place-items-center rounded-lg text-white/45 transition hover:bg-white/[.06] hover:text-white/80 disabled:opacity-35">{assetBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
+              {assets.length > 0 && <button type="button" onClick={() => setShowProjectAssets((value) => !value)} aria-label="Show project files" aria-pressed={showProjectAssets} className={`h-7 rounded-lg px-2 text-[9px] transition ${showProjectAssets ? "bg-white/[.09] text-white/70" : "text-white/35 hover:bg-white/[.05] hover:text-white/60"}`}>{assets.length} file{assets.length === 1 ? "" : "s"}</button>}
               <span className="flex-1 truncate px-1 text-[10px] text-white/30"><kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift + Enter</kbd> for a new line</span>
               {running ? <button type="button" onClick={cancel} aria-label="Stop build" className="grid h-8 w-8 place-items-center rounded-lg bg-white text-[#111216] transition hover:bg-white/85"><Square className="h-3 w-3 fill-current" /></button> : <motion.button whileTap={{ scale: .9 }} disabled={!hasPrompt || thinking} aria-label="Send request" className="grid h-8 w-8 place-items-center rounded-lg bg-[#c7ff4a] text-[#071019] shadow-[0_0_18px_rgba(199,255,74,.25)] transition hover:bg-[#d5ff72] disabled:bg-white/[.07] disabled:text-white/25 disabled:shadow-none">{thinking ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}</motion.button>}
             </div>

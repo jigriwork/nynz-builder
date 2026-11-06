@@ -53,6 +53,7 @@ async function main() {
     for (let i = 0; i < 180; i += 1) { if ((await fetch(`${APP}/login`).catch(() => null))?.ok) break; await new Promise((r) => setTimeout(r, 1000)); }
     const a = await account("owner"), b = await account("other");
     const project = (await admin.from("projects").insert({ owner_id: a.id, name: "Uploads check" }).select("id").single()).data!.id as string;
+    await admin.from("conversations").insert({ project_id: project });
     const pageA = await (await browser.newContext()).newPage();
     await signIn(pageA, a);
 
@@ -69,10 +70,26 @@ async function main() {
     await pageA.goto(`${APP}/projects/${project}`, { waitUntil: "networkidle" });
 
     // More than 20 supported files.
-    const statuses: number[] = [];
-    for (let i = 1; i <= 25; i += 1) statuses.push((await upload(pageA, project, "png", `logo-${i}.png`)).status);
+    const uploadResults: Array<{ status: number; body: { error?: string } }> = [];
+    for (let i = 1; i <= 25; i += 1) uploadResults.push(await upload(pageA, project, "png", `logo-${i}.png`));
+    const statuses = uploadResults.map((result) => result.status);
     const listed = await pageA.evaluate(`fetch("/api/projects/${project}/assets").then((r) => r.json())`) as { assets: Array<{ storageName: string; previewUrl: string | null }> };
-    check("25 supported files upload (no 20-file cap) and all 25 are listed with previews", statuses.every((s) => s === 201) && listed.assets.length === 25 && listed.assets.every((x) => x.previewUrl), `${statuses.filter((s) => s === 201).length} accepted, ${listed.assets.length} listed`);
+    const refused = uploadResults.filter((result) => result.status !== 201).map((result) => `${result.status} ${result.body.error || ""}`.trim()).join(", ");
+    check("25 supported files upload (no 20-file cap) and all 25 are listed with previews", statuses.every((s) => s === 201) && listed.assets.length === 25 && listed.assets.every((x) => x.previewUrl), `${statuses.filter((s) => s === 201).length} accepted, ${listed.assets.length} listed${refused ? `; ${refused}` : ""}`);
+
+    // Accepted requests persist their pending attachment on the user message;
+    // no worker runs in this journey. A local-only heartbeat allows admission,
+    // then the queued fixture is cancelled before any work can claim it.
+    await admin.from("worker_heartbeats").upsert({ worker_id: "uploads-fixture", status: "idle", last_seen_at: new Date().toISOString(), capabilities: { generation: true, sandbox: true, preview_origin: true } });
+    const attached = await pageA.evaluate(async ({ project, storageName }) => {
+      const response = await fetch(`/api/projects/${project}/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Use the attached logo in the header", mode: "create", idempotencyKey: crypto.randomUUID(), attachments: [{ name: "logo-1.png", storageName }] }) });
+      return { status: response.status, body: await response.json() };
+    }, { project, storageName: listed.assets.find((asset) => asset.storageName.endsWith("-logo-1.png"))!.storageName });
+    await pageA.reload({ waitUntil: "networkidle" });
+    const messageAttachment = await pageA.getByText("logo-1.png", { exact: true }).isVisible();
+    if (attached.body.build?.id) await pageA.evaluate((id) => fetch(`/api/builds/${id}/cancel`, { method: "POST" }), attached.body.build.id);
+    check("an attachment moves onto its accepted chat message and persists after refresh", attached.status === 202 && messageAttachment, `${attached.status} ${attached.body.error || ""}`.trim());
+    await admin.from("worker_heartbeats").delete().eq("worker_id", "uploads-fixture");
 
     // Existing size and content rules still hold.
     const big: number[] = [];
