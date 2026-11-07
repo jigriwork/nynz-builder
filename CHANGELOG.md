@@ -3,6 +3,11 @@
 Every production deploy carries a version (package.json) and the exact commit,
 shown in the site footer, the account menu, the admin header and `/version`.
 
+## 0.5.14: clear email outcomes and a release-branch guard
+
+- Admin invitations, team invitations and password resets now say separately whether the record was saved and whether an email was actually sent. When the email provider refuses a message, NYNZ records its error code and HTTP status (never the address) and shows the reason, for example the hourly email limit.
+- `npm run deploy:web` refuses to deploy unless the checkout is the pushed tip of feat/nynz-platform with no uncommitted changes. Production releases go out by pushing feat/nynz-platform.
+
 ## 0.5.13: real catalogue images and private review links
 
 - Catalogue PDFs now yield compact WebP image assets before planning, including flattened page artwork. The model receives exact `/uploads` paths and may no longer claim that it exported an image that does not exist.

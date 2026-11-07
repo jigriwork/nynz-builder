@@ -27,11 +27,17 @@ async function emailFor(admin: SupabaseClient, userId: string) {
   return data.user.email;
 }
 
+/** Supabase's stable error code and HTTP status only; never the address or message body. */
+type EmailError = { code: string; status: number | null };
+function emailError(error: { code?: string; status?: number; message?: string }): EmailError {
+  return { code: error.code || (/rate limit/i.test(error.message || "") ? "over_email_send_rate_limit" : "unknown"), status: error.status ?? null };
+}
+
 /** Sends a Supabase invitation (account activation) email unless delivery is disabled for this address. */
-async function sendInvite(admin: SupabaseClient, email: string, next: string) {
-  if (!canSendEmail(email)) return "in_app_only" as const;
+async function sendInvite(admin: SupabaseClient, email: string, next: string): Promise<{ delivery: "in_app_only" | "email_sent" | "email_failed"; emailError?: EmailError }> {
+  if (!canSendEmail(email)) return { delivery: "in_app_only" };
   const { error } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: `${appOrigin()}/auth/callback?next=${encodeURIComponent(next)}` });
-  return error ? "email_failed" as const : "email_sent" as const;
+  return error ? { delivery: "email_failed", emailError: emailError(error) } : { delivery: "email_sent" };
 }
 
 export const ACTIONS = {
@@ -43,9 +49,9 @@ export const ACTIONS = {
       const created = await rpc<{ invitation_id: string; existing_user_id: string | null }>(ctx.supabase, "admin_invite_staff", { p_email: input.email, p_name: input.name, p_role: input.role, p_caps: input.capabilities, p_reason: input.reason });
       // Existing accounts accept inside NYNZ (no duplicate account). New
       // addresses receive an activation email that proves ownership.
-      const delivery = created.existing_user_id ? "in_app_only" : await sendInvite(ctx.admin, input.email, "/account/set-password?then=/account/invitations");
-      await rpc(ctx.supabase, "admin_record_invitation_delivery", { p_invitation: created.invitation_id, p_delivery: delivery });
-      return { invitationId: created.invitation_id, existingUser: Boolean(created.existing_user_id), delivery };
+      const sent = created.existing_user_id ? { delivery: "in_app_only" as const } : await sendInvite(ctx.admin, input.email, "/account/set-password?then=/account/invitations");
+      await rpc(ctx.supabase, "admin_record_invitation_delivery", { p_invitation: created.invitation_id, p_delivery: sent.delivery });
+      return { invitationId: created.invitation_id, existingUser: Boolean(created.existing_user_id), ...sent };
     },
   }),
   "team.resend": define({
@@ -54,9 +60,9 @@ export const ACTIONS = {
       await rpc(ctx.supabase, "admin_resend_staff_invitation", { p_invitation: input.invitationId, p_reason: input.reason });
       const { data: inv } = await ctx.admin.from("staff_invitations").select("email").eq("id", input.invitationId).single();
       const { data: existing } = await ctx.admin.rpc("user_id_for_email", { p_email: inv?.email || "" });
-      const delivery = existing ? "in_app_only" : await sendInvite(ctx.admin, inv!.email, "/account/set-password?then=/account/invitations");
-      await rpc(ctx.supabase, "admin_record_invitation_delivery", { p_invitation: input.invitationId, p_delivery: delivery });
-      return { delivery };
+      const sent = existing ? { delivery: "in_app_only" as const } : await sendInvite(ctx.admin, inv!.email, "/account/set-password?then=/account/invitations");
+      await rpc(ctx.supabase, "admin_record_invitation_delivery", { p_invitation: input.invitationId, p_delivery: sent.delivery });
+      return sent;
     },
   }),
   "team.revoke": define({ capability: "team.manage", schema: z.object({ invitationId: uuid, reason }), run: (ctx, i) => rpc(ctx.supabase, "admin_revoke_staff_invitation", { p_invitation: i.invitationId, p_reason: i.reason }) }),
@@ -85,21 +91,25 @@ export const ACTIONS = {
       const email = await emailFor(ctx.admin, i.userId);
       const request = await rpc<number>(ctx.supabase, "admin_log_action", { p_cap: "users.reset_password", p_action: "account.password_reset_sent", p_target_type: "user", p_target_id: i.userId, p_reason: i.reason, p_metadata: {}, p_recent_seconds: 900 });
       let ok = false;
+      let failure: EmailError | undefined;
       if (canSendEmail(email)) {
         const anon = createPlainClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, { auth: { persistSession: false } });
-        ok = !(await anon.auth.resetPasswordForEmail(email, { redirectTo: `${appOrigin()}/auth/callback?next=/reset-password` })).error;
+        const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo: `${appOrigin()}/auth/callback?next=/reset-password` });
+        ok = !error;
+        if (error) failure = emailError(error);
       }
-      await rpc(ctx.supabase, "admin_log_action_result", { p_request: request, p_succeeded: ok, p_metadata: { delivery: canSendEmail(email) ? (ok ? "email_sent" : "email_failed") : "suppressed_test_address" } });
-      return { sent: ok };
+      const delivery = canSendEmail(email) ? (ok ? "email_sent" : "email_failed") : "suppressed_test_address";
+      await rpc(ctx.supabase, "admin_log_action_result", { p_request: request, p_succeeded: ok, p_metadata: { delivery, ...(failure && { emailError: failure }) } });
+      return { sent: ok, delivery, ...(failure && { emailError: failure }) };
     },
   }),
   "user.invite": define({
     capability: "users.invite", schema: z.object({ email: z.string().trim().toLowerCase().email().max(254), reason }),
     async run(ctx, i) {
       const request = await rpc<number>(ctx.supabase, "admin_log_action", { p_cap: "users.invite", p_action: "account.invited", p_target_type: "email_domain", p_target_id: i.email.split("@")[1], p_reason: i.reason, p_metadata: {}, p_recent_seconds: null });
-      const delivery = await sendInvite(ctx.admin, i.email, "/account/set-password?then=/dashboard");
-      await rpc(ctx.supabase, "admin_log_action_result", { p_request: request, p_succeeded: delivery !== "email_failed", p_metadata: { delivery } });
-      return { delivery };
+      const sent = await sendInvite(ctx.admin, i.email, "/account/set-password?then=/dashboard");
+      await rpc(ctx.supabase, "admin_log_action_result", { p_request: request, p_succeeded: sent.delivery !== "email_failed", p_metadata: sent });
+      return sent;
     },
   }),
 

@@ -47,7 +47,12 @@ export function ActionForm({ action, fields, submitLabel, email, danger, confirm
     const response = await fetch("/api/admin/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, input: collect(form) }) });
     const body = await response.json().catch(() => ({ error: "Unexpected response" }));
     setBusy(false);
-    if (response.ok) { setResult(body.result); setMessage({ tone: "ok", text: "Done." }); router.refresh(); return; }
+    if (response.ok) {
+      setResult(body.result); router.refresh();
+      const outcome = deliveryMessage(body.result);
+      setMessage(outcome || { tone: "ok", text: "Done." });
+      return;
+    }
     if (body.code === "REAUTH_REQUIRED") { setNeedPassword(true); setMessage({ tone: "error", text: "For your security, confirm your password to continue." }); return; }
     if (body.code === "MFA_REQUIRED") { window.location.assign(`/account/security?stepup=1&next=${encodeURIComponent(window.location.pathname)}`); return; }
     setMessage({ tone: "error", text: `${body.error || "That action could not be completed."}${body.ref ? ` (ref ${body.ref.slice(0, 8)})` : ""}` });
@@ -86,4 +91,20 @@ export function ActionForm({ action, fields, submitLabel, email, danger, confirm
     {message && <p role="status" className={`text-[11px] ${message.tone === "ok" ? "text-[#c7ff4a]" : "text-red-300"}`}>{message.text}</p>}
     {result !== null && result !== undefined && typeof result === "object" && <pre className="max-h-64 overflow-auto rounded-lg bg-black/30 p-2 text-[10px] text-white/70">{JSON.stringify(result, null, 2)}</pre>}
   </form>;
+}
+
+/** Says separately whether the record was saved and whether an email actually left. */
+function deliveryMessage(result: unknown): { tone: "ok" | "error"; text: string } | null {
+  const r = (result || {}) as { delivery?: string; emailError?: { code?: string; status?: number | null } };
+  switch (r.delivery) {
+    case "email_sent": return { tone: "ok", text: "Saved. Email sent." };
+    case "in_app_only": return { tone: "ok", text: "Saved. No email sent: this person already has an account and accepts inside NYNZ." };
+    case "suppressed_test_address": return { tone: "ok", text: "Saved. No email sent: test address." };
+    case "email_failed": {
+      const code = r.emailError?.code || "unknown";
+      const why = code === "over_email_send_rate_limit" ? "the hourly email limit was reached. Try again later." : `the email provider refused it (${code}${r.emailError?.status ? `, ${r.emailError.status}` : ""}).`;
+      return { tone: "error", text: `Saved, but no email was sent: ${why}` };
+    }
+    default: return null;
+  }
 }
